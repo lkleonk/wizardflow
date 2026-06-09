@@ -1,0 +1,565 @@
+import type { AgentTraceFile } from "@/types/agenttrace";
+
+// Understandable multi-branch example: an IT helpdesk agent classifies employee
+// tickets into specialist branches, then rejoins for urgency and resolution.
+export const itHelpdeskRouterTrace: AgentTraceFile = {
+  version: "0.1",
+  name: "it_helpdesk_router.json",
+  meta: {
+    source: "custom",
+    createdAt: "2026-06-09T12:00:00Z",
+    description:
+      "An internal IT helpdesk routing agent. Each employee ticket is classified " +
+      "into a specialist branch such as password/MFA, network, laptop hardware, " +
+      "software access, email/calendar, or security incident. The branches then " +
+      "merge into urgency review, a resolution plan, and the final reply.",
+  },
+  graph: {
+    nodes: [
+      { id: "user_input", label: "User Input" },
+      { id: "ticket_intake", label: "Ticket Intake" },
+      { id: "ticket_classifier", label: "Ticket Classifier" },
+      { id: "password_mfa_path", label: "Password/MFA" },
+      { id: "identity_check", label: "Identity Check" },
+      { id: "account_recovery", label: "Account Recovery" },
+      { id: "network_path", label: "Network" },
+      { id: "site_status_check", label: "Site Status" },
+      { id: "network_diagnostics", label: "Diagnostics" },
+      { id: "hardware_path", label: "Laptop Hardware" },
+      { id: "device_lookup", label: "Device Lookup" },
+      { id: "replacement_triage", label: "Replacement Triage" },
+      { id: "software_path", label: "Software Access" },
+      { id: "license_check", label: "License Check" },
+      { id: "install_request", label: "Install Request" },
+      { id: "email_path", label: "Email/Calendar" },
+      { id: "mailbox_check", label: "Mailbox Check" },
+      { id: "calendar_rules_audit", label: "Rules Audit" },
+      { id: "security_path", label: "Security Incident" },
+      { id: "phishing_triage", label: "Phishing Triage" },
+      { id: "containment_steps", label: "Containment" },
+      { id: "urgency_check", label: "Urgency Check" },
+      { id: "resolution_plan", label: "Resolution Plan" },
+      { id: "final_response", label: "Final Response" },
+    ],
+    edges: [
+      { source: "user_input", target: "ticket_intake" },
+      { source: "ticket_intake", target: "ticket_classifier" },
+      { source: "ticket_classifier", target: "password_mfa_path", conditional: true },
+      { source: "ticket_classifier", target: "network_path", conditional: true },
+      { source: "ticket_classifier", target: "hardware_path", conditional: true },
+      { source: "ticket_classifier", target: "software_path", conditional: true },
+      { source: "ticket_classifier", target: "email_path", conditional: true },
+      { source: "ticket_classifier", target: "security_path", conditional: true },
+      { source: "password_mfa_path", target: "identity_check" },
+      { source: "identity_check", target: "account_recovery" },
+      { source: "account_recovery", target: "urgency_check" },
+      { source: "network_path", target: "site_status_check" },
+      { source: "site_status_check", target: "network_diagnostics" },
+      { source: "network_diagnostics", target: "urgency_check" },
+      { source: "hardware_path", target: "device_lookup" },
+      { source: "device_lookup", target: "replacement_triage" },
+      { source: "replacement_triage", target: "urgency_check" },
+      { source: "software_path", target: "license_check" },
+      { source: "license_check", target: "install_request" },
+      { source: "install_request", target: "urgency_check" },
+      { source: "email_path", target: "mailbox_check" },
+      { source: "mailbox_check", target: "calendar_rules_audit" },
+      { source: "calendar_rules_audit", target: "urgency_check" },
+      { source: "security_path", target: "phishing_triage" },
+      { source: "phishing_triage", target: "containment_steps" },
+      { source: "containment_steps", target: "urgency_check" },
+      { source: "urgency_check", target: "resolution_plan" },
+      { source: "resolution_plan", target: "final_response" },
+    ],
+  },
+  messages: [
+    {
+      id: "msg-1",
+      steps: [
+        {
+          id: "m1-s1",
+          nodeId: "user_input",
+          timestamp: "2026-06-09T12:00:00.000Z",
+          payloads: [
+            {
+              label: "Input",
+              value:
+                "I forgot my password and my MFA phone was replaced yesterday. I cannot log in.",
+            },
+          ],
+        },
+        {
+          id: "m1-s2",
+          nodeId: "ticket_intake",
+          timestamp: "2026-06-09T12:00:00.180Z",
+          payloads: [
+            {
+              label: "ticket",
+              value: {
+                requester: "Mia Chen",
+                department: "Finance",
+                channel: "self-service portal",
+                asset: "Okta account",
+              },
+            },
+          ],
+        },
+        {
+          id: "m1-s3",
+          nodeId: "ticket_classifier",
+          timestamp: "2026-06-09T12:00:00.420Z",
+          payloads: [
+            {
+              label: "classification",
+              value: {
+                route: "password_mfa_path",
+                confidence: 0.96,
+                reason: "Password reset and MFA device replacement are account recovery tasks.",
+              },
+            },
+          ],
+        },
+        {
+          id: "m1-s4",
+          nodeId: "password_mfa_path",
+          timestamp: "2026-06-09T12:00:00.710Z",
+          payloads: [
+            {
+              label: "branch_notes",
+              value: "Recover access without bypassing identity verification.",
+            },
+          ],
+        },
+        {
+          id: "m1-s5",
+          nodeId: "identity_check",
+          timestamp: "2026-06-09T12:00:01.120Z",
+          payloads: [
+            {
+              label: "required_checks",
+              value: ["manager approval", "HR profile match", "backup email verification"],
+            },
+          ],
+        },
+        {
+          id: "m1-s6",
+          nodeId: "account_recovery",
+          timestamp: "2026-06-09T12:00:01.680Z",
+          payloads: [
+            {
+              label: "actions",
+              value: {
+                password_reset: "temporary reset link",
+                mfa: "re-enroll new phone after identity check",
+                audit_note: "MFA device changed",
+              },
+            },
+          ],
+        },
+        {
+          id: "m1-s7",
+          nodeId: "urgency_check",
+          timestamp: "2026-06-09T12:00:02.120Z",
+          payloads: [
+            {
+              label: "priority",
+              value: { level: "high", reason: "Finance user blocked from work systems" },
+            },
+          ],
+        },
+        {
+          id: "m1-s8",
+          nodeId: "resolution_plan",
+          timestamp: "2026-06-09T12:00:02.620Z",
+          payloads: [
+            {
+              label: "plan",
+              value: [
+                "Verify identity through manager and HR profile",
+                "Send password reset link",
+                "Trigger MFA re-enrollment for the new phone",
+              ],
+            },
+          ],
+        },
+        {
+          id: "m1-s9",
+          nodeId: "final_response",
+          timestamp: "2026-06-09T12:00:03.020Z",
+          payloads: [
+            {
+              label: "Output",
+              value:
+                "We will verify your identity, send a password reset, and re-enroll MFA on your new phone.",
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "msg-2",
+      steps: [
+        {
+          id: "m2-s1",
+          nodeId: "user_input",
+          timestamp: "2026-06-09T12:05:00.000Z",
+          payloads: [
+            {
+              label: "Input",
+              value:
+                "The Wi-Fi keeps dropping in conference room B, but only during video calls.",
+            },
+          ],
+        },
+        {
+          id: "m2-s2",
+          nodeId: "ticket_intake",
+          timestamp: "2026-06-09T12:05:00.190Z",
+          payloads: [
+            {
+              label: "ticket",
+              value: {
+                location: "Conference room B",
+                service: "Wi-Fi",
+                impact: "video calls disconnect",
+              },
+            },
+          ],
+        },
+        {
+          id: "m2-s3",
+          nodeId: "ticket_classifier",
+          timestamp: "2026-06-09T12:05:00.450Z",
+          payloads: [
+            {
+              label: "classification",
+              value: {
+                route: "network_path",
+                confidence: 0.91,
+                reason: "Location-specific Wi-Fi drops indicate network diagnostics.",
+              },
+            },
+          ],
+        },
+        {
+          id: "m2-s4",
+          nodeId: "network_path",
+          timestamp: "2026-06-09T12:05:00.760Z",
+          payloads: [{ label: "branch_notes", value: "Check room access point and call bandwidth." }],
+        },
+        {
+          id: "m2-s5",
+          nodeId: "site_status_check",
+          timestamp: "2026-06-09T12:05:01.230Z",
+          payloads: [
+            {
+              label: "status",
+              value: {
+                building_outage: false,
+                affected_room: "B",
+                access_point: "AP-2F-B",
+              },
+            },
+          ],
+        },
+        {
+          id: "m2-s6",
+          nodeId: "network_diagnostics",
+          timestamp: "2026-06-09T12:05:01.860Z",
+          payloads: [
+            {
+              label: "diagnostics",
+              value: {
+                packet_loss_percent: 8.4,
+                signal_dbm: -72,
+                channel_utilization_percent: 89,
+              },
+            },
+          ],
+        },
+        {
+          id: "m2-s7",
+          nodeId: "urgency_check",
+          timestamp: "2026-06-09T12:05:02.310Z",
+          payloads: [
+            {
+              label: "priority",
+              value: { level: "medium", reason: "One room affected; workaround available" },
+            },
+          ],
+        },
+        {
+          id: "m2-s8",
+          nodeId: "resolution_plan",
+          timestamp: "2026-06-09T12:05:02.830Z",
+          payloads: [
+            {
+              label: "plan",
+              value: [
+                "Move video calls to a lower-utilization channel",
+                "Rebalance AP-2F-B radio settings",
+                "Schedule a room test after the next firmware window",
+              ],
+            },
+          ],
+        },
+        {
+          id: "m2-s9",
+          nodeId: "final_response",
+          timestamp: "2026-06-09T12:05:03.240Z",
+          payloads: [
+            {
+              label: "Output",
+              value:
+                "Conference room B has weak signal and high channel utilization. Network support will rebalance the access point and retest video calls.",
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "msg-3",
+      steps: [
+        {
+          id: "m3-s1",
+          nodeId: "user_input",
+          timestamp: "2026-06-09T12:10:00.000Z",
+          payloads: [
+            {
+              label: "Input",
+              value:
+                "I need Figma installed today for a client design review, but I do not have permission.",
+            },
+          ],
+        },
+        {
+          id: "m3-s2",
+          nodeId: "ticket_intake",
+          timestamp: "2026-06-09T12:10:00.210Z",
+          payloads: [
+            {
+              label: "ticket",
+              value: {
+                requester: "Alex Morgan",
+                app: "Figma",
+                deadline: "today",
+                business_reason: "client design review",
+              },
+            },
+          ],
+        },
+        {
+          id: "m3-s3",
+          nodeId: "ticket_classifier",
+          timestamp: "2026-06-09T12:10:00.480Z",
+          payloads: [
+            {
+              label: "classification",
+              value: {
+                route: "software_path",
+                confidence: 0.94,
+                reason: "The request is for software entitlement and installation.",
+              },
+            },
+          ],
+        },
+        {
+          id: "m3-s4",
+          nodeId: "software_path",
+          timestamp: "2026-06-09T12:10:00.790Z",
+          payloads: [{ label: "branch_notes", value: "Confirm license availability before install." }],
+        },
+        {
+          id: "m3-s5",
+          nodeId: "license_check",
+          timestamp: "2026-06-09T12:10:01.320Z",
+          payloads: [
+            {
+              label: "license",
+              value: {
+                app: "Figma",
+                available_seats: 3,
+                approval_required: "manager",
+              },
+            },
+          ],
+        },
+        {
+          id: "m3-s6",
+          nodeId: "install_request",
+          timestamp: "2026-06-09T12:10:01.910Z",
+          payloads: [
+            {
+              label: "install",
+              value: {
+                delivery: "managed software center",
+                target_device: "MacBook Pro",
+                estimated_minutes: 15,
+              },
+            },
+          ],
+        },
+        {
+          id: "m3-s7",
+          nodeId: "urgency_check",
+          timestamp: "2026-06-09T12:10:02.360Z",
+          payloads: [
+            {
+              label: "priority",
+              value: { level: "high", reason: "Client meeting today" },
+            },
+          ],
+        },
+        {
+          id: "m3-s8",
+          nodeId: "resolution_plan",
+          timestamp: "2026-06-09T12:10:02.870Z",
+          payloads: [
+            {
+              label: "plan",
+              value: [
+                "Request manager approval",
+                "Assign available Figma seat",
+                "Publish install through managed software center",
+              ],
+            },
+          ],
+        },
+        {
+          id: "m3-s9",
+          nodeId: "final_response",
+          timestamp: "2026-06-09T12:10:03.260Z",
+          payloads: [
+            {
+              label: "Output",
+              value:
+                "There are Figma seats available. We need manager approval, then the install will appear in Software Center.",
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "msg-4",
+      steps: [
+        {
+          id: "m4-s1",
+          nodeId: "user_input",
+          timestamp: "2026-06-09T12:15:00.000Z",
+          payloads: [
+            {
+              label: "Input",
+              value:
+                "I clicked a suspicious invoice link and entered my Microsoft 365 password.",
+            },
+          ],
+        },
+        {
+          id: "m4-s2",
+          nodeId: "ticket_intake",
+          timestamp: "2026-06-09T12:15:00.170Z",
+          payloads: [
+            {
+              label: "ticket",
+              value: {
+                service: "Microsoft 365",
+                incident: "credential entered on suspicious page",
+                user_reported: true,
+              },
+            },
+          ],
+        },
+        {
+          id: "m4-s3",
+          nodeId: "ticket_classifier",
+          timestamp: "2026-06-09T12:15:00.430Z",
+          payloads: [
+            {
+              label: "classification",
+              value: {
+                route: "security_path",
+                confidence: 0.99,
+                reason: "Possible credential compromise after phishing link.",
+              },
+            },
+          ],
+        },
+        {
+          id: "m4-s4",
+          nodeId: "security_path",
+          timestamp: "2026-06-09T12:15:00.740Z",
+          payloads: [{ label: "branch_notes", value: "Treat as security incident, not routine password reset." }],
+        },
+        {
+          id: "m4-s5",
+          nodeId: "phishing_triage",
+          timestamp: "2026-06-09T12:15:01.260Z",
+          payloads: [
+            {
+              label: "triage",
+              value: {
+                credential_exposed: true,
+                attachment_opened: false,
+                suspicious_url_collected: true,
+              },
+            },
+          ],
+        },
+        {
+          id: "m4-s6",
+          nodeId: "containment_steps",
+          timestamp: "2026-06-09T12:15:01.920Z",
+          payloads: [
+            {
+              label: "containment",
+              value: [
+                "Revoke active sessions",
+                "Force password reset",
+                "Require MFA re-confirmation",
+                "Submit URL to security team",
+              ],
+            },
+          ],
+        },
+        {
+          id: "m4-s7",
+          nodeId: "urgency_check",
+          timestamp: "2026-06-09T12:15:02.360Z",
+          payloads: [
+            {
+              label: "priority",
+              value: { level: "critical", reason: "Credential compromise reported" },
+            },
+          ],
+        },
+        {
+          id: "m4-s8",
+          nodeId: "resolution_plan",
+          timestamp: "2026-06-09T12:15:02.890Z",
+          payloads: [
+            {
+              label: "plan",
+              value: [
+                "Lock account until sessions are revoked",
+                "Reset password and verify MFA",
+                "Escalate URL and mailbox artifacts to security operations",
+              ],
+            },
+          ],
+        },
+        {
+          id: "m4-s9",
+          nodeId: "final_response",
+          timestamp: "2026-06-09T12:15:03.280Z",
+          payloads: [
+            {
+              label: "Output",
+              value:
+                "This is a security incident. We will revoke sessions, reset your password, verify MFA, and send the link to security operations.",
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};

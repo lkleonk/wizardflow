@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+# Generated traces (incl. examples/quickstart.json) — regenerated, not tracked.
+*.json

@@ -1,0 +1,5 @@
+User-Agent: *
+Allow: /
+
+Host: https://wizardflow.com
+Sitemap: https://wizardflow.com/sitemap.xml

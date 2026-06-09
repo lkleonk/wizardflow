@@ -1,0 +1,270 @@
+import type { AgentTraceFile } from "@/types/agenttrace";
+
+// Self-correcting code agent: the coder writes an implementation, a test runner
+// executes the suite, and on failure control loops back to the coder to patch
+// it. The test_runner is a non-LLM node logging real-looking test output; the
+// coder -> test_runner -> coder back-edge makes the fix loop visible.
+export const selfCorrectingCodeTrace: AgentTraceFile = {
+  version: "0.1",
+  name: "self_correcting_code.json",
+  meta: {
+    source: "custom",
+    createdAt: "2026-06-03T11:30:00Z",
+    description:
+      "A code agent that writes a function, runs the tests, and fixes itself " +
+      "when they fail. The first attempt fails one test; the agent patches the " +
+      "bug and the second run passes. Shows a fail→fix→pass loop with real " +
+      "test-runner output.",
+  },
+  graph: {
+    nodes: [
+      { id: "user_input", label: "User Input" },
+      { id: "coder", label: "Coder" },
+      { id: "test_runner", label: "Test Runner" },
+      { id: "final_response", label: "Final Response" },
+    ],
+    edges: [
+      { source: "user_input", target: "coder" },
+      { source: "coder", target: "test_runner" },
+      { source: "test_runner", target: "coder", conditional: true },
+      { source: "test_runner", target: "final_response", conditional: true },
+    ],
+  },
+  messages: [
+    {
+      id: "msg-1",
+      steps: [
+        {
+          id: "m1-s1",
+          nodeId: "user_input",
+          timestamp: "2026-06-03T11:30:00.000Z",
+          payloads: [
+            {
+              label: "Input",
+              value:
+                "Implement median(nums) so all tests pass. Tests cover odd- and " +
+                "even-length lists.",
+            },
+          ],
+        },
+        {
+          id: "m1-s2",
+          nodeId: "coder",
+          timestamp: "2026-06-03T11:30:01.220Z",
+          payloads: [
+            {
+              label: "llm_input",
+              value:
+                "System: Write median(nums) in Python. Return only code.\n\n" +
+                "User: Implement median(nums) so all tests pass.",
+            },
+            {
+              label: "llm_output",
+              value:
+                "def median(nums):\n" +
+                "    s = sorted(nums)\n" +
+                "    return s[len(s) // 2]",
+            },
+          ],
+        },
+        {
+          id: "m1-s3",
+          nodeId: "test_runner",
+          timestamp: "2026-06-03T11:30:02.640Z",
+          payloads: [
+            { label: "command", value: "pytest -q test_median.py" },
+            {
+              label: "result",
+              value: {
+                passed: 1,
+                failed: 1,
+                report:
+                  "test_odd PASSED\n" +
+                  "test_even FAILED\n" +
+                  "  assert median([1, 2, 3, 4]) == 2.5\n" +
+                  "  got 3",
+              },
+            },
+          ],
+        },
+        {
+          id: "m1-s4",
+          nodeId: "coder",
+          timestamp: "2026-06-03T11:30:04.180Z",
+          payloads: [
+            {
+              label: "llm_input",
+              value:
+                "System: A test failed. Fix the function.\n\n" +
+                "Failure: median([1,2,3,4]) returned 3, expected 2.5\n" +
+                "Current code:\n" +
+                "def median(nums):\n" +
+                "    s = sorted(nums)\n" +
+                "    return s[len(s) // 2]",
+            },
+            {
+              label: "llm_output",
+              value:
+                "def median(nums):\n" +
+                "    s = sorted(nums)\n" +
+                "    n = len(s)\n" +
+                "    mid = n // 2\n" +
+                "    if n % 2:\n" +
+                "        return s[mid]\n" +
+                "    return (s[mid - 1] + s[mid]) / 2",
+            },
+          ],
+        },
+        {
+          id: "m1-s5",
+          nodeId: "test_runner",
+          timestamp: "2026-06-03T11:30:05.910Z",
+          payloads: [
+            { label: "command", value: "pytest -q test_median.py" },
+            {
+              label: "result",
+              value: {
+                passed: 2,
+                failed: 0,
+                report: "test_odd PASSED\ntest_even PASSED\n2 passed in 0.04s",
+              },
+            },
+          ],
+        },
+        {
+          id: "m1-s6",
+          nodeId: "final_response",
+          timestamp: "2026-06-03T11:30:06.300Z",
+          payloads: [
+            {
+              label: "Output",
+              value:
+                "Fixed median(nums) to average the two middle values on even-length " +
+                "lists. All tests pass:\n\n" +
+                "def median(nums):\n" +
+                "    s = sorted(nums)\n" +
+                "    n = len(s)\n" +
+                "    mid = n // 2\n" +
+                "    if n % 2:\n" +
+                "        return s[mid]\n" +
+                "    return (s[mid - 1] + s[mid]) / 2",
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "msg-2",
+      steps: [
+        {
+          id: "m2-s1",
+          nodeId: "user_input",
+          timestamp: "2026-06-03T11:40:00.000Z",
+          payloads: [
+            {
+              label: "Input",
+              value:
+                "Implement is_leap_year(y) so all tests pass. Tests cover 2000, " +
+                "1900, and 2024.",
+            },
+          ],
+        },
+        {
+          id: "m2-s2",
+          nodeId: "coder",
+          timestamp: "2026-06-03T11:40:01.260Z",
+          payloads: [
+            {
+              label: "llm_input",
+              value:
+                "System: Write is_leap_year(y) in Python. Return only code.\n\n" +
+                "User: Implement is_leap_year(y) so all tests pass.",
+            },
+            {
+              label: "llm_output",
+              value:
+                "def is_leap_year(y):\n" +
+                "    return y % 4 == 0",
+            },
+          ],
+        },
+        {
+          id: "m2-s3",
+          nodeId: "test_runner",
+          timestamp: "2026-06-03T11:40:02.700Z",
+          payloads: [
+            { label: "command", value: "pytest -q test_leap.py" },
+            {
+              label: "result",
+              value: {
+                passed: 2,
+                failed: 1,
+                report:
+                  "test_2024 PASSED\n" +
+                  "test_2000 PASSED\n" +
+                  "test_1900 FAILED\n" +
+                  "  assert is_leap_year(1900) == False\n" +
+                  "  got True",
+              },
+            },
+          ],
+        },
+        {
+          id: "m2-s4",
+          nodeId: "coder",
+          timestamp: "2026-06-03T11:40:04.220Z",
+          payloads: [
+            {
+              label: "llm_input",
+              value:
+                "System: A test failed. Fix the function.\n\n" +
+                "Failure: is_leap_year(1900) returned True, expected False\n" +
+                "Current code:\n" +
+                "def is_leap_year(y):\n" +
+                "    return y % 4 == 0",
+            },
+            {
+              label: "llm_output",
+              value:
+                "def is_leap_year(y):\n" +
+                "    return y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)",
+            },
+          ],
+        },
+        {
+          id: "m2-s5",
+          nodeId: "test_runner",
+          timestamp: "2026-06-03T11:40:05.960Z",
+          payloads: [
+            { label: "command", value: "pytest -q test_leap.py" },
+            {
+              label: "result",
+              value: {
+                passed: 3,
+                failed: 0,
+                report:
+                  "test_2024 PASSED\ntest_2000 PASSED\ntest_1900 PASSED\n" +
+                  "3 passed in 0.03s",
+              },
+            },
+          ],
+        },
+        {
+          id: "m2-s6",
+          nodeId: "final_response",
+          timestamp: "2026-06-03T11:40:06.380Z",
+          payloads: [
+            {
+              label: "Output",
+              value:
+                "Added the century rule (divisible by 100 isn't a leap year unless " +
+                "also divisible by 400). All tests pass:\n\n" +
+                "def is_leap_year(y):\n" +
+                "    return y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)",
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};

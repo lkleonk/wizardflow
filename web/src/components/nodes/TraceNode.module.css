@@ -1,0 +1,86 @@
+/* Animated angle for the active node's rotating (clockwise) border.
+   @property lets the angle interpolate smoothly in the conic gradient. */
+@property --trace-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.wrapper {
+  width: fit-content; /* hug the surface so the ring/glow doesn't leak */
+  border-radius: 10px;
+  padding: 2.25px; /* thickness of the ring */
+  /* Slow box-shadow fade so a node's glow lingers weakly as playback moves on
+     (a trailing afterglow) instead of snapping off. */
+  transition:
+    box-shadow 700ms ease,
+    background 200ms ease;
+}
+
+/* normal-node: muted static border (color is mode-aware, see globals.css) */
+.normal {
+  background: var(--node-ring);
+}
+
+/* recent-node: soft fading glow (alpha set inline per recency) */
+.recent {
+  background: var(--node-ring-recent);
+}
+
+/* active-node: rotating conic-gradient ring + accent glow */
+.active {
+  /* A dominant accent arc (with a rotating transparent gap) so the clockwise
+     sweep reads clearly and is strongly the node's own color. */
+  background: conic-gradient(
+    from var(--trace-angle),
+    var(--accent) 0deg,
+    var(--accent) 110deg,
+    transparent 200deg,
+    transparent 320deg,
+    var(--accent) 360deg
+  );
+  animation: trace-spin 1.8s linear infinite;
+}
+
+@keyframes trace-spin {
+  to {
+    --trace-angle: 360deg;
+  }
+}
+
+.surface {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  max-width: 120px;
+  padding: 6px 11px;
+  border-radius: 8.5px;
+  /* MUI theme CSS variables — adapt to the active color scheme automatically. */
+  background: var(--mui-palette-background-paper);
+  color: var(--mui-palette-text-primary);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.handle {
+  width: 6px;
+  height: 6px;
+  border: none;
+  background: var(--mui-palette-text-disabled);
+}
+
+/* Respect reduced-motion: keep the accent ring, drop the rotation. */
+@media (prefers-reduced-motion: reduce) {
+  .active {
+    animation: none;
+    background: var(--accent);
+  }
+}
