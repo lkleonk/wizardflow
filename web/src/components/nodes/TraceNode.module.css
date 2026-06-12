@@ -74,7 +74,9 @@
   width: 6px;
   height: 6px;
   border: none;
-  background: var(--mui-palette-text-disabled);
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Respect reduced-motion: keep the accent ring, drop the rotation. */

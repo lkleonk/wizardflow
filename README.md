@@ -22,8 +22,8 @@ Record a run with the SDK, then open the JSON in the viewer:
 import wizardflow
 
 wizardflow.init(path="wizardflow.json", nodes=[...], edges=[...])
-with wizardflow.message(id="msg-1"):
-    wizardflow.log("router", "llm_output", output)
+wizardflow.log("msg-1", "router", "llm_output", output)   # id-first: names the message
+wizardflow.end_message("msg-1")   # -> writes wizardflow.json (the only save call)
 ```
 
 Drop `wizardflow.json` into [getwizardflow.com](https://getwizardflow.com) (or

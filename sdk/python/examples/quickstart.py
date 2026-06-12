@@ -1,11 +1,9 @@
 """Minimal end-to-end example. Run: python examples/quickstart.py
 
-Shows both ways to target a message:
-  - inside `with wizardflow.message(id=...)` -> log needs no id
-  - anywhere else -> pass id="..."
-The trace is written automatically when each message ends. The actual filename
-is timestamped + numbered (e.g. quickstart_2026-06-08T16-29-09_001.json), so
-read it back from wiz.current_path rather than the path you passed.
+Each log() names its message in the first argument; end_message() finalizes a
+message and is the only thing that writes the file. The actual filename is
+timestamped (e.g. quickstart__2026-06-08T16-29-09-123Z.json), so read it back
+from wiz.current_path.
 """
 
 import sys
@@ -17,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import wizardflow
 
 wiz = wizardflow.init(
-    path=str(Path(__file__).with_name("quickstart.json")),
+    output_dir=str(Path(__file__).parent),
+    file_prefix="quickstart",
     name="quickstart",
     description="Tiny router agent recorded with the WizardFlow Python SDK.",
     nodes=["user_input", "router", "planner", "tool_node", "final_response"],
@@ -29,19 +28,18 @@ wiz = wizardflow.init(
     ],
 )
 
-# Message 1 — ambient form: log() picks up the id from the with-block.
-with wizardflow.message(id="msg-1"):
-    wizardflow.log("user_input", "Input", "What's the weather in Berlin?")
-    wizardflow.log("router", "llm_input", "Route this request...")
-    wizardflow.log("router", "llm_output", '{"route": "planner"}')
-    wizardflow.log("tool_node")  # visited, no payloads
-    wizardflow.log("final_response", "Output", "It's 19C and partly cloudy in Berlin.")
-# -> quickstart.json now contains msg-1
+# Message 1 — each log names its message ("msg-1") in the first argument.
+wizardflow.log("msg-1", "user_input", "Input", "What's the weather in Berlin?")
+wizardflow.log("msg-1", "router", "llm_input", "Route this request...")
+wizardflow.log("msg-1", "router", "llm_output", '{"route": "planner"}')
+wizardflow.log("msg-1", "tool_node")  # visited, no payloads
+wizardflow.log("msg-1", "final_response", "Output", "It's 19C and partly cloudy in Berlin.")
+wizardflow.end_message("msg-1")  # <- writes the file; msg-1 is now persisted
 
-# Message 2 — explicit-id form: no with-block, just name the message.
-wizardflow.log("user_input", "Input", "Summarize the paper.", id="msg-2")
-wizardflow.log("router", "llm_output", '{"route": "planner"}', id="msg-2")
-wizardflow.end_message("msg-2")  # dump signal
+# Message 2 — same shape; an optional title gives the message a human title.
+wizardflow.log("msg-2", "user_input", "Input", "Summarize the paper.")
+wizardflow.log("msg-2", "router", "llm_output", '{"route": "planner"}')
+wizardflow.end_message("msg-2", title="Summarize the paper")
 # -> the part file now contains msg-1 and msg-2
 
 print(f"wrote {wiz.current_path}")

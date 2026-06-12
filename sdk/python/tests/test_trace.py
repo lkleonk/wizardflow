@@ -1,5 +1,8 @@
 """Tests for the WizardFlow SDK — pins the emitted AgentTrace shape and the
 recording semantics we agreed on (folding, completed-only, id targeting, etc.).
+
+Recording API: ``log(id, node, label=None, content=None)`` names the message in
+its first argument; ``end_message(id, title=None)`` is the only thing that writes.
 """
 
 import json
@@ -41,7 +44,7 @@ class _FakeApp:
 
 
 def _new(tmp_path, **kw):
-    return Client(path=str(tmp_path / "trace.json"), **kw)
+    return Client(output_dir=str(tmp_path), file_prefix="trace", **kw)
 
 
 # --- output shape ---------------------------------------------------------
@@ -49,8 +52,8 @@ def _new(tmp_path, **kw):
 def test_emits_schema_0_1_with_graph_and_meta(tmp_path):
     c = _new(tmp_path, name="run.json", description="hi",
              nodes=["a"], edges=[("a", "a")])
-    with c.message(id="m1"):
-        c.log("a", "Input", "x")
+    c.log("m1", "a", "Input", "x")
+    c.end_message("m1")
     out = c.to_dict()
 
     assert out["version"] == "0.1"
@@ -62,8 +65,8 @@ def test_emits_schema_0_1_with_graph_and_meta(tmp_path):
 
 def test_step_ids_and_timestamp_present(tmp_path):
     c = _new(tmp_path, nodes=["a"])
-    with c.message(id="m1"):
-        c.log("a", "L", 1)
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
     step = c.to_dict()["messages"][0]["steps"][0]
     assert step["id"] == "m1-s1"
     assert step["nodeId"] == "a"
@@ -74,9 +77,9 @@ def test_step_ids_and_timestamp_present(tmp_path):
 
 def test_same_node_logs_fold_into_one_step(tmp_path):
     c = _new(tmp_path, nodes=["router"])
-    with c.message(id="m1"):
-        c.log("router", "llm_input", "p")
-        c.log("router", "llm_output", "o")
+    c.log("m1", "router", "llm_input", "p")
+    c.log("m1", "router", "llm_output", "o")
+    c.end_message("m1")
     steps = c.to_dict()["messages"][0]["steps"]
     assert len(steps) == 1
     assert [p["label"] for p in steps[0]["payloads"]] == ["llm_input", "llm_output"]
@@ -84,84 +87,139 @@ def test_same_node_logs_fold_into_one_step(tmp_path):
 
 def test_different_node_starts_new_step(tmp_path):
     c = _new(tmp_path, nodes=["a", "b"])
-    with c.message(id="m1"):
-        c.log("a", "L", 1)
-        c.log("b", "L", 2)
+    c.log("m1", "a", "L", 1)
+    c.log("m1", "b", "L", 2)
+    c.end_message("m1")
     assert [s["nodeId"] for s in c.to_dict()["messages"][0]["steps"]] == ["a", "b"]
 
 
 def test_bare_log_is_a_visit_with_no_payloads(tmp_path):
     c = _new(tmp_path, nodes=["tool"])
-    with c.message(id="m1"):
-        c.log("tool")
+    c.log("m1", "tool")
+    c.end_message("m1")
     step = c.to_dict()["messages"][0]["steps"][0]
     assert step["nodeId"] == "tool" and step["payloads"] == []
 
 
 # --- message targeting ----------------------------------------------------
 
-def test_explicit_id_targets_message_without_with_block(tmp_path):
+def test_log_targets_message_by_id(tmp_path):
     c = _new(tmp_path, nodes=["a"])
-    c.log("a", "L", 1, id="m2")
+    c.log("m2", "a", "L", 1)            # the id is the first positional arg
     c.end_message("m2")
     assert [m["id"] for m in c.to_dict()["messages"]] == ["m2"]
 
 
-def test_log_without_active_message_or_id_raises(tmp_path):
+def test_interleaved_messages_stay_separate(tmp_path):
+    # Two messages logged in interleaved order (as concurrent agents would) keep
+    # their own steps — the id on each log routes it, no ambient state.
+    c = _new(tmp_path, nodes=["a", "b"])
+    c.log("m1", "a", "L", 1)
+    c.log("m2", "b", "L", 2)
+    c.log("m1", "b", "L", 3)
+    c.end_message("m1")
+    c.end_message("m2")
+    msgs = {m["id"]: m for m in c.to_dict()["messages"]}
+    assert [s["nodeId"] for s in msgs["m1"]["steps"]] == ["a", "b"]
+    assert [s["nodeId"] for s in msgs["m2"]["steps"]] == ["b"]
+
+
+# --- message titles -------------------------------------------------------
+
+def test_end_message_sets_title(tmp_path):
     c = _new(tmp_path, nodes=["a"])
-    with pytest.raises(WizardFlowError):
-        c.log("a", "L", 1)
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1", title="Weather question")
+    assert c.to_dict()["messages"][0]["label"] == "Weather question"
+
+
+def test_module_end_message_sets_title(tmp_path):
+    import wizardflow
+
+    wizardflow.init(output_dir=str(tmp_path), file_prefix="trace", nodes=["a"])
+    wizardflow.log("m1", "a", "L", 1)
+    wizardflow.end_message("m1", title="Weather question")
+    assert wizardflow.to_dict()["messages"][0]["label"] == "Weather question"
+
+
+def test_no_label_means_no_label_field(tmp_path):
+    c = _new(tmp_path, nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+    assert "label" not in c.to_dict()["messages"][0]
 
 
 # --- completed-only persistence ------------------------------------------
 
 def test_only_completed_messages_are_emitted(tmp_path):
     c = _new(tmp_path, nodes=["a"])
-    c.log("a", "L", 1, id="open")          # never ended
-    with c.message(id="done"):
-        c.log("a", "L", 2)
+    c.log("open", "a", "L", 1)          # never ended
+    c.log("done", "a", "L", 2)
+    c.end_message("done")
     assert [m["id"] for m in c.to_dict()["messages"]] == ["done"]
 
 
 def test_end_message_writes_file_atomically(tmp_path):
-    c = Client(path=str(tmp_path / "trace.json"), nodes=["a"])
-    with c.message(id="m1"):
-        c.log("a", "L", 1)
-    written = c.current_path                        # timestamped part filename
+    c = Client(output_dir=str(tmp_path), file_prefix="trace", nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+    written = c.current_path                        # timestamped output filename
     assert os.path.exists(written)
     assert not os.path.exists(written + ".tmp")     # tmp cleaned up
     on_disk = json.loads(open(written, encoding="utf-8").read())
     assert on_disk["messages"][0]["id"] == "m1"
 
 
-def test_part_naming_uses_prefix_timestamp_index(tmp_path):
-    c = Client(path=str(tmp_path / "myrun.json"), nodes=["a"])
+def test_log_alone_writes_nothing(tmp_path):
+    # end_message is the only thing that touches disk: logging without ending
+    # leaves no file on disk.
+    c = Client(output_dir=str(tmp_path), file_prefix="trace", nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    assert not [p for p in os.listdir(tmp_path) if p.endswith(".json")]
+
+
+def test_output_dir_is_created_on_first_write(tmp_path):
+    output_dir = tmp_path / "traces"
+    c = Client(output_dir=str(output_dir), file_prefix="trace", nodes=["a"])
+    assert not output_dir.exists()
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+    assert output_dir.is_dir()
+    assert os.path.exists(c.current_path)
+
+
+def test_part_naming_uses_prefix_and_init_timestamp(tmp_path):
+    c = Client(output_dir=str(tmp_path), file_prefix="myrun", nodes=["a"])
     name = os.path.basename(c.current_path)
-    assert name.startswith("myrun_") and name.endswith("_001.json")
+    assert name.startswith("myrun__")
+    assert name.endswith("Z.json")
+    assert "__part" not in name
+    assert "_001" not in name
+    assert name.count(".") == 1
 
 
-def test_default_prefix_when_path_omitted(tmp_path):
-    c = Client(nodes=["a"])                          # no path
-    assert os.path.basename(c.current_path).startswith("wizardflow_")
+def test_default_prefix_when_file_prefix_omitted():
+    c = Client(nodes=["a"])
+    assert os.path.basename(c.current_path).startswith("wizardflow__")
 
 
 def test_end_message_is_idempotent(tmp_path):
     c = _new(tmp_path, nodes=["a"])
-    with c.message(id="m1"):          # ends once on exit
-        c.log("a", "L", 1)
-    c.end_message("m1")               # manual second end -> no duplicate
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")               # ends + writes
+    c.end_message("m1")               # second end -> no duplicate
     assert len(c.to_dict()["messages"]) == 1
 
 
 # --- rotation -------------------------------------------------------------
 
 def _log_one(c, mid, payload):
-    with c.message(id=mid):
-        c.log("a", "blob", payload)
+    c.log(mid, "a", "blob", payload)
+    c.end_message(mid)
 
 
 def test_no_part_meta_for_single_part(tmp_path):
-    c = Client(path=str(tmp_path / "t.json"), nodes=["a"])
+    c = Client(output_dir=str(tmp_path), file_prefix="t", nodes=["a"])
     _log_one(c, "m1", "x")
     meta = c.to_dict().get("meta", {})
     assert "part" not in meta and "nextPart" not in meta
@@ -169,12 +227,16 @@ def test_no_part_meta_for_single_part(tmp_path):
 
 def test_rotation_creates_chained_parts(tmp_path):
     # Tiny cap so each message forces a new part.
-    c = Client(path=str(tmp_path / "t.json"), nodes=["a"], max_bytes=400)
+    c = Client(output_dir=str(tmp_path), file_prefix="t", nodes=["a"], max_bytes=400)
     for i in range(3):
         _log_one(c, f"m{i}", "X" * 300)
 
     parts = sorted(p for p in os.listdir(tmp_path) if p.endswith(".json"))
     assert len(parts) >= 3                       # rotated into multiple files
+    assert parts[0].startswith("t__") and "__part" not in parts[0]
+    assert parts[1].endswith("__part2.json")
+    assert parts[2].endswith("__part3.json")
+    assert all(p.count(".") == 1 for p in parts)
 
     first = json.loads((tmp_path / parts[0]).read_text(encoding="utf-8"))
     second = json.loads((tmp_path / parts[1]).read_text(encoding="utf-8"))
@@ -188,7 +250,7 @@ def test_rotation_creates_chained_parts(tmp_path):
 
 
 def test_each_message_lands_in_exactly_one_part(tmp_path):
-    c = Client(path=str(tmp_path / "t.json"), nodes=["a"], max_bytes=400)
+    c = Client(output_dir=str(tmp_path), file_prefix="t", nodes=["a"], max_bytes=400)
     ids = [f"m{i}" for i in range(4)]
     for mid in ids:
         _log_one(c, mid, "X" * 300)
@@ -202,18 +264,56 @@ def test_each_message_lands_in_exactly_one_part(tmp_path):
 
 
 def test_oversized_single_message_gets_its_own_part(tmp_path):
-    c = Client(path=str(tmp_path / "t.json"), nodes=["a"], max_bytes=100)
+    c = Client(output_dir=str(tmp_path), file_prefix="t", nodes=["a"], max_bytes=100)
     _log_one(c, "huge", "X" * 5000)              # one message alone exceeds cap
     data = c.to_dict()
     assert len(data["messages"]) == 1            # not dropped, just oversized
 
 
 def test_rotation_logs_notice(tmp_path, caplog):
-    c = Client(path=str(tmp_path / "t.json"), nodes=["a"], max_bytes=400)
+    c = Client(output_dir=str(tmp_path), file_prefix="t", nodes=["a"], max_bytes=400)
     with caplog.at_level("INFO", logger="wizardflow"):
         for i in range(2):
             _log_one(c, f"m{i}", "X" * 300)
     assert any("rotated" in r.message for r in caplog.records)
+
+
+def test_max_bytes_clamped_to_ceiling(tmp_path):
+    from wizardflow.constants import Rotation
+
+    c = Client(output_dir=str(tmp_path), file_prefix="t", nodes=["a"], max_bytes=999_000_000)
+    assert c.max_bytes == Rotation.MAX_MAX_BYTES          # never honored above cap
+    # A value within range is left untouched.
+    c2 = Client(output_dir=str(tmp_path), file_prefix="t2", nodes=["a"], max_bytes=50_000)
+    assert c2.max_bytes == 50_000
+
+
+def test_concurrent_message_ends_are_safe(tmp_path):
+    # Multi-agent setups end messages from many threads at once. The write lock
+    # must keep the shared part and the shared temp-file path race-free: every
+    # part file stays valid JSON, every message lands exactly once, no leftover
+    # .tmp. A tiny cap forces frequent rotation to stress the boundary.
+    import threading
+
+    c = Client(output_dir=str(tmp_path), file_prefix="t", nodes=["a"], max_bytes=2_000)
+    n = 100
+
+    def worker(i):
+        _log_one(c, f"m{i}", "X" * 100)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not [p for p in os.listdir(tmp_path) if p.endswith(".tmp")]
+    seen = []
+    for p in sorted(os.listdir(tmp_path)):
+        if p.endswith(".json"):
+            data = json.loads((tmp_path / p).read_text(encoding="utf-8"))
+            seen.extend(m["id"] for m in data["messages"])
+    assert sorted(seen) == sorted(f"m{i}" for i in range(n))  # all once, none lost
 
 
 # --- validation & silencing ----------------------------------------------
@@ -221,30 +321,29 @@ def test_rotation_logs_notice(tmp_path, caplog):
 def test_unknown_node_fast_fails_when_nodes_declared(tmp_path):
     c = _new(tmp_path, nodes=["a"])
     with pytest.raises(UnknownNodeError):
-        with c.message(id="m1"):
-            c.log("typo", "L", 1)
+        c.log("m1", "typo", "L", 1)
 
 
 def test_unknown_node_allowed_when_nodes_not_declared(tmp_path):
     c = _new(tmp_path)                # no nodes= -> no gating
-    with c.message(id="m1"):
-        c.log("anything", "L", 1)
+    c.log("m1", "anything", "L", 1)
+    c.end_message("m1")
     assert c.to_dict()["messages"][0]["steps"][0]["nodeId"] == "anything"
 
 
 def test_silent_swallows_unknown_node(tmp_path):
     c = _new(tmp_path, nodes=["a"], silent=True)
-    with c.message(id="m1"):
-        c.log("typo", "L", 1)        # swallowed, no step recorded
+    c.log("m1", "typo", "L", 1)       # swallowed, no step recorded
+    c.end_message("m1")
     assert c.to_dict()["messages"][0]["steps"] == []
 
 
 def test_logging_to_ended_message_raises(tmp_path):
     c = _new(tmp_path, nodes=["a"])
-    with c.message(id="m1"):
-        c.log("a", "L", 1)
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
     with pytest.raises(WizardFlowError):
-        c.log("a", "L", 2, id="m1")  # already ended
+        c.log("m1", "a", "L", 2)      # already ended
 
 
 # --- langgraph topology extraction ---------------------------------------
@@ -265,14 +364,14 @@ def _consultant_app():
 
 
 def test_from_langgraph_extracts_nodes_keeping_start_end(tmp_path):
-    c = Client.from_langgraph(_consultant_app(), path=str(tmp_path / "t.json"))
+    c = Client.from_langgraph(_consultant_app(), output_dir=str(tmp_path), file_prefix="t")
     ids = [n["id"] for n in c.to_dict()["graph"]["nodes"]]
     assert ids == ["__start__", "router", "planner", "retriever",
                    "final_response", "__end__"]
 
 
 def test_from_langgraph_marks_conditional_edges_only(tmp_path):
-    c = Client.from_langgraph(_consultant_app(), path=str(tmp_path / "t.json"))
+    c = Client.from_langgraph(_consultant_app(), output_dir=str(tmp_path), file_prefix="t")
     edges = c.to_dict()["graph"]["edges"]
     cond = {(e["source"], e["target"]) for e in edges if e.get("conditional")}
     plain = {(e["source"], e["target"]) for e in edges if "conditional" not in e}
@@ -284,7 +383,8 @@ def test_from_langgraph_marks_conditional_edges_only(tmp_path):
 def test_from_langgraph_applies_node_colors(tmp_path):
     c = Client.from_langgraph(
         _consultant_app(),
-        path=str(tmp_path / "t.json"),
+        output_dir=str(tmp_path),
+        file_prefix="t",
         node_colors={
             "router": "#A78BFA",
             "retriever": "#22D3EE",
@@ -300,7 +400,8 @@ def test_from_langgraph_unknown_node_color_raises(tmp_path):
     with pytest.raises(WizardFlowError, match="node_colors contains unknown"):
         Client.from_langgraph(
             _consultant_app(),
-            path=str(tmp_path / "t.json"),
+            output_dir=str(tmp_path),
+            file_prefix="t",
             node_colors={"routre": "#A78BFA"},
         )
 
@@ -308,7 +409,8 @@ def test_from_langgraph_unknown_node_color_raises(tmp_path):
 def test_from_langgraph_unknown_node_color_silent_ignored(tmp_path):
     c = Client.from_langgraph(
         _consultant_app(),
-        path=str(tmp_path / "t.json"),
+        output_dir=str(tmp_path),
+        file_prefix="t",
         node_colors={
             "router": "#A78BFA",
             "routre": "#22D3EE",
@@ -327,28 +429,32 @@ def test_from_langgraph_iterable_nodes_supported(tmp_path):
             self.id = id
 
     app = _FakeApp([_N("a"), _N("b")], [_FakeEdge("a", "b")])
-    c = Client.from_langgraph(app, path=str(tmp_path / "t.json"))
+    c = Client.from_langgraph(app, output_dir=str(tmp_path), file_prefix="t")
     assert [n["id"] for n in c.to_dict()["graph"]["nodes"]] == ["a", "b"]
 
 
 def test_from_langgraph_rejects_non_langgraph_object(tmp_path):
     with pytest.raises(LangGraphExtractionError):
-        Client.from_langgraph(object(), path=str(tmp_path / "t.json"))
+        Client.from_langgraph(object(), output_dir=str(tmp_path), file_prefix="t")
 
 
 def test_from_langgraph_logging_still_works(tmp_path):
-    c = Client.from_langgraph(_consultant_app(), path=str(tmp_path / "t.json"))
-    with c.message(id="m1"):
-        c.log("planner", "Input", {"q": "hi"})
+    c = Client.from_langgraph(_consultant_app(), output_dir=str(tmp_path), file_prefix="t")
+    c.log("m1", "planner", "Input", {"q": "hi"})
+    c.end_message("m1")
     assert c.to_dict()["messages"][0]["steps"][0]["nodeId"] == "planner"
 
 
 def test_module_init_from_langgraph_sets_default(tmp_path):
     import wizardflow
 
-    wizardflow.init_from_langgraph(_consultant_app(), path=str(tmp_path / "t.json"))
-    with wizardflow.message(id="m1"):
-        wizardflow.log("router", "decision", "planner")
+    wizardflow.init_from_langgraph(
+        _consultant_app(),
+        output_dir=str(tmp_path),
+        file_prefix="t",
+    )
+    wizardflow.log("m1", "router", "decision", "planner")
+    wizardflow.end_message("m1")
     assert wizardflow.to_dict()["graph"]["nodes"][0]["id"] == "__start__"
 
 
@@ -356,7 +462,7 @@ def test_module_init_from_langgraph_sets_default(tmp_path):
 
 def test_unicode_values_survive(tmp_path):
     c = _new(tmp_path, nodes=["a"])
-    with c.message(id="m1"):
-        c.log("a", "Output", "19°C, partly cloudy — Berlin")
+    c.log("m1", "a", "Output", "19°C, partly cloudy — Berlin")
+    c.end_message("m1")
     val = c.to_dict()["messages"][0]["steps"][0]["payloads"][0]["value"]
     assert val == "19°C, partly cloudy — Berlin"

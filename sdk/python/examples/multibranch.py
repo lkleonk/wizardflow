@@ -21,7 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import wizardflow
 
 wiz = wizardflow.init(
-    path=str(Path(__file__).with_name("multibranch.json")),
+    output_dir=str(Path(__file__).parent),
+    file_prefix="multibranch",
     name="multibranch",
     description="Branching router agent: a tool path and a retrieval path that rejoin.",
     nodes=[
@@ -45,31 +46,31 @@ wiz = wizardflow.init(
 )
 
 # msg-1 — takes the planner / tool branch.
-with wizardflow.message(id="msg-1"):
-    wizardflow.log("user_input", "Input", "What's the weather in Berlin?")
-    wizardflow.log("router", "llm_input", "Pick a route for the request...")
-    wizardflow.log("router", "llm_output", '{"route": "planner", "confidence": 0.92}')
-    wizardflow.log("planner", "llm_input", "Decompose into tool calls...")
-    wizardflow.log("planner", "llm_output", "{\"plan\": [\"weather_api(city='Berlin')\"]}")
-    wizardflow.log("tool_node")  # ran the tool, logged no payload
-    wizardflow.log("generator", "llm_input", "Answer using the tool result...")
-    wizardflow.log("generator", "llm_output", "It's 19C and partly cloudy in Berlin.")
-    wizardflow.log("final_response", "Output", "It's 19C and partly cloudy in Berlin.")
+wizardflow.log("msg-1", "user_input", "Input", "What's the weather in Berlin?")
+wizardflow.log("msg-1", "router", "llm_input", "Pick a route for the request...")
+wizardflow.log("msg-1", "router", "llm_output", '{"route": "planner", "confidence": 0.92}')
+wizardflow.log("msg-1", "planner", "llm_input", "Decompose into tool calls...")
+wizardflow.log("msg-1", "planner", "llm_output", "{\"plan\": [\"weather_api(city='Berlin')\"]}")
+wizardflow.log("msg-1", "tool_node")  # ran the tool, logged no payload
+wizardflow.log("msg-1", "generator", "llm_input", "Answer using the tool result...")
+wizardflow.log("msg-1", "generator", "llm_output", "It's 19C and partly cloudy in Berlin.")
+wizardflow.log("msg-1", "final_response", "Output", "It's 19C and partly cloudy in Berlin.")
+wizardflow.end_message("msg-1", title="Weather in Berlin")
 
 # msg-2 — takes the retriever branch (skips planner/tool entirely).
-with wizardflow.message(id="msg-2"):
-    wizardflow.log("user_input", "Input", "Summarize the attached research paper.")
-    wizardflow.log("router", "llm_input", "Pick a route for the request...")
-    wizardflow.log("router", "llm_output", '{"route": "retriever", "confidence": 0.88}')
-    wizardflow.log("retriever", "Input", {"topK": 4, "namespace": "papers"})
-    wizardflow.log("retriever", "Retrieved docs", [
-        {"id": "doc-7", "score": 0.81},
-        {"id": "doc-2", "score": 0.77},
-    ])
-    wizardflow.log("generator", "llm_input", "Summarize the retrieved documents...")
-    wizardflow.log("generator", "llm_output",
-                   "The paper proposes a sparse attention variant with near-linear cost.")
-    wizardflow.log("final_response", "Output",
-                   "The paper proposes a sparse attention variant with near-linear cost.")
+wizardflow.log("msg-2", "user_input", "Input", "Summarize the attached research paper.")
+wizardflow.log("msg-2", "router", "llm_input", "Pick a route for the request...")
+wizardflow.log("msg-2", "router", "llm_output", '{"route": "retriever", "confidence": 0.88}')
+wizardflow.log("msg-2", "retriever", "Input", {"topK": 4, "namespace": "papers"})
+wizardflow.log("msg-2", "retriever", "Retrieved docs", [
+    {"id": "doc-7", "score": 0.81},
+    {"id": "doc-2", "score": 0.77},
+])
+wizardflow.log("msg-2", "generator", "llm_input", "Summarize the retrieved documents...")
+wizardflow.log("msg-2", "generator", "llm_output",
+               "The paper proposes a sparse attention variant with near-linear cost.")
+wizardflow.log("msg-2", "final_response", "Output",
+               "The paper proposes a sparse attention variant with near-linear cost.")
+wizardflow.end_message("msg-2", title="Summarize research paper")
 
 print(f"wrote {wiz.current_path}")

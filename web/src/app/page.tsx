@@ -39,6 +39,7 @@ import PlaybackControls, {
 import TraceUploader from "@/components/TraceUploader";
 import TraceInfo from "@/components/TraceInfo";
 import ExampleGallery from "@/components/ExampleGallery";
+import TutorialDialog, { LocalDataDetails } from "@/components/TutorialDialog";
 import { emptyTrace } from "@/data";
 import type { AgentTraceFile } from "@/types/agenttrace";
 import {
@@ -62,6 +63,8 @@ import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 import { isAgentTraceFile } from "@/utils/agentTraceFile";
 
 const PLAYBACK_INTERVAL_MS = 1200;
+const MOBILE_FOOTER_RESERVED_HEIGHT = "168px";
+const MOBILE_GRAPH_CHROME_HEIGHT = "274px";
 const PYTHON_SDK_QUICKSTART_URL =
   "https://github.com/lkleonk/wizardflow/tree/main/sdk/python#quickstart";
 
@@ -230,6 +233,7 @@ export default function Home() {
 
   // The example-flow picker (a gallery dialog opened from the header).
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
   const [offlineTipOpen, setOfflineTipOpen] = useState(false);
 
   // Re-seed the viewing position whenever the active flow changes: a saved flow
@@ -445,8 +449,8 @@ export default function Home() {
   const handleTogglePlaybackMode = useCallback(() => {
     disableGraphArrangeMode();
     setPlaybackMode((mode) => {
-      if (mode === "stop-at-message-end") return "repeat-message";
-      if (mode === "repeat-message") return "play-next-message";
+      if (mode === "stop-at-message-end") return "play-next-message";
+      if (mode === "play-next-message") return "repeat-message";
       return "stop-at-message-end";
     });
   }, [disableGraphArrangeMode]);
@@ -594,7 +598,21 @@ export default function Home() {
   );
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <Box
+      sx={{
+        minHeight: "100dvh",
+        height: { xs: "auto", md: "100%" },
+        width: "100%",
+        maxWidth: "100vw",
+        overflowX: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        pb: {
+          xs: `calc(${MOBILE_FOOTER_RESERVED_HEIGHT} + env(safe-area-inset-bottom))`,
+          sm: 0,
+        },
+      }}
+    >
       <Backdrop
         open={isLoadingUrlTrace}
         sx={{
@@ -656,24 +674,9 @@ export default function Home() {
             How to ensure data stays local
           </Button>
           <Collapse in={offlineTipOpen}>
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ lineHeight: 1.7, mt: 1 }}
-            >
-              For extra assurance, you can cut the tab&apos;s connection after
-              opening WizardFlow and it keeps working. In Chrome: open DevTools
-              (Ctrl&nbsp;+&nbsp;Shift&nbsp;+&nbsp;I), go to the{" "}
-              <Box component="strong" sx={{ fontWeight: 600 }}>
-                Network
-              </Box>{" "}
-              tab, and set the throttling dropdown to{" "}
-              <Box component="strong" sx={{ fontWeight: 600 }}>
-                Offline
-              </Box>
-              . While DevTools stays open the tab is offline — yet importing and
-              replaying still work.
-            </Typography>
+            <Box sx={{ mt: 1 }}>
+              <LocalDataDetails />
+            </Box>
           </Collapse>
         </DialogContent>
         <DialogActions
@@ -687,13 +690,21 @@ export default function Home() {
             pt: 1,
           }}
         >
-          <Box sx={{ display: "flex", justifyContent: "center", gap: 1 }}>
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: { xs: "column", sm: "row" },
+              justifyContent: "center",
+              gap: 1,
+              width: { xs: "100%", sm: "auto" },
+            }}
+          >
             <TraceUploader
               onLoad={handleLoadTrace}
               label="Upload JSON"
               size="medium"
               variant="contained"
-              sx={{ minWidth: 150 }}
+              sx={{ minWidth: 150, width: { xs: "100%", sm: "auto" } }}
             />
             <Button
               size="medium"
@@ -702,7 +713,7 @@ export default function Home() {
                 setWelcomeDismissed();
                 setGalleryOpen(true);
               }}
-              sx={{ minWidth: 150 }}
+              sx={{ minWidth: 150, width: { xs: "100%", sm: "auto" } }}
             >
               Browse examples
             </Button>
@@ -734,29 +745,49 @@ export default function Home() {
         currentName={trace.name}
       />
 
+      <TutorialDialog
+        open={tutorialOpen}
+        onClose={() => setTutorialOpen(false)}
+      />
+
       {/* Header */}
       <Box
         onClickCapture={disableGraphArrangeMode}
         sx={{
           display: "flex",
-          alignItems: "center",
+          flexDirection: { xs: "column", sm: "row" },
+          alignItems: { xs: "stretch", sm: "center" },
           justifyContent: "space-between",
-          px: 2,
-          py: 1.25,
+          gap: 1,
+          px: { xs: 1, sm: 2 },
+          py: { xs: 1, sm: 1.25 },
           borderBottom: 1,
           borderColor: "divider",
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: { xs: "space-between", sm: "flex-start" },
+            gap: 1,
+            minWidth: 0,
+            width: { xs: "100%", sm: "auto" },
+          }}
+        >
           <Box
             sx={{
               display: "flex",
               alignItems: "baseline",
               gap: 1,
               minWidth: 0,
+              overflow: "hidden",
             }}
           >
-            <Typography variant="h6" sx={{ fontWeight: 600, letterSpacing: -0.2 }}>
+            <Typography
+              variant="h6"
+              sx={{ flexShrink: 0, fontWeight: 600, letterSpacing: -0.2 }}
+            >
               WizardFlow
             </Typography>
             {trace.name && (
@@ -770,6 +801,7 @@ export default function Home() {
                   noWrap
                   title={trace.name}
                   sx={{
+                    minWidth: 0,
                     fontFamily: "var(--font-geist-mono), monospace",
                     fontSize: 13,
                   }}
@@ -797,7 +829,16 @@ export default function Home() {
             )}
           </Box>
         </Box>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: { xs: "flex-end", sm: "flex-start" },
+            gap: 1,
+            flexWrap: "wrap",
+            width: { xs: "100%", sm: "auto" },
+          }}
+        >
           <Button
             size="small"
             variant="outlined"
@@ -837,8 +878,30 @@ export default function Home() {
 
       {/* Main area: graph + inspector. No gap — the resize handle is the
           separator, so it stays slim. */}
-      <Box sx={{ flex: 1, display: "flex", minHeight: 0, p: 1.5, gap: 0 }}>
-        <Paper sx={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+      <Box
+        sx={{
+          flex: { xs: "0 0 auto", md: 1 },
+          display: "flex",
+          flexDirection: { xs: "column", md: "row" },
+          minHeight: 0,
+          p: { xs: 1, sm: 1.5 },
+          gap: { xs: 1, md: 0 },
+        }}
+      >
+        <Paper
+          sx={{
+            flex: { xs: "0 0 auto", md: 1 },
+            minWidth: 0,
+            minHeight: { xs: 320, md: 0 },
+            height: {
+              xs: inspectorOpen
+                ? "clamp(320px, 52dvh, 520px)"
+                : `clamp(320px, calc(100dvh - ${MOBILE_GRAPH_CHROME_HEIGHT} - env(safe-area-inset-bottom)), 720px)`,
+              md: "auto",
+            },
+            overflow: "hidden",
+          }}
+        >
           {hasFlow ? (
             <GraphCanvas
               nodes={trace.graph.nodes}
@@ -874,15 +937,28 @@ export default function Home() {
                 Pick a bundled example or upload your own agent-trace JSON to
                 start replaying it.
               </Typography>
-              <Box sx={{ display: "flex", gap: 1, mt: 0.5 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: { xs: "column", sm: "row" },
+                  gap: 1,
+                  mt: 0.5,
+                  width: { xs: "100%", sm: "auto" },
+                  maxWidth: 360,
+                }}
+              >
                 <Button
                   variant="contained"
                   startIcon={<GridViewOutlinedIcon />}
                   onClick={() => setGalleryOpen(true)}
+                  sx={{ width: { xs: "100%", sm: "auto" } }}
                 >
                   Browse examples
                 </Button>
-                <TraceUploader onLoad={handleLoadTrace} />
+                <TraceUploader
+                  onLoad={handleLoadTrace}
+                  sx={{ width: { xs: "100%", sm: "auto" } }}
+                />
               </Box>
             </Box>
           )}
@@ -892,6 +968,7 @@ export default function Home() {
             <Box
               onMouseDown={startInspectorResize}
               sx={{
+                display: { xs: "none", md: "block" },
                 width: 6,
                 flexShrink: 0,
                 alignSelf: "stretch",
@@ -904,7 +981,12 @@ export default function Home() {
             />
             <Paper
               onClickCapture={disableGraphArrangeMode}
-              sx={{ width: inspectorWidth, flexShrink: 0, overflow: "hidden" }}
+              sx={{
+                width: { xs: "100%", md: inspectorWidth },
+                height: { xs: 320, md: "auto" },
+                flexShrink: 0,
+                overflow: "hidden",
+              }}
             >
               <InspectorPanel
                 selectedNodeId={selectedNodeId}
@@ -920,7 +1002,19 @@ export default function Home() {
       <Paper
         square
         onClickCapture={disableGraphArrangeMode}
-        sx={{ borderTop: 1, borderColor: "divider" }}
+        sx={{
+          borderTop: 1,
+          borderColor: "divider",
+          position: { xs: "fixed", sm: "static" },
+          right: { xs: 0, sm: "auto" },
+          bottom: { xs: 0, sm: "auto" },
+          left: { xs: 0, sm: "auto" },
+          width: { xs: "100vw", sm: "auto" },
+          maxWidth: "100vw",
+          overflowX: "hidden",
+          zIndex: (theme) => theme.zIndex.appBar,
+          pb: { xs: "env(safe-area-inset-bottom)", sm: 0 },
+        }}
       >
         <MessageTimeline
           messages={trace.messages}
@@ -959,20 +1053,46 @@ export default function Home() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 1.5,
-            px: 2,
-            pb: 0.75,
+            gap: { xs: 0.75, sm: 1.5 },
+            px: { xs: 1, sm: 2 },
+            pb: { xs: 0.5, sm: 0.75 },
             color: "text.secondary",
-            fontSize: 12,
+            fontSize: { xs: 11, sm: 12 },
+            lineHeight: 1.4,
           }}
         >
-          {footerLinks.map((link, index) => (
+          <Box
+            component="button"
+            type="button"
+            onClick={() => setTutorialOpen(true)}
+            sx={{
+              p: 0,
+              border: 0,
+              bgcolor: "transparent",
+              color: "inherit",
+              font: "inherit",
+              lineHeight: "inherit",
+              cursor: "pointer",
+              textDecoration: "none",
+              "&:hover": {
+                color: "primary.main",
+                textDecoration: "underline",
+              },
+              "&:focus-visible": {
+                outline: "2px solid",
+                outlineColor: "primary.main",
+                outlineOffset: 2,
+                borderRadius: 0.5,
+              },
+            }}
+          >
+            Tutorial
+          </Box>
+          {footerLinks.map((link) => (
             <Fragment key={link.href}>
-              {index > 0 && (
-                <Box component="span" aria-hidden sx={{ opacity: 0.55 }}>
-                  /
-                </Box>
-              )}
+              <Box component="span" aria-hidden sx={{ opacity: 0.55 }}>
+                /
+              </Box>
               <Box
                 component="a"
                 href={link.href}

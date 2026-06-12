@@ -29,39 +29,49 @@ pip install -e ".[dev]"
 import wizardflow
 
 wizardflow.init(
-    path="run.json",                    # where the trace is written
+    output_dir="traces",                # where trace files are written
+    file_prefix="run",                  # optional; defaults to "wizardflow"
     description="A small router-based agent run.",
     nodes=["user_input", "router", "planner", "tool_node", "final_response"],
     edges=[("user_input", "router"), ("router", "planner")],
 )
 
-with wizardflow.message(id="msg-1"):
-    wizardflow.log("router", "llm_input", prompt)    # same node, two payloads ->
-    wizardflow.log("router", "llm_output", output)   #   folded into one step
-    wizardflow.log("tool_node")                       # visited, no payloads
-# message ends here -> run.json written automatically
+# Every log names its message in the first argument.
+wizardflow.log("msg-1", "router", "llm_input", prompt)    # same node, two payloads ->
+wizardflow.log("msg-1", "router", "llm_output", output)   #   folded into one step
+wizardflow.log("msg-1", "tool_node")                       # visited, no payloads
+wizardflow.end_message("msg-1")                            # -> writes the trace
 ```
 
-There is **no `save()`**. The trace is dumped to `path` every time a message
-ends — fit for a chatbot that logs continuously with no natural "end".
-`init()` returns a client and also stashes it as the module default, so the
-bare `wizardflow.log(...)` form above works.
+There is **no `save()`** and no autosave: `log()` only accumulates in memory,
+and `end_message(id)` is the one call that writes the trace. Writes happen at
+message boundaries — one write per finished message, however many `log()` calls
+it contains. `init()` returns a client and also stashes it as the module
+default, so the bare `wizardflow.log(...)` form above works.
+
+**Concurrency-safe.** Multi-agent setups end messages from many threads/tasks at
+once; an internal lock serializes the mutation-and-write so the shared part file
+is never corrupted and no message is lost or duplicated. The write itself is
+atomic (temp file + `os.replace`), so the file on disk is always a complete,
+valid trace.
 
 ## Targeting a message
 
-A `log` call has to know which message it belongs to (messages can overlap):
+The first argument to `log` is the message id, so overlapping messages never
+collide — interleave them freely (as concurrent agents do) and each step routes
+to the right message:
 
 ```python
-# ambient: inside a with-block, the id is implicit (scoped per thread/task)
-with wizardflow.message(id="msg-1"):
-    wizardflow.log("classifier", "input", text)
-
-# explicit: name the message, works anywhere (no with-block needed)
-wizardflow.log("classifier", "input", text, id="msg-1")
-wizardflow.end_message("msg-1")          # dump signal for the explicit form
+wizardflow.log("msg-1", "classifier", "input", text_a)
+wizardflow.log("msg-2", "classifier", "input", text_b)   # a different message
+wizardflow.log("msg-1", "generator", "output", answer_a)
+wizardflow.end_message("msg-1")          # writes msg-1
+wizardflow.end_message("msg-2")          # writes msg-2
 ```
 
-Pass the **string `id`**, never a handle object — safe to hand to a callback.
+Pass the **string `id`**, never a handle object — safe to hand to a callback or
+across threads. A message is created on first reference and finalized by
+`end_message`; `end_message(id, title="...")` optionally gives it a human title.
 
 ## LangGraph: automatic topology
 
@@ -71,10 +81,10 @@ LangGraph app:
 ```python
 app = workflow.compile(checkpointer=memory)
 
-wizardflow.init_from_langgraph(app, path="trace.json")
+wizardflow.init_from_langgraph(app, output_dir="traces", file_prefix="trace")
 
-with wizardflow.message(id="msg-1"):
-    wizardflow.log("planner", "Input", state)     # runtime logging unchanged
+wizardflow.log("msg-1", "planner", "Input", state)   # runtime logging unchanged
+wizardflow.end_message("msg-1")
 ```
 
 You can keep the extracted LangGraph topology and still choose node accent
@@ -83,7 +93,8 @@ colors for important nodes:
 ```python
 wizardflow.init_from_langgraph(
     app,
-    path="trace.json",
+    output_dir="traces",
+    file_prefix="trace",
     node_colors={
         "router": "#A78BFA",
         "retriever": "#22D3EE",
@@ -117,57 +128,69 @@ metadata never fails extraction (the edge is just emitted plain). Call it
 
 ## API (v0.1)
 
-- `init(path=, name=, description=, nodes=, edges=, meta=, silent=False, max_bytes=5_000_000) -> Client`
+- `init(output_dir=, file_prefix="wizardflow", name=, description=, nodes=, edges=, meta=, silent=False, max_bytes=256_000) -> Client`
   - `description` lands in `meta.description` (matches the schema field).
   - `nodes=` enables fast-fail: `log()` to an undeclared node raises
     `UnknownNodeError` immediately (unless silenced).
-  - `path` is optional; omitted, parts are written as `wizardflow_*.json` in cwd.
+  - `output_dir` is optional; omitted, traces are written in cwd.
+  - `file_prefix` is optional; omitted, filenames start with `wizardflow`.
   - `max_bytes` caps each part file before rotation (see below).
-- `init_from_langgraph(app, path=, name=, description=, meta=, node_colors=, silent=False, max_bytes=...) -> Client`
+- `init_from_langgraph(app, output_dir=, file_prefix="wizardflow", name=, description=, meta=, node_colors=, silent=False, max_bytes=...) -> Client`
   - same as `init`, but `nodes`/`edges` come from `app.get_graph()`.
   - `node_colors` maps extracted node ids to CSS colors such as `"#A78BFA"`.
-- `message(id, label=None, silent=None)` — context manager; on exit it ends the
-  message and dumps. `silent` overrides the client default for this scope.
-- `log(node, label=None, content=None, id=None)` — first positional is the node.
-  `id=` overrides the ambient message; omitted uses the current `with` message;
-  neither raises. Bare `log("node")` records a visit with no payloads.
-- `end_message(id)` — mark a message complete and dump; returns the part path.
-  Idempotent.
-- `Client.current_path` — the part file currently being written (timestamped).
+- `log(id, node, label=None, content=None)` — the first positional is the
+  **message id**, the second is the node. With `label`/`content` it records a
+  payload; bare `log(id, "node")` records a visit with no payloads. The message
+  is created on first reference; this only accumulates in memory.
+- `end_message(id, title=None)` — finalize a message and write the trace;
+  returns the current trace path. The **only** call that touches disk. Optional `title`
+  sets the message's human title. Idempotent.
+- `Client.current_path` — the trace file currently being written.
 - `to_dict()` / `to_json()` — inspect the active part (completed messages).
 
 ### How saving works
 
-`end_message` (and a `with` block's exit) triggers an **atomic write**: write to
-`<part>.tmp`, then `os.replace` over the part file. The file is always a
-complete, loadable `AgentTraceFile`. Only **completed** messages are written; an
-in-progress message lives in memory until it ends.
+`end_message` triggers an **atomic write**: write to `<part>.tmp`, then
+`os.replace` over the part file. The file is always a complete, loadable
+`AgentTraceFile`. Only **completed** messages are written; an in-progress
+message lives in memory until it ends.
 
 ### Rotation (no single huge file)
 
 There's no natural "end" to a chatbot trace, so the SDK caps file size instead.
-Each run writes **numbered part files** whose name carries the run-start time:
+Each run writes a timestamped entry file whose name carries the run-start time:
 
 ```
-wizardflow_2026-06-08T16-29-09_001.json
-wizardflow_2026-06-08T16-29-09_002.json
+wizardflow__2026-06-08T16-29-09-123Z.json
 ```
 
-The name's `wizardflow` is the stem of the `path` you passed. When the active
-part would exceed `max_bytes` (~5 MB by default), it's sealed and the next
-message starts a fresh part — rotation only ever happens at a **message
-boundary**, never mid-message (a lone message larger than the cap gets its own
-oversized part). Each part is a **self-contained, valid trace** (full graph +
-its slice of messages), chained via `meta`:
+The name's `wizardflow` is the `file_prefix`; the timestamp is captured when
+`init()` creates the client. If the active part would exceed `max_bytes` (~256
+KB by default), it's sealed and the next message starts a fresh part:
+
+```
+wizardflow__2026-06-08T16-29-09-123Z.json
+wizardflow__2026-06-08T16-29-09-123Z__part2.json
+wizardflow__2026-06-08T16-29-09-123Z__part3.json
+```
+
+Rotation only ever happens at a **message boundary**, never mid-message (a lone
+message larger than the cap gets its own oversized part). A smaller cap keeps
+each rewrite — and the write lock held across it — short, which matters when
+many agents end messages concurrently; raise it for fewer files at the cost of
+heavier rewrites. `max_bytes` is clamped to a hard ceiling (1 MB) so an
+accidental huge value can't stall concurrent writers. Each part is a
+**self-contained, valid trace** (full graph + its slice of messages), chained
+via `meta`:
 
 ```json
-"meta": { "part": 2, "prevPart": "..._001.json", "nextPart": "..._003.json" }
+"meta": { "part": 2, "prevPart": "...Z.json", "nextPart": "...__part3.json" }
 ```
 
 A single-part trace stays clean (no `part` metadata). There's no `partCount` —
 the total is genuinely unknown while a continuous run is still logging; follow
 `nextPart` to walk to the end. Since names are timestamped, read the real file
-back from `wiz.current_path`, not the literal `path` you passed.
+back from `wiz.current_path`.
 
 ### Logging
 
@@ -196,12 +219,12 @@ itself and prints the path; load that file in the visualizer). They add `src/`
 to the path, so no install is needed:
 
 ```bash
-python examples/quickstart.py     # linear flow + ambient and id= targeting
+python examples/quickstart.py     # linear flow, two messages, optional title
 python examples/multibranch.py    # branching graph, two messages, two paths
 ```
 
-- **`quickstart.py`** — a small linear agent; shows both the `with`-block
-  (ambient) and explicit `id=` ways to target a message.
+- **`quickstart.py`** — a small linear agent; two messages, the second one
+  finalized with an `end_message(..., title=...)` title.
 - **`multibranch.py`** — `router` fans out into a planner/tool path and a
   retriever path that rejoin at `generator`. Two messages take different
   branches, so each logs only the nodes it actually visited.
@@ -305,5 +328,6 @@ fast-fail, …).
 - **Timestamps** are wall-clock at log time — fine for slow/live runs, wrong if
   steps fire faster than ms resolution or you import after the fact. (Open
   design item: explicit per-step timestamps.)
-- No async-callback context propagation beyond standard `contextvars`; log from
-  a foreign task/thread via the explicit `id=` form.
+- Messages are addressed by an explicit string `id` on every `log`, so logging
+  from any thread or async task works with no context propagation to set up —
+  just pass the same id.

@@ -5,11 +5,65 @@ export type NodePosition = { x: number; y: number };
 export const NODE_WIDTH = 144;
 export const NODE_HEIGHT = 48;
 
-const COLUMN_GAP = 52; // horizontal space between layers
+const COLUMN_GAP = 28; // horizontal space between layers
 const ROW_GAP = 28; // vertical space between nodes in the same layer
+const LINEAR_SNAKE_THRESHOLD = 6;
+const LINEAR_SNAKE_COLUMNS = 6;
+
+function getLinearChain(
+  ids: string[],
+  outgoing: Map<string, string[]>,
+  indegree: Map<string, number>
+): string[] | null {
+  if (ids.length <= LINEAR_SNAKE_THRESHOLD) return null;
+
+  let start: string | undefined;
+  let endCount = 0;
+  for (const id of ids) {
+    const incoming = indegree.get(id) ?? 0;
+    const next = outgoing.get(id) ?? [];
+    if (incoming > 1 || next.length > 1) return null;
+    if (incoming === 0) {
+      if (start) return null;
+      start = id;
+    }
+    if (next.length === 0) endCount++;
+  }
+  if (!start || endCount !== 1) return null;
+
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  let current: string | undefined = start;
+  while (current) {
+    if (seen.has(current)) return null;
+    seen.add(current);
+    ordered.push(current);
+    current = outgoing.get(current)?.[0];
+  }
+
+  return ordered.length === ids.length ? ordered : null;
+}
+
+function layoutLinearSnake(chain: string[]): Map<string, NodePosition> {
+  const positions = new Map<string, NodePosition>();
+  chain.forEach((id, index) => {
+    const row = Math.floor(index / LINEAR_SNAKE_COLUMNS);
+    const offset = index % LINEAR_SNAKE_COLUMNS;
+    const col =
+      row % 2 === 0 ? offset : LINEAR_SNAKE_COLUMNS - 1 - offset;
+    positions.set(id, {
+      x: col * (NODE_WIDTH + COLUMN_GAP),
+      y: row * (NODE_HEIGHT + ROW_GAP),
+    });
+  });
+  return positions;
+}
 
 /**
  * Assign each node an (x, y) using a simple left-to-right layered layout.
+ *
+ * Purely linear flows longer than LINEAR_SNAKE_THRESHOLD wrap into a snake so
+ * the full flow stays readable without zooming far out.
  *
  * Layers come from a longest-path topological ranking: a node sits one column
  * to the right of its latest predecessor. Within a column, nodes are stacked and
@@ -33,6 +87,9 @@ export function layoutGraph(
     outgoing.get(edge.source)!.push(edge.target);
     indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
   }
+
+  const linearChain = getLinearChain(ids, outgoing, indegree);
+  if (linearChain) return layoutLinearSnake(linearChain);
 
   const level = new Map<string, number>();
   for (const id of ids) level.set(id, 0);

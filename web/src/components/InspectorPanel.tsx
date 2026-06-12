@@ -64,7 +64,11 @@ export default function InspectorPanel({
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <Box sx={{ px: 2, pt: 1.5 }}>
-        <Typography variant="overline" color="text.secondary">
+        <Typography
+          variant="overline"
+          color="text.secondary"
+          sx={{ display: "block", overflowWrap: "anywhere", lineHeight: 1.4 }}
+        >
           {selectedNodeLabel ?? selectedNodeId}
         </Typography>
       </Box>
@@ -113,6 +117,7 @@ export default function InspectorPanel({
             sx={{
               display: "flex",
               alignItems: "center",
+              flexWrap: "wrap",
               gap: 1.25,
               fontVariantNumeric: "tabular-nums",
               letterSpacing: 0.2,

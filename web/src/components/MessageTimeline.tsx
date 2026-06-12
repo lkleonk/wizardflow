@@ -27,10 +27,11 @@ export default function MessageTimeline({
     <Box
       sx={{
         display: "flex",
-        gap: 1,
-        px: 2,
-        py: 1,
+        gap: { xs: 0.75, sm: 1 },
+        px: { xs: 1, sm: 2 },
+        py: { xs: 0.5, sm: 1 },
         overflowX: "auto",
+        WebkitOverflowScrolling: "touch",
         borderBottom: 1,
         borderColor: "divider",
       }}
@@ -67,7 +68,7 @@ export default function MessageTimeline({
             variant={selected ? "filled" : "outlined"}
             color={selected ? "primary" : "default"}
             size="small"
-            sx={{ maxWidth: 320 }}
+            sx={{ maxWidth: { xs: 240, sm: 320 } }}
           />
         );
 

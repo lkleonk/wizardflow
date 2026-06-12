@@ -63,7 +63,7 @@ export function getPayloadsForNode(
 
 // Labels (case-insensitive) we treat as the message's entry input, in priority
 // order, when deriving a timeline-chip preview. This is only a fallback — a dev
-// can set the message's title explicitly (SDK `message_title`), which the UI
+// can set the message's title explicitly (SDK `end_message(..., title=...)`), which the UI
 // uses verbatim and never reaches this heuristic.
 const PREFERRED_INPUT_LABELS = ["input", "msg", "message", "query", "question"];
 

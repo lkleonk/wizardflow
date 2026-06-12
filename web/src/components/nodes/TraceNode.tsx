@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { Fragment, memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import styles from "./TraceNode.module.css";
 
@@ -12,6 +12,13 @@ export type TraceNodeData = {
   recencyRank: number;
   selected: boolean;
 };
+
+const handleSides = [
+  { id: "left", position: Position.Left },
+  { id: "right", position: Position.Right },
+  { id: "top", position: Position.Top },
+  { id: "bottom", position: Position.Bottom },
+] as const;
 
 // Glow falls off with recency; the most recent node glows most.
 function recentGlow(accent: string, rank: number): string {
@@ -58,12 +65,26 @@ function TraceNode({ data }: NodeProps) {
         }
       }
     >
-      <Handle type="target" position={Position.Left} className={styles.handle} />
+      {handleSides.map(({ id, position }) => (
+        <Fragment key={id}>
+          <Handle
+            id={`target-${id}`}
+            type="target"
+            position={position}
+            className={styles.handle}
+          />
+          <Handle
+            id={`source-${id}`}
+            type="source"
+            position={position}
+            className={styles.handle}
+          />
+        </Fragment>
+      ))}
       <div className={styles.surface}>
         <span className={styles.dot} style={{ background: accent }} />
         {label}
       </div>
-      <Handle type="source" position={Position.Right} className={styles.handle} />
     </div>
   );
 }

@@ -5,20 +5,18 @@ WizardFlow visualizer replays.
 
     import wizardflow
 
-    wizardflow.init(path="run.json", nodes=graph.nodes)
+    wizardflow.init(output_dir="traces", nodes=graph.nodes)
 
-    with wizardflow.message(id="msg-1"):
-        wizardflow.log("classifier", "input", text)
-        wizardflow.log("generator", "output", answer)
-    # message ends here -> trace dumped to run.json automatically
+    wizardflow.log("msg-1", "classifier", "input", text)
+    wizardflow.log("msg-1", "generator", "output", answer)
+    wizardflow.end_message("msg-1")   # <- writes the trace
 
-There is no ``save()`` call: the trace is written to ``path`` every time a
-message ends. ``init`` returns a client and also stashes it as the module
-default, so the bare ``wizardflow.log(...)`` form above works.
-
-Targeting a message:
-  - inside a ``with wizardflow.message(id=...)`` block, ``log`` needs no id.
-  - anywhere else, pass it: ``wizardflow.log("gen", "out", x, id="msg-1")``.
+There is no ``save()`` call and no autosave: ``log`` only accumulates in memory,
+and :func:`end_message` is the one thing that writes the trace. The first
+argument to ``log`` names the message a step belongs to, so overlapping messages
+(common in concurrent multi-agent runs) never collide. ``init`` returns a client
+and also stashes it as the module default, so the bare ``wizardflow.log(...)``
+form above works.
 """
 
 from __future__ import annotations
@@ -34,7 +32,7 @@ from .client import (
     UnknownNodeError,
     WizardFlowError,
 )
-from .constants import Logging, Output, Rotation
+from .constants import Defaults, Logging, Output, Rotation
 
 # Library convention: attach a NullHandler so we emit nothing unless the host
 # app configures logging. Notices (e.g. part rotation) go to the "wizardflow"
@@ -44,7 +42,6 @@ logging.getLogger(Logging.LOGGER_NAME).addHandler(logging.NullHandler())
 __all__ = [
     "init",
     "init_from_langgraph",
-    "message",
     "log",
     "end_message",
     "to_dict",
@@ -60,7 +57,8 @@ _default: Optional[Client] = None
 
 
 def init(
-    path: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    file_prefix: str = Defaults.PREFIX,
     name: Optional[str] = None,
     description: Optional[str] = None,
     nodes: Optional[Iterable[NodeSpec]] = None,
@@ -72,7 +70,8 @@ def init(
     """Create a recording client and set it as the module default."""
     global _default
     _default = Client(
-        path=path,
+        output_dir=output_dir,
+        file_prefix=file_prefix,
         name=name,
         description=description,
         nodes=nodes,
@@ -86,7 +85,8 @@ def init(
 
 def init_from_langgraph(
     app: Any,
-    path: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    file_prefix: str = Defaults.PREFIX,
     name: Optional[str] = None,
     description: Optional[str] = None,
     meta: Optional[Dict[str, Any]] = None,
@@ -102,7 +102,8 @@ def init_from_langgraph(
     global _default
     _default = Client.from_langgraph(
         app,
-        path=path,
+        output_dir=output_dir,
+        file_prefix=file_prefix,
         name=name,
         description=description,
         meta=meta,
@@ -121,22 +122,17 @@ def get_default() -> Client:
 
 # --- module-level delegation to the default client ------------------------
 
-def message(id: str, label: Optional[str] = None, silent: Optional[bool] = None):
-    return get_default().message(id=id, label=label, silent=silent)
-
-
 def log(
+    id: str,
     node: str,
     label: Optional[str] = None,
     content: Any = None,
-    *,
-    id: Optional[str] = None,
 ) -> None:
-    get_default().log(node, label, content, id=id)
+    get_default().log(id, node, label, content)
 
 
-def end_message(id: str) -> str:
-    return get_default().end_message(id)
+def end_message(id: str, title: Optional[str] = None) -> str:
+    return get_default().end_message(id, title=title)
 
 
 def to_dict() -> Dict[str, Any]:

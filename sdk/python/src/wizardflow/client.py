@@ -7,8 +7,8 @@ The output of :meth:`Client.to_dict` is an ``AgentTraceFile`` (schema version
 Persistence model: there is no explicit "save" in user code. A trace is dumped
 every time a message ends, via :meth:`Client.end_message` — an atomic write
 (temp file + os.replace) containing only *completed* messages. When the active
-part grows past ``max_bytes`` it rotates to a new numbered part file; each part
-is a self-contained trace, chained via ``meta.prevPart`` / ``meta.nextPart``.
+part grows past ``max_bytes`` it rotates to a new ``__partN`` file; each part is
+a self-contained trace, chained via ``meta.prevPart`` / ``meta.nextPart``.
 """
 
 from __future__ import annotations
@@ -16,10 +16,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from contextlib import contextmanager
-from contextvars import ContextVar
+import threading
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 
 from .constants import Defaults, Ids, Logging, Output, Rotation, Schema
 
@@ -45,14 +44,6 @@ class LangGraphExtractionError(WizardFlowError):
     """Raised when topology can't be read from a LangGraph-like object."""
 
 
-# The message that ambient ``log()`` calls target, scoped per-thread and
-# per-asyncio-task so overlapping messages never collide. An explicit ``id=``
-# on ``log`` overrides this.
-_current_message: ContextVar[Optional["_Message"]] = ContextVar(
-    "wizardflow_current_message", default=None
-)
-
-
 # --- internal types -------------------------------------------------------
 
 NodeSpec = Union[str, Dict[str, Any]]
@@ -69,16 +60,18 @@ def _now_iso() -> str:
     )
 
 
-def _split_path(path: Optional[str]) -> Tuple[str, str, str]:
-    """Resolve a user ``path`` into (directory, prefix, suffix) for part naming.
+def _run_timestamp() -> str:
+    """Filename-safe UTC timestamp captured once when a client is created."""
+    now = datetime.now(timezone.utc)
+    return (
+        now.strftime(Rotation.RUN_TIMESTAMP_FORMAT)
+        + f"-{now.microsecond // 1000:03d}Z"
+    )
 
-    ``None`` → write ``wizardflow_*.json`` in the current directory.
-    """
-    if not path:
-        return "", Defaults.PREFIX, Defaults.SUFFIX
-    directory = os.path.dirname(path)
-    stem, ext = os.path.splitext(os.path.basename(path))
-    return directory, (stem or Defaults.PREFIX), (ext or Defaults.SUFFIX)
+
+def _resolve_output(output_dir: Optional[str], file_prefix: str) -> Tuple[str, str, str]:
+    """Resolve output options into (directory, prefix, suffix) for part naming."""
+    return output_dir or "", file_prefix or Defaults.PREFIX, Defaults.SUFFIX
 
 
 def _normalize_node(node: NodeSpec) -> Dict[str, Any]:
@@ -213,14 +206,16 @@ class _Message:
 class Client:
     """A WizardFlow recording session.
 
-    Build one with :func:`wizardflow.init`. Record steps inside a
-    :meth:`message` block (or by passing ``id=`` to :meth:`log`); the trace is
-    written to ``path`` automatically whenever a message ends.
+    Build one with :func:`wizardflow.init`. Record steps with ``log(id, node,
+    ...)`` — the first argument names the message a step belongs to — then call
+    :meth:`end_message` to finalize that message and write the trace to
+    ``output_dir``. ``end_message`` is the only thing that touches disk.
     """
 
     def __init__(
         self,
-        path: Optional[str] = None,
+        output_dir: Optional[str] = None,
+        file_prefix: str = Defaults.PREFIX,
         name: Optional[str] = None,
         description: Optional[str] = None,
         nodes: Optional[Iterable[NodeSpec]] = None,
@@ -229,10 +224,18 @@ class Client:
         silent: bool = False,
         max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
     ):
-        self.path = path
         self.name = name
         self.silent = silent
-        self.max_bytes = max_bytes
+        # Clamp to the hard ceiling: an oversized cap means big rewrites and a
+        # long write-lock hold, which stalls concurrent agents.
+        self.max_bytes = min(max_bytes, Rotation.MAX_MAX_BYTES)
+        if max_bytes > Rotation.MAX_MAX_BYTES:
+            logger.warning(
+                "max_bytes %d exceeds the %d ceiling; clamped to %d",
+                max_bytes,
+                Rotation.MAX_MAX_BYTES,
+                self.max_bytes,
+            )
         self.meta: Dict[str, Any] = dict(meta or {})
         if description is not None:
             self.meta.setdefault("description", description)
@@ -244,13 +247,21 @@ class Client:
             {n["id"] for n in self._nodes} if nodes is not None else None
         )
 
+        # Guards all mutation of shared recording state (the message registry,
+        # the active part, the rotation index) and the file write. Reentrant so
+        # a locked public method can call another locked helper. Multi-agent
+        # setups end messages concurrently; without this they race on the shared
+        # part and the shared temp-file path. Only the log()/end_message()
+        # critical sections hold it.
+        self._lock = threading.RLock()
+
         # Insertion-ordered registry of all messages (open + completed).
         self._messages: "Dict[str, _Message]" = {}
 
         # Output is split into part files. We keep only the *active* part in
         # memory; sealed parts have already been written and chained.
-        self._dir, self._prefix, self._suffix = _split_path(path)
-        self._run_ts = datetime.now().strftime(Rotation.PART_TIMESTAMP_FORMAT)
+        self._dir, self._prefix, self._suffix = _resolve_output(output_dir, file_prefix)
+        self._run_ts = _run_timestamp()
         self._active_index = 1
         self._active_part: List[_Message] = []
 
@@ -259,7 +270,8 @@ class Client:
         cls,
         app: Any,
         *,
-        path: Optional[str] = None,
+        output_dir: Optional[str] = None,
+        file_prefix: str = Defaults.PREFIX,
         name: Optional[str] = None,
         description: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
@@ -276,7 +288,8 @@ class Client:
         nodes, edges = _topology_from_langgraph(app)
         nodes = _apply_node_colors(nodes, node_colors, silent=silent)
         return cls(
-            path=path,
+            output_dir=output_dir,
+            file_prefix=file_prefix,
             name=name,
             description=description,
             nodes=nodes,
@@ -288,102 +301,75 @@ class Client:
 
     # --- recording --------------------------------------------------------
 
-    def _get_or_create(
-        self, id: str, label: Optional[str] = None, silent: Optional[bool] = None
-    ) -> _Message:
-        msg = self._messages.get(id)
-        if msg is None:
-            msg = _Message(
-                id, label=label, silent=self.silent if silent is None else silent
-            )
-            self._messages[id] = msg
-        return msg
-
-    @contextmanager
-    def message(
-        self,
-        id: str,
-        label: Optional[str] = None,
-        silent: Optional[bool] = None,
-    ) -> Iterator[_Message]:
-        """Open a message scope. ``log()`` calls inside it (without ``id=``)
-        target this message; the message ends and the trace is dumped on exit.
-        """
-        msg = self._get_or_create(id, label=label, silent=silent)
-        token = _current_message.set(msg)
-        try:
-            yield msg
-        finally:
-            _current_message.reset(token)
-            self.end_message(id)
+    def _get_or_create(self, id: str) -> _Message:
+        with self._lock:
+            msg = self._messages.get(id)
+            if msg is None:
+                msg = _Message(id, label=None, silent=self.silent)
+                self._messages[id] = msg
+            return msg
 
     def log(
         self,
+        id: str,
         node: str,
         label: Optional[str] = None,
         content: Any = None,
-        *,
-        id: Optional[str] = None,
     ) -> None:
-        """Record that ``node`` ran for a message.
+        """Record that ``node`` ran for message ``id``.
 
-        ``id`` given → that message (created on first reference). ``id`` omitted
-        → the current ``with wiz.message(...)`` message. Neither → error.
-        With ``label``/``content`` it logs a payload; bare ``log("node")``
-        records a visit with no payloads.
+        The message is created on first reference. With ``label``/``content`` it
+        logs a payload; a bare ``log(id, "node")`` records a visit with no
+        payloads. Nothing is written to disk here — :meth:`end_message` is what
+        persists the trace.
         """
-        if id is not None:
-            msg = self._get_or_create(id)
-        else:
-            msg = _current_message.get()
-            if msg is None:
+        msg = self._get_or_create(id)
+        with self._lock:
+            if msg.completed:
                 self._fail(
-                    self.silent,
+                    msg.silent,
                     WizardFlowError(
-                        "no active message — pass id= or open a "
-                        "`with wiz.message(id=...)` block"
+                        f"message {id!r} already ended; cannot log to it"
                     ),
                 )
                 return
+            if self._known is not None and node not in self._known:
+                self._fail(
+                    msg.silent,
+                    UnknownNodeError(
+                        f"Unknown node {node!r}. Declared nodes: {sorted(self._known)}"
+                    ),
+                )
+                return
+            try:
+                msg.log(node, label, content)
+            except Exception as exc:  # pragma: no cover - defensive
+                self._fail(msg.silent, exc)
 
-        if msg.completed:
-            self._fail(
-                msg.silent,
-                WizardFlowError(f"message {msg.id!r} already ended; cannot log to it"),
-            )
-            return
-        if self._known is not None and node not in self._known:
-            self._fail(
-                msg.silent,
-                UnknownNodeError(
-                    f"Unknown node {node!r}. Declared nodes: {sorted(self._known)}"
-                ),
-            )
-            return
-        try:
-            msg.log(node, label, content)
-        except Exception as exc:  # pragma: no cover - defensive
-            self._fail(msg.silent, exc)
+    def end_message(self, id: str, title: Optional[str] = None) -> str:
+        """Finalize message ``id`` and write the active part. Returns its path.
 
-    def end_message(self, id: str) -> str:
-        """Mark a message complete and write the active part. Returns its path.
-
+        This is the **only** thing that writes to disk; :meth:`log` just
+        accumulates in memory. Optional ``title`` sets the message's human title.
         If the active part would exceed ``max_bytes``, it is sealed and the
         message starts a fresh part (rotation happens only at message
-        boundaries). Idempotent: a `with` block plus a manual end won't dump twice.
+        boundaries). Idempotent: a second end on the same id won't dump twice.
         """
-        msg = self._messages.get(id)
-        if msg is None:
-            self._fail(
-                self.silent, WizardFlowError(f"end_message: unknown message {id!r}")
-            )
+        with self._lock:
+            msg = self._messages.get(id)
+            if msg is None:
+                self._fail(
+                    self.silent, WizardFlowError(f"end_message: unknown message {id!r}")
+                )
+                return self.current_path
+            if not msg.completed:
+                if title is not None:
+                    msg.label = title
+                msg.completed = True
+                self._active_part.append(msg)
+                self._rotate_if_needed()
+                self._write_part(self._active_index, self._active_part, has_next=False)
             return self.current_path
-        if not msg.completed:
-            msg.completed = True
-            self._active_part.append(msg)
-            self._rotate_if_needed()
-            self._write_part(self._active_index, self._active_part, has_next=False)
-        return self.current_path
 
     @staticmethod
     def _fail(silent: bool, exc: Exception) -> None:
@@ -394,16 +380,23 @@ class Client:
 
     @property
     def current_path(self) -> str:
-        """Path of the part currently being written (timestamped, numbered)."""
+        """Path of the part currently being written."""
         return self._part_filename(self._active_index)
 
     def _part_filename(self, index: int) -> str:
-        name = Rotation.PART_NAME_FORMAT.format(
-            prefix=self._prefix,
-            timestamp=self._run_ts,
-            index=index,
-            suffix=self._suffix,
-        )
+        if index == 1:
+            name = Rotation.RUN_NAME_FORMAT.format(
+                prefix=self._prefix,
+                timestamp=self._run_ts,
+                suffix=self._suffix,
+            )
+        else:
+            name = Rotation.PART_NAME_FORMAT.format(
+                prefix=self._prefix,
+                timestamp=self._run_ts,
+                index=index,
+                suffix=self._suffix,
+            )
         return os.path.join(self._dir, name) if self._dir else name
 
     def _rotate_if_needed(self) -> None:
@@ -419,7 +412,7 @@ class Client:
         self._active_index += 1
         self._active_part = [overflow]
         logger.info(
-            "part %03d exceeded %d bytes; rotated to %s",
+            "part %d exceeded %d bytes; rotated to %s",
             sealed,
             self.max_bytes,
             os.path.basename(self.current_path),
@@ -427,7 +420,10 @@ class Client:
 
     def to_dict(self) -> Dict[str, Any]:
         """Return the active part as an ``AgentTraceFile`` dict (completed msgs)."""
-        return self._render_part(self._active_index, self._active_part, has_next=False)
+        with self._lock:
+            return self._render_part(
+                self._active_index, self._active_part, has_next=False
+            )
 
     def to_json(self, *, indent: Optional[int] = Output.DEFAULT_INDENT) -> str:
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
@@ -467,6 +463,8 @@ class Client:
         path = self._part_filename(index)
         payload = self._render_json(index, messages, has_next=has_next)
         tmp = path + Output.TMP_SUFFIX
+        if self._dir:
+            os.makedirs(self._dir, exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(payload)
         os.replace(tmp, path)  # atomic on the same filesystem
