@@ -7,5 +7,7 @@ dist/
 .pytest_cache/
 .venv/
 venv/
-# Generated traces (incl. examples/quickstart.json) — regenerated, not tracked.
-*.json
+# Generated traces from the example scripts (e.g. examples/quickstart.json) —
+# regenerated on each run, not tracked. Scoped to examples/ so it never touches
+# the embedded UI bundle (src/wizardflow/_ui/), which must ship in the package.
+/examples/*.json
