@@ -5,7 +5,7 @@ file format (schema `0.1`) that the WizardFlow visualizer replays.
 
 Website: **[getwizardflow.com](https://getwizardflow.com)**
 
-![WizardFlow replaying an agent run](assets/demo.gif)
+![WizardFlow replaying an agent run](https://raw.githubusercontent.com/lkleonk/wizardflow/main/sdk/python/assets/demo.gif)
 
 The JSON this SDK produces matches `src/types/agenttrace.ts` in the main repo
 (`graph { nodes, edges }` + `messages[] → steps[] → payloads[] { label, value }`).
