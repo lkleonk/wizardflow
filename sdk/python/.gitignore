@@ -7,6 +7,9 @@ dist/
 .pytest_cache/
 .venv/
 venv/
+# uv resolves this in CI (uv run / uv build); a zero-dependency library doesn't
+# ship a lockfile, and tracking it would only sweep it into the sdist.
+uv.lock
 # Generated traces from the example scripts (e.g. examples/quickstart.json) —
 # regenerated on each run, not tracked. Scoped to examples/ so it never touches
 # the embedded UI bundle (src/wizardflow/_ui/), which must ship in the package.

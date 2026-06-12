@@ -1,14 +1,17 @@
 # WizardFlow Python SDK
 
-Record agent flows from your Python code and write them to the **AgentTrace**
-file format (schema `0.1`) that the WizardFlow visualizer replays.
-
-Website: **[getwizardflow.com](https://getwizardflow.com)**
+**A lightweight tracer for Python agents.** Drop three calls into your code —
+`init`, `log`, `end_message` — and turn a messy multi-agent run into a portable
+trace you can replay as an interactive graph or export to Markdown/HTML. Because
+the trace is just a JSON file, anyone can replay it: hand it to a teammate or PM
+and they drop it into **[getwizardflow.com](https://getwizardflow.com)** in the
+browser — no Python, no install. Lightweight by design: pure Python, **zero
+runtime dependencies**, no daemon, no setup.
 
 ![WizardFlow replaying an agent run](https://raw.githubusercontent.com/lkleonk/wizardflow/main/sdk/python/assets/demo.gif)
 
-The JSON this SDK produces matches `src/types/agenttrace.ts` in the main repo
-(`graph { nodes, edges }` + `messages[] → steps[] → payloads[] { label, value }`).
+The JSON it produces is a small, documented schema: a `graph { nodes, edges }`
+plus `messages[] → steps[] → payloads[] { label, value }`.
 
 ## Install
 
@@ -16,12 +19,8 @@ The JSON this SDK produces matches `src/types/agenttrace.ts` in the main repo
 pip install wizardflow
 ```
 
-No runtime dependencies. To work against a local checkout instead:
-
-```bash
-cd sdk/python
-pip install -e ".[dev]"
-```
+No runtime dependencies. Developing the SDK itself? See
+[CONTRIBUTING.md](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/CONTRIBUTING.md).
 
 ## Quickstart
 
@@ -51,9 +50,8 @@ default, so the bare `wizardflow.log(...)` form above works.
 
 **Concurrency-safe.** Multi-agent setups end messages from many threads/tasks at
 once; an internal lock serializes the mutation-and-write so the shared part file
-is never corrupted and no message is lost or duplicated. The write itself is
-atomic (temp file + `os.replace`), so the file on disk is always a complete,
-valid trace.
+is never corrupted and no message is lost or duplicated. Each write is atomic, so
+the file on disk is always a complete, valid trace.
 
 ## Targeting a message
 
@@ -190,7 +188,7 @@ via `meta`:
 A single-part trace stays clean (no `part` metadata). There's no `partCount` —
 the total is genuinely unknown while a continuous run is still logging; follow
 `nextPart` to walk to the end. Since names are timestamped, read the real file
-back from `wiz.current_path`.
+back from the client's `current_path` (also the path `end_message` returns).
 
 ### Logging
 
@@ -208,28 +206,19 @@ This is separate from `silent=` (which governs raise-vs-swallow for *errors*).
 ### Step folding
 
 Consecutive `log()` calls to the **same** node within a message fold into a
-single step with multiple payloads (matching the sample data, where e.g. the
-router step carries both `llm_input` and `llm_output`). A `log()` to a
-different node starts a new step.
+single step with multiple payloads (e.g. a router step carrying both
+`llm_input` and `llm_output`). A `log()` to a different node starts a new step.
 
 ## Examples
 
-Runnable scripts in `examples/` (each writes a timestamped part file next to
-itself and prints the path; load that file in the visualizer). They add `src/`
-to the path, so no install is needed:
+Fuller runnable examples live in
+[`examples/`](https://github.com/lkleonk/wizardflow/tree/main/sdk/python/examples):
 
-```bash
-python examples/quickstart.py     # linear flow, two messages, optional title
-python examples/multibranch.py    # branching graph, two messages, two paths
-```
-
-- **`quickstart.py`** — a small linear agent; two messages, the second one
-  finalized with an `end_message(..., title=...)` title.
+- **`quickstart.py`** — a small linear agent; two messages, the second finalized
+  with an `end_message(..., title=...)` title.
 - **`multibranch.py`** — `router` fans out into a planner/tool path and a
   retriever path that rejoin at `generator`. Two messages take different
   branches, so each logs only the nodes it actually visited.
-
-The generated `.json` files are gitignored (regenerated on each run).
 
 ## CLI
 
@@ -294,40 +283,11 @@ light/dark mode. Messages-only by design: no graph/Mermaid (use `md` for that).
 | --- | --- | --- |
 | `-o`, `--output` | — | write to this file instead of stdout |
 
-Rendered samples of both formats live in `examples/` (`*.md`, `*.html`).
-
-### Refreshing the bundled UI
-
-The bundled UI lives in `src/wizardflow/_ui/` and is committed so a standalone
-SDK checkout works without the website source or a Node build step. Maintainers
-can refresh that bundle from the monorepo frontend after UI changes:
-
-```bash
-python scripts/build_ui.py
-```
-
-That script runs the shared Next frontend with
-`NEXT_PUBLIC_WIZARDFLOW_TARGET=local`, copies the static export into
-`src/wizardflow/_ui/`, and removes hosted-only legal route artifacts. The SDK UI
-keeps the GitHub project link but does not include `Impressum` or `Datenschutz`.
-
-## Tests
-
-```bash
-pip install pytest      # declared under the [dev] extra
-pytest                  # from sdk/python/
-```
-
-`tests/conftest.py` puts `src/` on the path, so the suite runs without an
-install. The tests pin the emitted schema shape and the recording semantics
-(folding, completed-only persistence, atomic write, `id=` targeting, unknown-node
-fast-fail, …).
+Rendered samples (`*.md`, `*.html`) live in the [repo's
+`examples/`](https://github.com/lkleonk/wizardflow/tree/main/sdk/python/examples).
 
 ## Status / not yet
 
 - **Timestamps** are wall-clock at log time — fine for slow/live runs, wrong if
   steps fire faster than ms resolution or you import after the fact. (Open
   design item: explicit per-step timestamps.)
-- Messages are addressed by an explicit string `id` on every `log`, so logging
-  from any thread or async task works with no context propagation to set up —
-  just pass the same id.
