@@ -32,9 +32,9 @@ export function LocalDataDetails() {
   return (
     <Box sx={{ display: "grid", gap: 1.5, textAlign: "left" }}>
       <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
-        WizardFlow runs as a static browser app. Imported JSON is parsed in this
-        tab and stored only in this tab&apos;s sessionStorage; there is no upload
-        step or server-side processing.
+        WizardFlow runs as a static browser app. An imported trace is parsed in
+        this tab and stored only in this tab&apos;s sessionStorage; there is no
+        upload step or server-side processing.
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
         For extra assurance, you can cut the tab&apos;s connection after opening
@@ -89,8 +89,9 @@ export default function TutorialDialog({ open, onClose }: TutorialDialogProps) {
               color="text.secondary"
               sx={{ lineHeight: 1.7 }}
             >
-              Upload a WizardFlow JSON file, browse a bundled example, or create
-              a trace with the Python SDK and open it in the viewer.
+              Upload a WizardFlow trace file (.jsonl or .json), browse a bundled
+              example, or create a trace with the Python SDK and open it in the
+              viewer.
             </Typography>
             <Box
               component="pre"
