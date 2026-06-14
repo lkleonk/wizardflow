@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://wizardflow.com";
 
 const description =
-  "WizardFlow is a browser-based viewer for agent runs. Upload a JSON " +
+  "WizardFlow is a browser-based viewer for agent runs. Upload a trace " +
   "file to replay an agent flow step by step — message timeline, ordered " +
   "node execution, live graph activity, and full payload inspection. " +
   "Everything runs locally; no data leaves your browser.";
