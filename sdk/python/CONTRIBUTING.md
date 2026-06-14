@@ -23,15 +23,16 @@ pytest
 ```
 
 The tests pin the emitted schema shape and the recording semantics (step
-folding, completed-only persistence, atomic write, `id=` targeting, unknown-node
-fast-fail, …).
+folding, completed-only persistence, append-only durability, `id=` targeting,
+unknown-node fast-fail, …).
 
 ## Schema contract
 
-The JSON this SDK serializes to is defined by `src/types/agenttrace.ts` in the
-monorepo frontend — that TypeScript type is the schema of record. Change it and
-the serializer (`src/wizardflow/client.py`) plus its tests must change in
-lockstep; they must not drift.
+The JSONL this SDK serializes to is defined by `src/types/agenttrace.ts` in the
+monorepo frontend — that TypeScript type (including the `header` / `message` /
+`seal` record types) is the schema of record. Change it and the serializer
+(`src/wizardflow/client.py`) plus the reader (`src/wizardflow/reader.py`) and
+their tests must change in lockstep; they must not drift.
 
 ## Refreshing the bundled UI
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>multibranch.json</title>
+<title>multibranch</title>
 <style>
 :root { color-scheme: light dark; }
 body {
@@ -52,53 +52,53 @@ pre code { background: none; padding: 0; }
 </head>
 <body>
 <main>
-<h1>multibranch.json</h1>
+<h1>multibranch</h1>
 <blockquote>Branching router agent: a tool path and a retrieval path that rejoin.</blockquote>
 <table class="meta">
-<tr><th>version</th><td>0.1</td></tr>
+<tr><th>version</th><td>0.2</td></tr>
 </table>
 <section class="message">
-<h2>msg-1</h2>
+<h2>Weather in Berlin</h2>
 <section class="step">
-<h3>user_input <span class="time">· 11:49:15</span></h3>
+<h3>user_input <span class="time">· 21:39:58</span></h3>
 <p class="scalar"><span class="label">Input</span> <code>What&#x27;s the weather in Berlin?</code></p>
 </section>
 <section class="step">
-<h3>router <span class="time">· 11:49:15</span></h3>
+<h3>router <span class="time">· 21:39:58</span></h3>
 <p class="scalar"><span class="label">llm_input</span> <code>Pick a route for the request...</code></p>
 <p class="scalar"><span class="label">llm_output</span> <code>{&quot;route&quot;: &quot;planner&quot;, &quot;confidence&quot;: 0.92}</code></p>
 </section>
 <section class="step">
-<h3>planner <span class="time">· 11:49:15</span></h3>
+<h3>planner <span class="time">· 21:39:58</span></h3>
 <p class="scalar"><span class="label">llm_input</span> <code>Decompose into tool calls...</code></p>
 <p class="scalar"><span class="label">llm_output</span> <code>{&quot;plan&quot;: [&quot;weather_api(city=&#x27;Berlin&#x27;)&quot;]}</code></p>
 </section>
 <section class="step">
-<h3>tool_node <span class="time">· 11:49:15</span></h3>
+<h3>tool_node <span class="time">· 21:39:58</span></h3>
 </section>
 <section class="step">
-<h3>generator <span class="time">· 11:49:15</span></h3>
+<h3>generator <span class="time">· 21:39:58</span></h3>
 <p class="scalar"><span class="label">llm_input</span> <code>Answer using the tool result...</code></p>
 <p class="scalar"><span class="label">llm_output</span> <code>It&#x27;s 19C and partly cloudy in Berlin.</code></p>
 </section>
 <section class="step">
-<h3>final_response <span class="time">· 11:49:15</span></h3>
+<h3>final_response <span class="time">· 21:39:58</span></h3>
 <p class="scalar"><span class="label">Output</span> <code>It&#x27;s 19C and partly cloudy in Berlin.</code></p>
 </section>
 </section>
 <section class="message">
-<h2>msg-2</h2>
+<h2>Summarize research paper</h2>
 <section class="step">
-<h3>user_input <span class="time">· 11:49:15</span></h3>
+<h3>user_input <span class="time">· 21:39:58</span></h3>
 <p class="scalar"><span class="label">Input</span> <code>Summarize the attached research paper.</code></p>
 </section>
 <section class="step">
-<h3>router <span class="time">· 11:49:15</span></h3>
+<h3>router <span class="time">· 21:39:58</span></h3>
 <p class="scalar"><span class="label">llm_input</span> <code>Pick a route for the request...</code></p>
 <p class="scalar"><span class="label">llm_output</span> <code>{&quot;route&quot;: &quot;retriever&quot;, &quot;confidence&quot;: 0.88}</code></p>
 </section>
 <section class="step">
-<h3>retriever <span class="time">· 11:49:15</span></h3>
+<h3>retriever <span class="time">· 21:39:58</span></h3>
 <div class="payload"><span class="label">Input</span><pre><code>{
   &quot;topK&quot;: 4,
   &quot;namespace&quot;: &quot;papers&quot;
@@ -115,12 +115,12 @@ pre code { background: none; padding: 0; }
 ]</code></pre></div>
 </section>
 <section class="step">
-<h3>generator <span class="time">· 11:49:15</span></h3>
+<h3>generator <span class="time">· 21:39:58</span></h3>
 <p class="scalar"><span class="label">llm_input</span> <code>Summarize the retrieved documents...</code></p>
 <p class="scalar"><span class="label">llm_output</span> <code>The paper proposes a sparse attention variant with near-linear cost.</code></p>
 </section>
 <section class="step">
-<h3>final_response <span class="time">· 11:49:15</span></h3>
+<h3>final_response <span class="time">· 21:39:58</span></h3>
 <p class="scalar"><span class="label">Output</span> <code>The paper proposes a sparse attention variant with near-linear cost.</code></p>
 </section>
 </section>

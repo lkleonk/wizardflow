@@ -37,6 +37,15 @@ def _trace(**overrides):
     return base
 
 
+def _write_jsonl(path, trace):
+    """Write an assembled trace dict as the JSONL part the CLI reads."""
+    header = {"type": "header", **{k: v for k, v in trace.items() if k != "messages"}}
+    records = [header] + [{"type": "message", **m} for m in trace["messages"]]
+    path.write_text(
+        "".join(json.dumps(r) + "\n" for r in records), encoding="utf-8"
+    )
+
+
 # --- document shape -------------------------------------------------------
 
 def test_renders_standalone_document():
@@ -114,8 +123,8 @@ def test_html_in_values_is_escaped_not_executed():
 # --- CLI wiring -----------------------------------------------------------
 
 def test_run_html_writes_file(tmp_path, capsys):
-    trace = tmp_path / "t.json"
-    trace.write_text(json.dumps(_trace()), encoding="utf-8")
+    trace = tmp_path / "t.jsonl"
+    _write_jsonl(trace, _trace())
     out = tmp_path / "t.html"
 
     rc = run_html(trace=str(trace), path=None, output=str(out))
@@ -125,8 +134,8 @@ def test_run_html_writes_file(tmp_path, capsys):
 
 
 def test_run_html_writes_stdout(tmp_path, capsys):
-    trace = tmp_path / "t.json"
-    trace.write_text(json.dumps(_trace()), encoding="utf-8")
+    trace = tmp_path / "t.jsonl"
+    _write_jsonl(trace, _trace())
 
     rc = run_html(trace=str(trace), path=None, output=None)
     assert rc == 0

@@ -47,17 +47,34 @@ def _new(tmp_path, **kw):
     return Client(output_dir=str(tmp_path), file_prefix="trace", **kw)
 
 
+def _read_part(path):
+    """Parse a JSONL part file into (header, messages, seal)."""
+    header, messages, seal = None, [], None
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            if rec["type"] == "header":
+                header = rec
+            elif rec["type"] == "message":
+                messages.append(rec)
+            elif rec["type"] == "seal":
+                seal = rec
+    return header, messages, seal
+
+
 # --- output shape ---------------------------------------------------------
 
-def test_emits_schema_0_1_with_graph_and_meta(tmp_path):
-    c = _new(tmp_path, name="run.json", description="hi",
+def test_emits_schema_0_2_with_graph_and_meta(tmp_path):
+    c = _new(tmp_path, name="run.jsonl", description="hi",
              nodes=["a"], edges=[("a", "a")])
     c.log("m1", "a", "Input", "x")
     c.end_message("m1")
     out = c.to_dict()
 
-    assert out["version"] == "0.1"
-    assert out["name"] == "run.json"
+    assert out["version"] == "0.2"
+    assert out["name"] == "run.jsonl"
     assert out["meta"] == {"description": "hi"}          # description -> meta
     assert out["graph"]["nodes"] == [{"id": "a"}]
     assert out["graph"]["edges"] == [{"source": "a", "target": "a"}]
@@ -159,15 +176,31 @@ def test_only_completed_messages_are_emitted(tmp_path):
     assert [m["id"] for m in c.to_dict()["messages"]] == ["done"]
 
 
-def test_end_message_writes_file_atomically(tmp_path):
+def test_end_message_appends_header_then_message(tmp_path):
     c = Client(output_dir=str(tmp_path), file_prefix="trace", nodes=["a"])
     c.log("m1", "a", "L", 1)
     c.end_message("m1")
     written = c.current_path                        # timestamped output filename
     assert os.path.exists(written)
-    assert not os.path.exists(written + ".tmp")     # tmp cleaned up
-    on_disk = json.loads(open(written, encoding="utf-8").read())
-    assert on_disk["messages"][0]["id"] == "m1"
+    header, messages, seal = _read_part(written)
+    assert header["version"] == "0.2"
+    assert header["graph"]["nodes"] == [{"id": "a"}]
+    assert [m["id"] for m in messages] == ["m1"]
+    assert seal is None                             # active part: no seal line
+
+
+def test_each_end_message_is_immediately_durable(tmp_path):
+    # Append-only: every ended message is on disk the moment end_message
+    # returns, without the earlier ones being rewritten.
+    c = Client(output_dir=str(tmp_path), file_prefix="trace", nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+    _, first, _ = _read_part(c.current_path)
+    c.log("m2", "a", "L", 2)
+    c.end_message("m2")
+    _, second, _ = _read_part(c.current_path)
+    assert [m["id"] for m in first] == ["m1"]
+    assert [m["id"] for m in second] == ["m1", "m2"]
 
 
 def test_log_alone_writes_nothing(tmp_path):
@@ -175,7 +208,7 @@ def test_log_alone_writes_nothing(tmp_path):
     # leaves no file on disk.
     c = Client(output_dir=str(tmp_path), file_prefix="trace", nodes=["a"])
     c.log("m1", "a", "L", 1)
-    assert not [p for p in os.listdir(tmp_path) if p.endswith(".json")]
+    assert not [p for p in os.listdir(tmp_path) if p.endswith(".jsonl")]
 
 
 def test_output_dir_is_created_on_first_write(tmp_path):
@@ -192,7 +225,7 @@ def test_part_naming_uses_prefix_and_init_timestamp(tmp_path):
     c = Client(output_dir=str(tmp_path), file_prefix="myrun", nodes=["a"])
     name = os.path.basename(c.current_path)
     assert name.startswith("myrun__")
-    assert name.endswith("Z.json")
+    assert name.endswith("Z.jsonl")
     assert "__part" not in name
     assert "_001" not in name
     assert name.count(".") == 1
@@ -231,22 +264,39 @@ def test_rotation_creates_chained_parts(tmp_path):
     for i in range(3):
         _log_one(c, f"m{i}", "X" * 300)
 
-    parts = sorted(p for p in os.listdir(tmp_path) if p.endswith(".json"))
+    parts = sorted(p for p in os.listdir(tmp_path) if p.endswith(".jsonl"))
     assert len(parts) >= 3                       # rotated into multiple files
     assert parts[0].startswith("t__") and "__part" not in parts[0]
-    assert parts[1].endswith("__part2.json")
-    assert parts[2].endswith("__part3.json")
+    assert parts[1].endswith("__part2.jsonl")
+    assert parts[2].endswith("__part3.jsonl")
     assert all(p.count(".") == 1 for p in parts)
 
-    first = json.loads((tmp_path / parts[0]).read_text(encoding="utf-8"))
-    second = json.loads((tmp_path / parts[1]).read_text(encoding="utf-8"))
-    # Each part is a self-contained, valid trace with the full graph.
-    assert first["version"] == "0.1" and first["graph"]["nodes"] == [{"id": "a"}]
-    # Chain metadata links the parts.
-    assert first["meta"]["part"] == 1
-    assert first["meta"]["nextPart"] == parts[1]
-    assert second["meta"]["part"] == 2
-    assert second["meta"]["prevPart"] == parts[0]
+    first_header, _, first_seal = _read_part(tmp_path / parts[0])
+    second_header, _, second_seal = _read_part(tmp_path / parts[1])
+    _, _, last_seal = _read_part(tmp_path / parts[2])
+    # Each part opens with a full header (version + graph).
+    assert first_header["version"] == "0.2"
+    assert first_header["graph"]["nodes"] == [{"id": "a"}]
+    # Forward chaining lives in the seal line; backward in the header meta.
+    # Part 1's header stays clean (no part metadata).
+    assert "part" not in first_header.get("meta", {})
+    assert first_seal["nextPart"] == parts[1]
+    assert second_header["meta"]["part"] == 2
+    assert second_header["meta"]["prevPart"] == parts[0]
+    assert second_seal["nextPart"] == parts[2]
+    assert last_seal is None                     # active part: still unsealed
+
+
+def test_rotation_by_message_count(tmp_path):
+    c = Client(output_dir=str(tmp_path), file_prefix="t", nodes=["a"],
+               max_messages=2)
+    for i in range(5):
+        _log_one(c, f"m{i}", "x")
+
+    parts = sorted(p for p in os.listdir(tmp_path) if p.endswith(".jsonl"))
+    assert len(parts) == 3                       # 2 + 2 + 1 messages
+    counts = [len(_read_part(tmp_path / p)[1]) for p in parts]
+    assert counts == [2, 2, 1]
 
 
 def test_each_message_lands_in_exactly_one_part(tmp_path):
@@ -257,9 +307,8 @@ def test_each_message_lands_in_exactly_one_part(tmp_path):
 
     seen = []
     for p in sorted(os.listdir(tmp_path)):
-        if p.endswith(".json"):
-            data = json.loads((tmp_path / p).read_text(encoding="utf-8"))
-            seen.extend(m["id"] for m in data["messages"])
+        if p.endswith(".jsonl"):
+            seen.extend(m["id"] for m in _read_part(tmp_path / p)[1])
     assert sorted(seen) == sorted(ids)           # no message lost or duplicated
 
 
@@ -290,9 +339,9 @@ def test_max_bytes_clamped_to_ceiling(tmp_path):
 
 def test_concurrent_message_ends_are_safe(tmp_path):
     # Multi-agent setups end messages from many threads at once. The write lock
-    # must keep the shared part and the shared temp-file path race-free: every
-    # part file stays valid JSON, every message lands exactly once, no leftover
-    # .tmp. A tiny cap forces frequent rotation to stress the boundary.
+    # must keep the shared part files race-free: every line stays valid JSON,
+    # every message lands exactly once. A tiny cap forces frequent rotation to
+    # stress the boundary.
     import threading
 
     c = Client(output_dir=str(tmp_path), file_prefix="t", nodes=["a"], max_bytes=2_000)
@@ -307,12 +356,12 @@ def test_concurrent_message_ends_are_safe(tmp_path):
     for t in threads:
         t.join()
 
-    assert not [p for p in os.listdir(tmp_path) if p.endswith(".tmp")]
     seen = []
     for p in sorted(os.listdir(tmp_path)):
-        if p.endswith(".json"):
-            data = json.loads((tmp_path / p).read_text(encoding="utf-8"))
-            seen.extend(m["id"] for m in data["messages"])
+        if p.endswith(".jsonl"):
+            header, messages, _ = _read_part(tmp_path / p)
+            assert header is not None            # every part opens with a header
+            seen.extend(m["id"] for m in messages)
     assert sorted(seen) == sorted(f"m{i}" for i in range(n))  # all once, none lost
 
 

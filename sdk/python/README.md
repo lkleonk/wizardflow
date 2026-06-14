@@ -3,15 +3,41 @@
 **A lightweight tracer for Python agents.** Drop three calls into your code —
 `init`, `log`, `end_message` — and turn a messy multi-agent run into a portable
 trace you can replay as an interactive graph or export to Markdown/HTML. Because
-the trace is just a JSON file, anyone can replay it: hand it to a teammate or PM
+the trace is just a JSONL file, anyone can replay it: hand it to a teammate or PM
 and they drop it into **[getwizardflow.com](https://getwizardflow.com)** in the
 browser — no Python, no install. Lightweight by design: pure Python, **zero
 runtime dependencies**, no daemon, no setup.
 
 ![WizardFlow replaying an agent run](https://raw.githubusercontent.com/lkleonk/wizardflow/main/sdk/python/assets/demo.gif)
 
-The JSON it produces is a small, documented schema: a `graph { nodes, edges }`
-plus `messages[] → steps[] → payloads[] { label, value }`.
+The file it produces is JSON Lines with a small, documented schema: line 1 is a
+`header` record carrying the `graph { nodes, edges }`, then one `message`
+record per line (`steps[] → payloads[] { label, value }`). Every line is plain
+JSON — `head -1 run.jsonl | jq .graph` just works.
+
+## Why WizardFlow?
+
+Most agent tracing means an observability platform (LangSmith, Langfuse, …): a
+server or SaaS account, an ingestion pipeline, auto-instrumentation, dashboards
+behind a login. WizardFlow takes the opposite bet:
+
+- **The trace is a file.** No server, no account, no daemon — your run becomes
+  a `.jsonl` you can commit, diff, grep, or attach to a bug report.
+- **Anyone can replay it.** Hand the file to a teammate or PM and they drop it
+  into [getwizardflow.com](https://getwizardflow.com) — no Python, no install,
+  and nothing is uploaded (the viewer is fully client-side).
+- **Three calls, zero dependencies.** The whole API is `init`, `log`,
+  `end_message` — pure Python that pulls nothing into your environment, and no
+  framework required (LangGraph support just calls `app.get_graph()` on
+  whatever you pass — langgraph itself is never imported).
+- **Explicit by design.** You place every `log()` call yourself, so a trace
+  contains exactly what you logged — nothing else. No auto-instrumentation
+  capturing things behind your back, no surprise PII in the payloads, no
+  guessing why a span exists.
+
+If you need fleet-wide monitoring, token-cost dashboards, or eval pipelines,
+use an observability platform. WizardFlow is for **understanding one run** —
+and being able to hand that run to anybody.
 
 ## Install
 
@@ -35,7 +61,8 @@ wizardflow.init(
     edges=[("user_input", "router"), ("router", "planner")],
 )
 
-# Every log names its message in the first argument.
+# Every log names its message in the first argument:
+# log(message_id, node, payload_label, payload_value)
 wizardflow.log("msg-1", "router", "llm_input", prompt)    # same node, two payloads ->
 wizardflow.log("msg-1", "router", "llm_output", output)   #   folded into one step
 wizardflow.log("msg-1", "tool_node")                       # visited, no payloads
@@ -44,14 +71,17 @@ wizardflow.end_message("msg-1")                            # -> writes the trace
 
 There is **no `save()`** and no autosave: `log()` only accumulates in memory,
 and `end_message(id)` is the one call that writes the trace. Writes happen at
-message boundaries — one write per finished message, however many `log()` calls
-it contains. `init()` returns a client and also stashes it as the module
-default, so the bare `wizardflow.log(...)` form above works.
+message boundaries — one **append** per finished message, however many `log()`
+calls it contains, so a write costs the same no matter how large the trace has
+grown. `init()` returns a client and also stashes it as the module default, so
+the bare `wizardflow.log(...)` form above works.
 
 **Concurrency-safe.** Multi-agent setups end messages from many threads/tasks at
-once; an internal lock serializes the mutation-and-write so the shared part file
-is never corrupted and no message is lost or duplicated. Each write is atomic, so
-the file on disk is always a complete, valid trace.
+once; an internal lock serializes the appends so the shared part file is never
+corrupted and no message is lost or duplicated. Every ended message is durable
+on disk the moment `end_message` returns — a crash can at worst tear the line
+being appended, and readers drop a torn final line and load everything before
+it.
 
 ## Targeting a message
 
@@ -60,6 +90,7 @@ collide — interleave them freely (as concurrent agents do) and each step route
 to the right message:
 
 ```python
+# log(message_id, node, payload_label, payload_value)
 wizardflow.log("msg-1", "classifier", "input", text_a)
 wizardflow.log("msg-2", "classifier", "input", text_b)   # a different message
 wizardflow.log("msg-1", "generator", "output", answer_a)
@@ -124,71 +155,96 @@ A non-LangGraph object raises `LangGraphExtractionError`; missing conditional
 metadata never fails extraction (the edge is just emitted plain). Call it
 **after `compile()`**, when the topology actually exists.
 
-## API (v0.1)
+## API (v0.2)
 
-- `init(output_dir=, file_prefix="wizardflow", name=, description=, nodes=, edges=, meta=, silent=False, max_bytes=256_000) -> Client`
+> **Breaking change in 0.2:** traces are now JSON Lines (`.jsonl`), written by
+> appending — the old single-document `.json` format is gone from the SDK
+> (writer *and* CLI readers). The web UI at getwizardflow.com still opens old
+> `.json` traces.
+
+- `init(output_dir=, file_prefix="wizardflow", name=, description=, nodes=, edges=, meta=, silent=False, max_bytes=16_000_000, max_messages=2_000) -> Client`
   - `description` lands in `meta.description` (matches the schema field).
   - `nodes=` enables fast-fail: `log()` to an undeclared node raises
     `UnknownNodeError` immediately (unless silenced).
   - `output_dir` is optional; omitted, traces are written in cwd.
   - `file_prefix` is optional; omitted, filenames start with `wizardflow`.
-  - `max_bytes` caps each part file before rotation (see below).
-- `init_from_langgraph(app, output_dir=, file_prefix="wizardflow", name=, description=, meta=, node_colors=, silent=False, max_bytes=...) -> Client`
+  - `max_bytes` / `max_messages` cap each part file before rotation (see below).
+- `init_from_langgraph(app, output_dir=, file_prefix="wizardflow", name=, description=, meta=, node_colors=, silent=False, max_bytes=..., max_messages=...) -> Client`
   - same as `init`, but `nodes`/`edges` come from `app.get_graph()`.
   - `node_colors` maps extracted node ids to CSS colors such as `"#A78BFA"`.
 - `log(id, node, label=None, content=None)` — the first positional is the
   **message id**, the second is the node. With `label`/`content` it records a
   payload; bare `log(id, "node")` records a visit with no payloads. The message
   is created on first reference; this only accumulates in memory.
-- `end_message(id, title=None)` — finalize a message and write the trace;
-  returns the current trace path. The **only** call that touches disk. Optional `title`
-  sets the message's human title. Idempotent.
+- `end_message(id, title=None)` — finalize a message and append it to the
+  trace; returns the current trace path. The **only** call that touches disk.
+  Optional `title` sets the message's human title. Idempotent.
 - `Client.current_path` — the trace file currently being written.
-- `to_dict()` / `to_json()` — inspect the active part (completed messages).
+- `to_dict()` / `to_json()` — inspect the active part (completed messages),
+  assembled into one `AgentTraceFile` object.
+
+### The file format
+
+A trace part is JSON Lines: one JSON object per line, each with a `type`:
+
+```jsonl
+{"type":"header","version":"0.2","name":"run","meta":{...},"graph":{"nodes":[...],"edges":[...]}}
+{"type":"message","id":"msg-1","label":"First question","steps":[...]}
+{"type":"message","id":"msg-2","steps":[...]}
+{"type":"seal","nextPart":"run__...__part2.jsonl"}
+```
+
+- **`header`** (always line 1) — everything about the run except the messages.
+- **`message`** — one completed message, appended by `end_message`.
+- **`seal`** — only on a part that rotated away; its presence means "this part
+  is complete, continue at `nextPart`". The active part has no seal.
+
+Readers skip records with an unknown `type` (forward compat) and drop an
+unparseable final line (a crash mid-append leaves a torn tail; everything
+before it is intact). Only **completed** messages are written; an in-progress
+message lives in memory until it ends.
 
 ### How saving works
 
-`end_message` triggers an **atomic write**: write to `<part>.tmp`, then
-`os.replace` over the part file. The file is always a complete, loadable
-`AgentTraceFile`. Only **completed** messages are written; an in-progress
-message lives in memory until it ends.
+`end_message` **appends one line** to the active part — O(1) no matter how
+large the part already is, and the moment it returns, that message is durable
+on disk. Nothing is ever rewritten.
 
 ### Rotation (no single huge file)
 
-There's no natural "end" to a chatbot trace, so the SDK caps file size instead.
-Each run writes a timestamped entry file whose name carries the run-start time:
+There's no natural "end" to a chatbot trace, so the SDK caps part size instead.
+The cap exists for the *reader*: a part is what you drop into the viewer, and an
+oversized file makes the browser tab sluggish. Each run writes a timestamped
+entry file whose name carries the run-start time:
 
 ```
-wizardflow__2026-06-08T16-29-09-123Z.json
+wizardflow__2026-06-08T16-29-09-123Z.jsonl
 ```
 
 The name's `wizardflow` is the `file_prefix`; the timestamp is captured when
-`init()` creates the client. If the active part would exceed `max_bytes` (~256
-KB by default), it's sealed and the next message starts a fresh part:
+`init()` creates the client. If the next message would push the active part past
+`max_bytes` (16 MB by default) — or past `max_messages` (2,000 by default; many
+tiny messages strain the viewer before many bytes do) — the part is sealed and
+the message starts a fresh one:
 
 ```
-wizardflow__2026-06-08T16-29-09-123Z.json
-wizardflow__2026-06-08T16-29-09-123Z__part2.json
-wizardflow__2026-06-08T16-29-09-123Z__part3.json
+wizardflow__2026-06-08T16-29-09-123Z.jsonl
+wizardflow__2026-06-08T16-29-09-123Z__part2.jsonl
+wizardflow__2026-06-08T16-29-09-123Z__part3.jsonl
 ```
 
 Rotation only ever happens at a **message boundary**, never mid-message (a lone
-message larger than the cap gets its own oversized part). A smaller cap keeps
-each rewrite — and the write lock held across it — short, which matters when
-many agents end messages concurrently; raise it for fewer files at the cost of
-heavier rewrites. `max_bytes` is clamped to a hard ceiling (1 MB) so an
-accidental huge value can't stall concurrent writers. Each part is a
-**self-contained, valid trace** (full graph + its slice of messages), chained
-via `meta`:
+message larger than the cap gets its own oversized part). `max_bytes` is
+clamped to a hard ceiling (64 MB) — past that, parsed-object inflation makes
+the viewer slow on ordinary hardware. Each part is **self-contained** (full
+graph in its header + its slice of messages), chained backward via the header's
+`meta.prevPart` and forward via the seal record's `nextPart`.
 
-```json
-"meta": { "part": 2, "prevPart": "...Z.json", "nextPart": "...__part3.json" }
-```
-
-A single-part trace stays clean (no `part` metadata). There's no `partCount` —
-the total is genuinely unknown while a continuous run is still logging; follow
-`nextPart` to walk to the end. Since names are timestamped, read the real file
-back from the client's `current_path` (also the path `end_message` returns).
+A single-part trace stays clean (no `part` metadata, no seal). There's no
+`partCount` — the total is genuinely unknown while a continuous run is still
+logging; follow the seal records to walk to the end. Since names are
+timestamped, read the real file back from the client's `current_path` (also the
+path `end_message` returns).
 
 ### Logging
 
@@ -222,26 +278,33 @@ Fuller runnable examples live in
 
 ## CLI
 
-The `wizardflow` command has three subcommands: `ui`, `md`, and `html`. Every
-one takes the trace file as a positional argument **or** via `--path` (pass one,
-not both):
+The `wizardflow` command has four subcommands: `ui`, `md`, `html`, and `json`.
+Every one takes the trace file as a positional argument **or** via `--path`
+(pass one, not both):
 
 ```bash
-wizardflow ui   run.json
-wizardflow md   run.json
-wizardflow html run.json
+wizardflow ui   run.jsonl
+wizardflow md   run.jsonl
+wizardflow html run.jsonl
+wizardflow json run.jsonl
 # --path is equivalent everywhere:
-wizardflow ui --path run.json
+wizardflow ui --path run.jsonl
 ```
+
+The SDK only ever **writes** JSONL, but these commands **read** either framing —
+a `.jsonl` part or a single-document `.json` (what `wizardflow json` emits) — so
+they stay at parity with the web viewer, which also accepts both.
 
 ### `wizardflow ui` — local viewer
 
 ```bash
-wizardflow ui run.json [--host 127.0.0.1] [--port 0] [--no-open]
+wizardflow ui run.jsonl [--host 127.0.0.1] [--port 0] [--no-open]
 ```
 
 Binds a stdlib HTTP server, serves the static WizardFlow UI bundled in the SDK
-package, and opens the selected trace in your browser.
+package, and opens the selected trace in your browser (the JSONL is assembled
+server-side and served to the UI as one JSON document, re-read on refresh — so
+you can watch a still-running trace grow).
 
 | flag | default | meaning |
 | --- | --- | --- |
@@ -252,9 +315,9 @@ package, and opens the selected trace in your browser.
 ### `wizardflow md` — export to Markdown
 
 ```bash
-wizardflow md run.json                 # -> stdout
-wizardflow md run.json -o run.md       # -> file
-wizardflow md run.json --no-mermaid    # omit the graph diagram
+wizardflow md run.jsonl                 # -> stdout
+wizardflow md run.jsonl -o run.md       # -> file
+wizardflow md run.jsonl --no-mermaid    # omit the graph diagram
 ```
 
 Renders the full trace as Markdown: a metadata table, a Mermaid `flowchart` of
@@ -271,8 +334,8 @@ dashed).
 ### `wizardflow html` — export to HTML
 
 ```bash
-wizardflow html run.json               # -> stdout
-wizardflow html run.json -o run.html   # -> file
+wizardflow html run.jsonl               # -> stdout
+wizardflow html run.jsonl -o run.html   # -> file
 ```
 
 Emits a single self-contained document — inline CSS, **no JavaScript, no
@@ -282,6 +345,29 @@ light/dark mode. Messages-only by design: no graph/Mermaid (use `md` for that).
 | flag | default | meaning |
 | --- | --- | --- |
 | `-o`, `--output` | — | write to this file instead of stdout |
+
+### `wizardflow json` — assemble to one pretty-printed JSON document
+
+```bash
+wizardflow json run.jsonl               # -> stdout
+wizardflow json run.jsonl -o run.json   # -> file
+```
+
+The inverse of how the SDK writes. JSONL is built for appending, so the raw
+file is one long line per record and not much fun to read. This assembles the
+part — header plus all its message records, with the seal's `nextPart` folded
+into `meta` — into the indented, single-document `AgentTraceFile` shape, for
+eyeballing, diffing in review, or handing someone a canonical JSON. (The web UI
+reads that single-document form too.)
+
+| flag | default | meaning |
+| --- | --- | --- |
+| `-o`, `--output` | — | write to this file instead of stdout |
+
+Already have `jq`? You don't need this for a quick look — `jq . run.jsonl`
+pretty-prints every record, and `jq 'select(.type=="message")' run.jsonl` just
+the messages. `wizardflow json` differs in that it *assembles* the part into one
+document (and walks no external tool).
 
 Rendered samples (`*.md`, `*.html`) live in the [repo's
 `examples/`](https://github.com/lkleonk/wizardflow/tree/main/sdk/python/examples).

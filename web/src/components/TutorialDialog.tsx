@@ -12,15 +12,16 @@ const pythonSdkExample = `import wizardflow
 
 app = workflow.compile()  # your compiled LangGraph app
 
-wizardflow.init_from_langgraph(app, path="run.json")
+wizardflow.init_from_langgraph(app, file_prefix="run")
 # No LangGraph instance? Use wizardflow.init(..., nodes=[...], edges=[...]).
 
 # Log with the node ids from your graph.
+# log(message_id, node, payload_label, payload_value)
 wizardflow.log("msg-1", "router", "Input", "What's the weather?")
 wizardflow.log("msg-1", "router", "route", "weather")
 wizardflow.log("msg-1", "tool_node")
 wizardflow.log("msg-1", "final_response", "Output", "19C and cloudy.")
-wizardflow.end_message("msg-1")  # writes run.json`;
+wizardflow.end_message("msg-1")  # appends to run__<timestamp>.jsonl`;
 
 type TutorialDialogProps = {
   open: boolean;

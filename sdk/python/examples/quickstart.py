@@ -2,7 +2,7 @@
 
 Each log() names its message in the first argument; end_message() finalizes a
 message and is the only thing that writes the file. The actual filename is
-timestamped (e.g. quickstart__2026-06-08T16-29-09-123Z.json), so read it back
+timestamped (e.g. quickstart__2026-06-08T16-29-09-123Z.jsonl), so read it back
 from wiz.current_path.
 """
 

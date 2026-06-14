@@ -66,6 +66,7 @@ def init(
     meta: Optional[Dict[str, Any]] = None,
     silent: bool = False,
     max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
+    max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
 ) -> Client:
     """Create a recording client and set it as the module default."""
     global _default
@@ -79,6 +80,7 @@ def init(
         meta=meta,
         silent=silent,
         max_bytes=max_bytes,
+        max_messages=max_messages,
     )
     return _default
 
@@ -93,6 +95,7 @@ def init_from_langgraph(
     node_colors: Optional[Mapping[str, str]] = None,
     silent: bool = False,
     max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
+    max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
 ) -> Client:
     """Create a client from a compiled LangGraph ``app`` and set it as default.
 
@@ -110,6 +113,7 @@ def init_from_langgraph(
         node_colors=node_colors,
         silent=silent,
         max_bytes=max_bytes,
+        max_messages=max_messages,
     )
     return _default
 

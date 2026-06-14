@@ -1,10 +1,10 @@
-# multibranch.json
+# multibranch
 
 > Branching router agent: a tool path and a retrieval path that rejoin.
 
 | field | value |
 | --- | --- |
-| version | 0.1 |
+| version | 0.2 |
 
 ## Graph
 
@@ -26,49 +26,49 @@ flowchart TD
     n5 --> n6
 ```
 
-## msg-1
+## Weather in Berlin
 
-### user_input · 11:49:15
+### user_input · 21:39:58
 
 **Input**: `What's the weather in Berlin?`
 
-### router · 11:49:15
+### router · 21:39:58
 
 **llm_input**: `Pick a route for the request...`
 
 **llm_output**: `{"route": "planner", "confidence": 0.92}`
 
-### planner · 11:49:15
+### planner · 21:39:58
 
 **llm_input**: `Decompose into tool calls...`
 
 **llm_output**: `{"plan": ["weather_api(city='Berlin')"]}`
 
-### tool_node · 11:49:15
+### tool_node · 21:39:58
 
-### generator · 11:49:15
+### generator · 21:39:58
 
 **llm_input**: `Answer using the tool result...`
 
 **llm_output**: `It's 19C and partly cloudy in Berlin.`
 
-### final_response · 11:49:15
+### final_response · 21:39:58
 
 **Output**: `It's 19C and partly cloudy in Berlin.`
 
-## msg-2
+## Summarize research paper
 
-### user_input · 11:49:15
+### user_input · 21:39:58
 
 **Input**: `Summarize the attached research paper.`
 
-### router · 11:49:15
+### router · 21:39:58
 
 **llm_input**: `Pick a route for the request...`
 
 **llm_output**: `{"route": "retriever", "confidence": 0.88}`
 
-### retriever · 11:49:15
+### retriever · 21:39:58
 
 **Input**
 
@@ -94,12 +94,12 @@ flowchart TD
 ]
 ```
 
-### generator · 11:49:15
+### generator · 21:39:58
 
 **llm_input**: `Summarize the retrieved documents...`
 
 **llm_output**: `The paper proposes a sparse attention variant with near-linear cost.`
 
-### final_response · 11:49:15
+### final_response · 21:39:58
 
 **Output**: `The paper proposes a sparse attention variant with near-linear cost.`

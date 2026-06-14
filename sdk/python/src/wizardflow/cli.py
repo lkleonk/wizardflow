@@ -13,7 +13,11 @@ from urllib.parse import urlencode, urlsplit
 
 from .html import render_html
 from .markdown import render_markdown
+from .reader import TraceFormatError, load_trace_file
 
+# The bundled static UI fetches the assembled trace as plain JSON; the CLI does
+# the JSONL assembly server-side, so the UI build never needs to know about
+# part files.
 TRACE_ROUTE = "/__wizardflow_trace.json"
 
 
@@ -47,6 +51,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 path=args.path,
                 output=args.output,
             )
+        if args.command == "json":
+            return run_json(
+                trace=args.trace,
+                path=args.path,
+                output=args.output,
+            )
     except WizardFlowCliError as exc:
         parser.exit(2, f"wizardflow: error: {exc}\n")
 
@@ -66,18 +76,18 @@ def _build_parser() -> argparse.ArgumentParser:
     trace_input.add_argument(
         "trace",
         nargs="?",
-        help="AgentTrace JSON file.",
+        help="AgentTrace file (.jsonl part or single-document .json).",
     )
     trace_input.add_argument(
         "--path",
         dest="path",
-        help="AgentTrace JSON file. Equivalent to the positional path.",
+        help="AgentTrace file (.jsonl or .json). Equivalent to the positional path.",
     )
 
     ui = subparsers.add_parser(
         "ui",
         parents=[trace_input],
-        help="Open a local WizardFlow viewer for an AgentTrace JSON file.",
+        help="Open a local WizardFlow viewer for an AgentTrace file.",
     )
     ui.add_argument(
         "--host",
@@ -99,7 +109,7 @@ def _build_parser() -> argparse.ArgumentParser:
     md = subparsers.add_parser(
         "md",
         parents=[trace_input],
-        help="Render an AgentTrace JSON file to Markdown.",
+        help="Render an AgentTrace file to Markdown.",
     )
     md.add_argument(
         "-o",
@@ -125,13 +135,25 @@ def _build_parser() -> argparse.ArgumentParser:
     html = subparsers.add_parser(
         "html",
         parents=[trace_input],
-        help="Render an AgentTrace JSON file to a self-contained HTML document.",
+        help="Render an AgentTrace file to a self-contained HTML document.",
     )
     html.add_argument(
         "-o",
         "--output",
         dest="output",
         help="Write HTML to this file instead of stdout.",
+    )
+
+    json_ = subparsers.add_parser(
+        "json",
+        parents=[trace_input],
+        help="Assemble an AgentTrace file into one pretty-printed JSON document.",
+    )
+    json_.add_argument(
+        "-o",
+        "--output",
+        dest="output",
+        help="Write JSON to this file instead of stdout.",
     )
     return parser
 
@@ -145,7 +167,7 @@ def run_ui(
     open_browser: bool,
 ) -> int:
     trace_path = _resolve_trace_path(trace=trace, path=path)
-    _validate_trace_file(trace_path)
+    _load_trace(trace_path)  # fail fast on an unreadable trace before serving
     ui_dir = _resolve_ui_dir()
 
     handler = _make_handler(ui_dir=ui_dir, trace_path=trace_path)
@@ -180,6 +202,29 @@ def run_md(
     )
 
 
+def run_json(
+    *,
+    trace: Optional[str],
+    path: Optional[str],
+    output: Optional[str],
+) -> int:
+    """Assemble the JSONL part into one pretty-printed AgentTraceFile document.
+
+    The inverse of how the SDK writes: the readable, single-document form for
+    inspecting, diffing, or handing someone a canonical JSON. The web UI reads
+    this format too.
+    """
+    return _render_to_output(
+        trace=trace,
+        path=path,
+        output=output,
+        kind="JSON",
+        # The trace is already the assembled dict; ignore the fallback title.
+        render=lambda data, _title: json.dumps(data, indent=2, ensure_ascii=False)
+        + "\n",
+    )
+
+
 def run_html(
     *,
     trace: Optional[str],
@@ -203,10 +248,9 @@ def _render_to_output(
     kind: str,
     render: "Callable[[Any, str], str]",
 ) -> int:
-    """Resolve + validate a trace, render it, and write to a file or stdout."""
+    """Resolve + load a trace, render it, and write to a file or stdout."""
     trace_path = _resolve_trace_path(trace=trace, path=path)
-    _validate_trace_file(trace_path)
-    data = json.loads(trace_path.read_text(encoding="utf-8"))
+    data = _load_trace(trace_path)
     rendered = render(data, trace_path.name)
 
     if output:
@@ -244,18 +288,23 @@ def _resolve_ui_dir(ui_dir: Optional[Path] = None) -> Path:
     return resolved
 
 
-def _validate_trace_file(path: Path) -> None:
+def _load_trace(path: Path) -> Any:
+    """Load a trace (JSONL part or single-document JSON) into the AgentTraceFile
+    dict, surfacing failures as CLI errors."""
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = load_trace_file(path)
     except OSError as exc:
         raise WizardFlowCliError(f"could not read trace file: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise WizardFlowCliError(f"trace file is not valid JSON: {exc}") from exc
+    except TraceFormatError as exc:
+        raise WizardFlowCliError(
+            f"trace file is not a WizardFlow AgentTrace file: {exc}"
+        ) from exc
 
     if not _is_agent_trace_file(value):
         raise WizardFlowCliError(
-            "trace file does not look like a WizardFlow AgentTrace JSON file"
+            "trace file does not look like a WizardFlow AgentTrace file"
         )
+    return value
 
 
 def _is_agent_trace_file(value: Any) -> bool:
@@ -282,9 +331,14 @@ def _make_handler(*, ui_dir: Path, trace_path: Path) -> type[SimpleHTTPRequestHa
             super().do_GET()
 
         def _serve_trace(self) -> None:
+            # Assemble the JSONL part into a plain AgentTraceFile JSON document
+            # per request — the active part may have grown since the last fetch,
+            # and the static UI only ever sees assembled JSON.
             try:
-                payload = trace_path.read_bytes()
-            except OSError as exc:
+                payload = json.dumps(
+                    load_trace_file(trace_path), ensure_ascii=False
+                ).encode("utf-8")
+            except (OSError, TraceFormatError) as exc:
                 body = f"Could not read trace file: {exc}\n".encode("utf-8")
                 self.send_response(500)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")

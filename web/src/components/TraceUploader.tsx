@@ -5,7 +5,7 @@ import Button from "@mui/material/Button";
 import type { ButtonProps } from "@mui/material/Button";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import type { AgentTraceFile } from "@/types/agenttrace";
-import { isAgentTraceFile } from "@/utils/agentTraceFile";
+import { parseAgentTrace } from "@/utils/agentTraceFile";
 
 type TraceUploaderProps = {
   onLoad: (trace: AgentTraceFile) => void;
@@ -17,7 +17,7 @@ type TraceUploaderProps = {
 
 export default function TraceUploader({
   onLoad,
-  label = "Upload JSON",
+  label = "Upload trace",
   size = "small",
   variant = "outlined",
   sx,
@@ -25,18 +25,15 @@ export default function TraceUploader({
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(file: File) {
-    try {
-      const parsed = JSON.parse(await file.text());
-      if (!isAgentTraceFile(parsed)) {
-        alert("That file doesn't look like a WizardFlow JSON file.");
-        return;
-      }
-      // The on-disk file name is what the user recognizes — use it as the
-      // trace's display name, overriding any name baked into the JSON.
-      onLoad({ ...parsed, name: file.name });
-    } catch {
-      alert("Could not parse that file as JSON.");
+    // JSONL (what the SDK writes) or a legacy single-document JSON trace.
+    const parsed = parseAgentTrace(await file.text());
+    if (!parsed) {
+      alert("That file doesn't look like a WizardFlow trace (.jsonl or .json).");
+      return;
     }
+    // The on-disk file name is what the user recognizes — use it as the
+    // trace's display name, overriding any name baked into the file.
+    onLoad({ ...parsed, name: file.name });
   }
 
   return (
@@ -44,7 +41,7 @@ export default function TraceUploader({
       <input
         ref={inputRef}
         type="file"
-        accept="application/json,.json"
+        accept=".jsonl,application/json,.json"
         hidden
         onChange={(e) => {
           const file = e.target.files?.[0];

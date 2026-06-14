@@ -1,10 +1,10 @@
-# quickstart.json
+# quickstart
 
 > Tiny router agent recorded with the WizardFlow Python SDK.
 
 | field | value |
 | --- | --- |
-| version | 0.1 |
+| version | 0.2 |
 
 ## Graph
 
@@ -23,28 +23,28 @@ flowchart TD
 
 ## msg-1
 
-### user_input · 11:31:26
+### user_input · 21:39:58
 
 **Input**: `What's the weather in Berlin?`
 
-### router · 11:31:26
+### router · 21:39:58
 
 **llm_input**: `Route this request...`
 
 **llm_output**: `{"route": "planner"}`
 
-### tool_node · 11:31:26
+### tool_node · 21:39:58
 
-### final_response · 11:31:26
+### final_response · 21:39:58
 
 **Output**: `It's 19C and partly cloudy in Berlin.`
 
-## msg-2
+## Summarize the paper
 
-### user_input · 11:31:26
+### user_input · 21:39:58
 
 **Input**: `Summarize the paper.`
 
-### router · 11:31:26
+### router · 21:39:58
 
 **llm_output**: `{"route": "planner"}`

@@ -1,14 +1,19 @@
-"""Core client for recording agent flows into the AgentTrace file format.
+"""Core client for recording agent flows into the AgentTrace JSONL format.
 
-The output of :meth:`Client.to_dict` is an ``AgentTraceFile`` (schema version
-``"0.1"``) — the exact object the visualizer loads. See
-``src/types/agenttrace.ts`` in the repo for the consuming type.
+A trace part is a ``.jsonl`` file: line 1 is a ``header`` record (version, name,
+meta, graph — everything but messages), then one ``message`` record per
+completed message, and — only on a part that rotated away — a final ``seal``
+record naming the next part. Assembling the header plus the message lines yields
+an ``AgentTraceFile`` (schema version ``"0.2"``), the exact object the
+visualizer loads; see ``src/types/agenttrace.ts`` in the repo for the consuming
+type. :meth:`Client.to_dict` returns that assembled form for the active part.
 
-Persistence model: there is no explicit "save" in user code. A trace is dumped
-every time a message ends, via :meth:`Client.end_message` — an atomic write
-(temp file + os.replace) containing only *completed* messages. When the active
-part grows past ``max_bytes`` it rotates to a new ``__partN`` file; each part is
-a self-contained trace, chained via ``meta.prevPart`` / ``meta.nextPart``.
+Persistence model: there is no explicit "save" in user code. Each
+:meth:`Client.end_message` appends exactly one line — O(1) regardless of how
+large the part has grown, so the write lock is held only for one append. When
+the active part would grow past ``max_bytes`` (or ``max_messages``) it is sealed
+and the message starts a new ``__partN`` file; parts chain forward via the seal
+record's ``nextPart`` and backward via ``meta.prevPart``.
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 
-from .constants import Defaults, Ids, Logging, Output, Rotation, Schema
+from .constants import Defaults, Ids, Logging, Output, Records, Rotation, Schema
 
 logger = logging.getLogger(Logging.LOGGER_NAME)
 
@@ -223,11 +228,13 @@ class Client:
         meta: Optional[Dict[str, Any]] = None,
         silent: bool = False,
         max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
+        max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
     ):
         self.name = name
         self.silent = silent
-        # Clamp to the hard ceiling: an oversized cap means big rewrites and a
-        # long write-lock hold, which stalls concurrent agents.
+        # Clamp to the hard ceiling: parts are sized for the viewer, and a part
+        # past the ceiling loads sluggishly in a browser tab on ordinary
+        # hardware.
         self.max_bytes = min(max_bytes, Rotation.MAX_MAX_BYTES)
         if max_bytes > Rotation.MAX_MAX_BYTES:
             logger.warning(
@@ -236,6 +243,7 @@ class Client:
                 Rotation.MAX_MAX_BYTES,
                 self.max_bytes,
             )
+        self.max_messages = max_messages
         self.meta: Dict[str, Any] = dict(meta or {})
         if description is not None:
             self.meta.setdefault("description", description)
@@ -258,12 +266,15 @@ class Client:
         # Insertion-ordered registry of all messages (open + completed).
         self._messages: "Dict[str, _Message]" = {}
 
-        # Output is split into part files. We keep only the *active* part in
-        # memory; sealed parts have already been written and chained.
+        # Output is split into part files. Completed messages of the *active*
+        # part stay in memory only to serve to_dict(); writing is append-only
+        # and never re-reads them. Sealed parts are fully on disk.
         self._dir, self._prefix, self._suffix = _resolve_output(output_dir, file_prefix)
         self._run_ts = _run_timestamp()
         self._active_index = 1
         self._active_part: List[_Message] = []
+        self._active_part_bytes = 0     # bytes appended so far (header included)
+        self._part_started = False      # header line written for the active part?
 
     @classmethod
     def from_langgraph(
@@ -278,6 +289,7 @@ class Client:
         node_colors: Optional[NodeColorMap] = None,
         silent: bool = False,
         max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
+        max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
     ) -> "Client":
         """Build a client whose graph is read from a compiled LangGraph ``app``.
 
@@ -297,6 +309,7 @@ class Client:
             meta=meta,
             silent=silent,
             max_bytes=max_bytes,
+            max_messages=max_messages,
         )
 
     # --- recording --------------------------------------------------------
@@ -347,13 +360,15 @@ class Client:
                 self._fail(msg.silent, exc)
 
     def end_message(self, id: str, title: Optional[str] = None) -> str:
-        """Finalize message ``id`` and write the active part. Returns its path.
+        """Finalize message ``id`` and append it to the active part. Returns its path.
 
         This is the **only** thing that writes to disk; :meth:`log` just
         accumulates in memory. Optional ``title`` sets the message's human title.
-        If the active part would exceed ``max_bytes``, it is sealed and the
-        message starts a fresh part (rotation happens only at message
-        boundaries). Idempotent: a second end on the same id won't dump twice.
+        Exactly one line is appended per ended message — O(1) however large the
+        part already is. If the active part would exceed ``max_bytes`` (or holds
+        ``max_messages`` already), it is sealed and the message starts a fresh
+        part (rotation happens only at message boundaries). Idempotent: a second
+        end on the same id won't append twice.
         """
         with self._lock:
             msg = self._messages.get(id)
@@ -366,9 +381,10 @@ class Client:
                 if title is not None:
                     msg.label = title
                 msg.completed = True
+                line = self._render_line({Records.TYPE_KEY: Records.MESSAGE, **msg.to_dict()})
+                self._rotate_if_needed(len(line.encode("utf-8")))
                 self._active_part.append(msg)
-                self._rotate_if_needed()
-                self._write_part(self._active_index, self._active_part, has_next=False)
+                self._append_to_part(line)
             return self.current_path
 
     @staticmethod
@@ -399,72 +415,98 @@ class Client:
             )
         return os.path.join(self._dir, name) if self._dir else name
 
-    def _rotate_if_needed(self) -> None:
-        """Seal the active part and start a new one if it grew past max_bytes."""
-        if len(self._active_part) <= 1:
-            return  # a lone (possibly oversized) message can't be split out
-        payload = self._render_json(self._active_index, self._active_part, has_next=False)
-        if len(payload.encode("utf-8")) <= self.max_bytes:
+    def _rotate_if_needed(self, incoming_bytes: int) -> None:
+        """Seal the active part and start a new one if the next message won't fit.
+
+        Rotation only happens at a message boundary, and never on an empty part
+        — a lone message larger than the cap gets its own oversized part rather
+        than being split.
+        """
+        if not self._active_part:
             return
-        overflow = self._active_part.pop()  # this message tipped it over
-        self._write_part(self._active_index, self._active_part, has_next=True)  # seal
+        over_bytes = self._active_part_bytes + incoming_bytes > self.max_bytes
+        over_count = len(self._active_part) >= self.max_messages
+        if not over_bytes and not over_count:
+            return
         sealed = self._active_index
         self._active_index += 1
-        self._active_part = [overflow]
+        # The seal line is the sealed part's last record; its presence is what
+        # marks a part as complete (an active part has no seal).
+        self._append_line(
+            self._part_filename(sealed),
+            self._render_line(
+                {
+                    Records.TYPE_KEY: Records.SEAL,
+                    "nextPart": os.path.basename(self.current_path),
+                }
+            ),
+        )
+        self._active_part = []
+        self._active_part_bytes = 0
+        self._part_started = False
         logger.info(
-            "part %d exceeded %d bytes; rotated to %s",
+            "part %d reached its cap (%d bytes / %d messages); rotated to %s",
             sealed,
             self.max_bytes,
+            self.max_messages,
             os.path.basename(self.current_path),
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        """Return the active part as an ``AgentTraceFile`` dict (completed msgs)."""
+        """Return the active part as an assembled ``AgentTraceFile`` dict."""
         with self._lock:
-            return self._render_part(
-                self._active_index, self._active_part, has_next=False
-            )
+            return self._render_part(self._active_index, self._active_part)
 
     def to_json(self, *, indent: Optional[int] = Output.DEFAULT_INDENT) -> str:
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
-    def _render_part(
-        self, index: int, messages: List[_Message], *, has_next: bool
-    ) -> Dict[str, Any]:
-        trace: Dict[str, Any] = {
-            "version": Schema.VERSION,
-            "graph": {"nodes": self._nodes, "edges": self._edges},
-            "messages": [m.to_dict() for m in messages],
-        }
+    def _header_fields(self, index: int) -> Dict[str, Any]:
+        """Everything an ``AgentTraceFile`` carries except ``messages``."""
+        fields: Dict[str, Any] = {"version": Schema.VERSION}
         if self.name is not None:
-            trace["name"] = self.name
+            fields["name"] = self.name
         meta = dict(self.meta)
         # Part metadata appears only once the trace has actually split, so a
-        # single-part trace stays clean (no spurious part: 1).
-        if index > 1 or has_next:
+        # single-part trace stays clean (no spurious part: 1). Forward chaining
+        # lives in the seal record — an append-only writer can't know nextPart
+        # when the header is written.
+        if index > 1:
             meta["part"] = index
-            if index > 1:
-                meta["prevPart"] = os.path.basename(self._part_filename(index - 1))
-            if has_next:
-                meta["nextPart"] = os.path.basename(self._part_filename(index + 1))
+            meta["prevPart"] = os.path.basename(self._part_filename(index - 1))
         if meta:
-            trace["meta"] = meta
+            fields["meta"] = meta
+        fields["graph"] = {"nodes": self._nodes, "edges": self._edges}
+        return fields
+
+    def _render_part(self, index: int, messages: List[_Message]) -> Dict[str, Any]:
+        trace = self._header_fields(index)
+        trace["messages"] = [m.to_dict() for m in messages]
         return trace
 
-    def _render_json(self, index: int, messages: List[_Message], *, has_next: bool) -> str:
-        return json.dumps(
-            self._render_part(index, messages, has_next=has_next),
-            indent=Output.DEFAULT_INDENT,
-            ensure_ascii=False,
-        )
+    @staticmethod
+    def _render_line(record: Dict[str, Any]) -> str:
+        # One record per line: compact separators, no indent. json.dumps
+        # escapes any newline inside values, so a record can't span lines.
+        return json.dumps(record, ensure_ascii=False, separators=(",", ":"))
 
-    def _write_part(self, index: int, messages: List[_Message], *, has_next: bool) -> None:
-        """Atomically write one part file (write .tmp, then os.replace)."""
-        path = self._part_filename(index)
-        payload = self._render_json(index, messages, has_next=has_next)
-        tmp = path + Output.TMP_SUFFIX
+    def _append_to_part(self, message_line: str) -> None:
+        """Append a message line to the active part, opening it with a header
+        line first if this is the part's first write."""
+        path = self._part_filename(self._active_index)
+        if not self._part_started:
+            header = self._render_line(
+                {Records.TYPE_KEY: Records.HEADER, **self._header_fields(self._active_index)}
+            )
+            self._append_line(path, header)
+            self._active_part_bytes += len(header.encode("utf-8")) + 1
+            self._part_started = True
+        self._append_line(path, message_line)
+        self._active_part_bytes += len(message_line.encode("utf-8")) + 1
+
+    def _append_line(self, path: str, line: str) -> None:
         if self._dir:
             os.makedirs(self._dir, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(payload)
-        os.replace(tmp, path)  # atomic on the same filesystem
+        # newline="\n" so Windows doesn't translate to \r\n; open-per-append so
+        # every ended message is durable on disk the moment end_message returns.
+        with open(path, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write(line + "\n")

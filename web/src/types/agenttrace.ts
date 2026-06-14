@@ -1,9 +1,16 @@
 // Framework-agnostic AgentTrace file format.
 // A visualizer loads one `AgentTraceFile` object and replays it.
+//
+// On disk this comes in two framings:
+// - JSONL (`.jsonl`, what the Python SDK writes since 0.2): see the record
+//   types at the bottom of this file. Assembling header + message records
+//   yields one `AgentTraceFile`.
+// - a single JSON document (legacy 0.1 traces and the bundled example flows);
+//   the web UI still reads this, the SDK does not.
 
 export type AgentTraceFile = {
-  /** Schema version of the trace format. */
-  version: "0.1";
+  /** Schema version. "0.2" = same shapes as "0.1", introduced JSONL framing. */
+  version: "0.1" | "0.2";
   /** Display name for the trace (e.g. the source file name). Shown in the header. */
   name?: string;
   /**
@@ -62,3 +69,24 @@ export type AgentTracePayload = {
   label: string;
   value: unknown;
 };
+
+// --- JSONL framing (what the Python SDK writes) ----------------------------
+// A trace part is JSON Lines: line 1 is a header record (an AgentTraceFile
+// minus `messages`), then one message record per completed message, and — only
+// on a part that rotated away — a final seal record naming the next part.
+// Readers must skip records with an unknown `type` (forward compat) and
+// tolerate an unparseable final line (a crash mid-append leaves a torn tail).
+
+export type AgentTraceHeaderRecord = Omit<AgentTraceFile, "messages"> & {
+  type: "header";
+};
+
+export type AgentTraceMessageRecord = AgentTraceMessage & { type: "message" };
+
+/** Marks a part as complete; an active (still-growing) part has no seal. */
+export type AgentTraceSealRecord = { type: "seal"; nextPart: string };
+
+export type AgentTraceRecord =
+  | AgentTraceHeaderRecord
+  | AgentTraceMessageRecord
+  | AgentTraceSealRecord;

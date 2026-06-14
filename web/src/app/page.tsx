@@ -60,7 +60,7 @@ import {
 } from "@/utils/traceSelectors";
 import { withUniqueLabels } from "@/utils/payloadLabels";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
-import { isAgentTraceFile } from "@/utils/agentTraceFile";
+import { parseAgentTrace } from "@/utils/agentTraceFile";
 
 const PLAYBACK_INTERVAL_MS = 1200;
 const MOBILE_FOOTER_RESERVED_HEIGHT = "168px";
@@ -386,8 +386,10 @@ export default function Home() {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        const parsed = await response.json();
-        if (!isAgentTraceFile(parsed)) {
+        // The SDK launcher serves assembled JSON, but accept JSONL too so any
+        // same-origin trace file works.
+        const parsed = parseAgentTrace(await response.text());
+        if (!parsed) {
           throw new Error("invalid trace shape");
         }
         if (cancelled) return;
@@ -649,12 +651,12 @@ export default function Home() {
         </DialogTitle>
         <DialogContent sx={{ textAlign: "center" }}>
           <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>
-            Replay JSON agent flows as messages moving through a graph, with
-            node payloads and timing shown step by step.
+            Replay recorded agent flows as messages moving through a graph,
+            with node payloads and timing shown step by step.
           </Typography>
           <Typography color="text.secondary" sx={{ lineHeight: 1.7, mt: 2 }}>
-            Your flow stays in your browser. Imported JSON is processed locally
-            and never uploaded — and is kept only for this tab.
+            Your flow stays in your browser. Imported traces are processed
+            locally and never uploaded — and are kept only for this tab.
           </Typography>
           <Button
             variant="text"
@@ -701,7 +703,7 @@ export default function Home() {
           >
             <TraceUploader
               onLoad={handleLoadTrace}
-              label="Upload JSON"
+              label="Upload trace"
               size="medium"
               variant="contained"
               sx={{ minWidth: 150, width: { xs: "100%", sm: "auto" } }}
@@ -934,8 +936,8 @@ export default function Home() {
                 No flow loaded
               </Typography>
               <Typography color="text.secondary" sx={{ maxWidth: 360 }}>
-                Pick a bundled example or upload your own agent-trace JSON to
-                start replaying it.
+                Pick a bundled example or upload your own agent trace
+                (.jsonl or .json) to start replaying it.
               </Typography>
               <Box
                 sx={{
