@@ -9,6 +9,7 @@ import { textToSqlTrace } from "./flows/textToSql";
 import { guardrailsTrace } from "./flows/guardrails";
 import { deepResearchTrace } from "./flows/deepResearch";
 import { itHelpdeskRouterTrace } from "./flows/itHelpdeskRouter";
+import { loanApplicationTrace } from "./flows/loanApplication";
 
 // A bundled example flow, shown in the example-picker gallery. `title` and
 // `summary` are the short, card-facing copy; the full prose lives in
@@ -95,6 +96,14 @@ export const exampleFlows: ExampleFlow[] = [
       "Routes employee tickets through account, network, hardware, software, email, and security branches.",
     pattern: "multi-branch",
     trace: itHelpdeskRouterTrace,
+  },
+  {
+    id: "loan-application",
+    title: "Loan application",
+    summary:
+      "Scores each application and ends in one of three replies — approve, counter-offer, or decline.",
+    pattern: "multi-exit",
+    trace: loanApplicationTrace,
   },
 ];
 

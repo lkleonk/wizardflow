@@ -18,7 +18,7 @@ const SAFETY_CLASSIFIER_PROMPT =
 // A branching graph where one branch is a short, terminal refusal.
 export const guardrailsTrace: AgentTraceFile = {
   version: "0.1",
-  name: "guardrails.json",
+  name: "guardrails.jsonl",
   meta: {
     source: "custom",
     createdAt: "2026-06-06T18:40:00Z",

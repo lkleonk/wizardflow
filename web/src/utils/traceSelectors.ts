@@ -1,8 +1,75 @@
 import type {
+  AgentTraceEdge,
+  AgentTraceFile,
   AgentTraceMessage,
+  AgentTraceNode,
   AgentTracePayload,
   AgentTraceStep,
 } from "@/types/agenttrace";
+
+// LangGraph's reserved virtual nodes. They show up in the extracted topology
+// (the SDK passes them through unfiltered) but never execute or log anything, so
+// the canvas hides them — see `visibleGraph`. Canonical constant names only.
+const STRUCTURAL_NODE_IDS = new Set(["__start__", "__end__"]);
+
+/**
+ * Drop duplicate edges that share a source/target pair. The canvas keys edges
+ * by `source->target`, so a trace that lists the same edge twice would hand
+ * React Flow two children with the same key (and skew layout indegree counts).
+ * An edge keeps `conditional` if any of its duplicates were conditional. Returns
+ * the original array unchanged when there are no duplicates (stable identity).
+ */
+function dedupeEdges(edges: AgentTraceEdge[]): AgentTraceEdge[] {
+  const byKey = new Map<string, AgentTraceEdge>();
+  let hasDuplicate = false;
+  for (const edge of edges) {
+    const key = `${edge.source}->${edge.target}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, edge);
+    } else {
+      hasDuplicate = true;
+      if (edge.conditional && !existing.conditional) {
+        byKey.set(key, { ...existing, conditional: true });
+      }
+    }
+  }
+  return hasDuplicate ? [...byKey.values()] : edges;
+}
+
+/**
+ * The graph to render. Drops purely structural nodes that never run — currently
+ * LangGraph's virtual `__start__`/`__end__` entries — but *only* when they have
+ * no logged step anywhere in the trace, then drops edges that touch a hidden
+ * node. Duplicate edges (same source/target) are also collapsed. Real branch
+ * nodes that simply weren't exercised by the recorded messages are kept, so the
+ * full topology still shows. When nothing is hidden or duplicated the original
+ * arrays are returned unchanged (stable identity for memoization).
+ */
+export function visibleGraph(trace: AgentTraceFile): {
+  nodes: AgentTraceNode[];
+  edges: AgentTraceEdge[];
+} {
+  const logged = new Set<string>();
+  for (const message of trace.messages) {
+    for (const step of message.steps) logged.add(step.nodeId);
+  }
+  const hidden = new Set(
+    trace.graph.nodes
+      .map((n) => n.id)
+      .filter((id) => STRUCTURAL_NODE_IDS.has(id) && !logged.has(id))
+  );
+  const edges = dedupeEdges(trace.graph.edges);
+  if (hidden.size === 0) {
+    return { nodes: trace.graph.nodes, edges };
+  }
+  return {
+    nodes: trace.graph.nodes.filter((n) => !hidden.has(n.id)),
+    edges: edges.filter(
+      (e) => !hidden.has(e.source) && !hidden.has(e.target)
+    ),
+  };
+}
 
 /** Parse an ISO timestamp to epoch ms; undated/invalid steps sort to the end. */
 function toEpoch(timestamp: string): number {

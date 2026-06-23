@@ -429,6 +429,43 @@ def test_from_langgraph_marks_conditional_edges_only(tmp_path):
     assert ("__start__", "router") in plain
 
 
+def test_from_langgraph_collapses_duplicate_edges(tmp_path):
+    # LangGraph's get_graph() can list the same conditional edge twice when a
+    # router maps several branch keys to one target; the viewer keys edges by
+    # source->target, so duplicates must collapse to one.
+    nodes = {k: object() for k in ["__start__", "router", "target", "__end__"]}
+    edges = [
+        _FakeEdge("__start__", "router"),
+        _FakeEdge("router", "target", conditional=True),
+        _FakeEdge("router", "target", conditional=True),
+    ]
+    c = Client.from_langgraph(_FakeApp(nodes, edges), output_dir=str(tmp_path), file_prefix="t")
+    out = c.to_dict()["graph"]["edges"]
+    assert out == [
+        {"source": "__start__", "target": "router"},
+        {"source": "router", "target": "target", "conditional": True},
+    ]
+
+
+def test_dedupe_keeps_conditional_if_any_twin_is(tmp_path):
+    # A plain edge and a conditional edge over the same pair collapse to one
+    # that keeps the branch flag, regardless of which came first.
+    c = _new(tmp_path, nodes=["a", "b"],
+             edges=[("a", "b"), {"source": "a", "target": "b", "conditional": True}])
+    assert c.to_dict()["graph"]["edges"] == [
+        {"source": "a", "target": "b", "conditional": True}
+    ]
+
+
+def test_dedupe_preserves_first_seen_order(tmp_path):
+    c = _new(tmp_path, nodes=["a", "b", "c"],
+             edges=[("b", "c"), ("a", "b"), ("b", "c")])
+    assert c.to_dict()["graph"]["edges"] == [
+        {"source": "b", "target": "c"},
+        {"source": "a", "target": "b"},
+    ]
+
+
 def test_from_langgraph_applies_node_colors(tmp_path):
     c = Client.from_langgraph(
         _consultant_app(),

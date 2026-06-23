@@ -12,7 +12,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // course_catalog and eligibility_check are tool lookups.
 export const universityConsultantTrace: AgentTraceFile = {
   version: "0.1",
-  name: "university_consultant.json",
+  name: "university_consultant.jsonl",
   meta: {
     source: "langgraph",
     createdAt: "2026-06-06T09:00:00Z",

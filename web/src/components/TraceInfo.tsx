@@ -8,6 +8,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { visibleGraph } from "@/utils/traceSelectors";
 
 type TraceInfoProps = {
   trace: AgentTraceFile;
@@ -20,9 +21,12 @@ export default function TraceInfo({ trace }: TraceInfoProps) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const open = Boolean(anchorEl);
 
+  // Count what the canvas actually shows — `visibleGraph` drops structural-only
+  // nodes (e.g. LangGraph's virtual __start__/__end__) and their edges.
+  const graph = visibleGraph(trace);
   const messageCount = trace.messages.length;
-  const nodeCount = trace.graph.nodes.length;
-  const edgeCount = trace.graph.edges.length;
+  const nodeCount = graph.nodes.length;
+  const edgeCount = graph.edges.length;
 
   return (
     <>

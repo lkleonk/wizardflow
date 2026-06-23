@@ -6,7 +6,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // wide graph (one source fanning to three, then converging) stresses the layout.
 export const multiAgentCrewTrace: AgentTraceFile = {
   version: "0.1",
-  name: "multi_agent_crew.json",
+  name: "multi_agent_crew.jsonl",
   meta: {
     source: "crewai",
     createdAt: "2026-05-30T09:45:00Z",

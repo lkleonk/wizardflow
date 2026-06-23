@@ -6,7 +6,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // replanner -> executor), so the graph has a back-edge / cycle.
 export const planExecuteTrace: AgentTraceFile = {
   version: "0.1",
-  name: "plan_and_execute.json",
+  name: "plan_and_execute.jsonl",
   meta: {
     source: "langgraph",
     createdAt: "2026-06-01T16:20:00Z",

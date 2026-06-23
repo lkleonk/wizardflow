@@ -103,6 +103,28 @@ def _normalize_edge(edge: EdgeSpec) -> Dict[str, Any]:
     )
 
 
+def _dedupe_edges(edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Collapse edges that share a (source, target) pair.
+
+    An edge is just (source, target, conditional?) in the schema, so a repeated
+    pair carries no extra information. LangGraph's ``get_graph().edges`` can list
+    the same conditional edge more than once (a router mapping several branch
+    keys to one target); without this the viewer would receive duplicate
+    ``source->target`` keys and the markdown/json exports would carry redundant
+    rows. First-seen order is preserved; the survivor keeps ``conditional`` if
+    any of its duplicates was conditional.
+    """
+    by_key: "Dict[Tuple[Any, Any], Dict[str, Any]]" = {}
+    for edge in edges:
+        key = (edge["source"], edge["target"])
+        existing = by_key.get(key)
+        if existing is None:
+            by_key[key] = edge
+        elif edge.get("conditional") and not existing.get("conditional"):
+            existing["conditional"] = True
+    return list(by_key.values())
+
+
 def _apply_node_colors(
     nodes: List[Dict[str, Any]],
     node_colors: Optional[NodeColorMap],
@@ -249,7 +271,9 @@ class Client:
             self.meta.setdefault("description", description)
 
         self._nodes: List[Dict[str, Any]] = [_normalize_node(n) for n in (nodes or [])]
-        self._edges: List[Dict[str, str]] = [_normalize_edge(e) for e in (edges or [])]
+        self._edges: List[Dict[str, str]] = _dedupe_edges(
+            [_normalize_edge(e) for e in (edges or [])]
+        )
         # Known node ids gate log() when nodes were declared up front.
         self._known: Optional[set] = (
             {n["id"] for n in self._nodes} if nodes is not None else None

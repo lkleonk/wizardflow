@@ -7,7 +7,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // before finalizing. No parallelism — every step follows the one before it.
 export const deepResearchTrace: AgentTraceFile = {
   version: "0.1",
-  name: "deep_research.json",
+  name: "deep_research.jsonl",
   meta: {
     source: "langgraph",
     createdAt: "2026-06-06T20:00:00Z",

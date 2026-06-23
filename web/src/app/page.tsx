@@ -57,6 +57,7 @@ import {
   elapsedMsAtStep,
   getPayloadsForNode,
   orderedSteps,
+  visibleGraph,
 } from "@/utils/traceSelectors";
 import { withUniqueLabels } from "@/utils/payloadLabels";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
@@ -200,6 +201,11 @@ export default function Home() {
   );
   const trace = savedFlow ?? emptyTrace;
   const hasFlow = trace.graph.nodes.length > 0;
+
+  // The graph the canvas renders: drops structural-only nodes (e.g. LangGraph's
+  // virtual __start__/__end__) that never log anything. Everything else still
+  // reads the full `trace` — only the canvas hides these.
+  const graph = useMemo(() => visibleGraph(trace), [trace]);
 
   const [selectedMessageId, setSelectedMessageId] = useState(
     trace.messages[0]?.id
@@ -398,7 +404,7 @@ export default function Home() {
         handleLoadTrace(traceName ? { ...parsed, name: traceName } : parsed);
       } catch {
         if (!cancelled) {
-          alert("Could not load the WizardFlow trace JSON from the URL.");
+          alert("Could not load the WizardFlow trace file from the URL.");
           loadedTraceUrlRef.current = null;
         }
       } finally {
@@ -906,8 +912,8 @@ export default function Home() {
         >
           {hasFlow ? (
             <GraphCanvas
-              nodes={trace.graph.nodes}
-              edges={trace.graph.edges}
+              nodes={graph.nodes}
+              edges={graph.edges}
               activeNodeId={activeNodeId}
               selectedNodeId={selectedNodeId}
               recentNodeIds={recentNodeIds}

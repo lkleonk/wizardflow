@@ -6,7 +6,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // (vectors, scored matches) instead.
 export const ragPipelineTrace: AgentTraceFile = {
   version: "0.1",
-  name: "rag_pipeline.json",
+  name: "rag_pipeline.jsonl",
   meta: {
     source: "llamaindex",
     createdAt: "2026-05-28T14:12:00Z",

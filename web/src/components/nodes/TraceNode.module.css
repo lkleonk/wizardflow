@@ -63,6 +63,19 @@
   line-height: 1.2;
 }
 
+.label {
+  /* Clamp to two lines with a trailing ellipsis. min-width:0 lets this flex
+     item shrink below its content width so the clamp/ellipsis can engage;
+     overflow-wrap handles long tokens that have no underscore break points. */
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
 .dot {
   width: 8px;
   height: 8px;

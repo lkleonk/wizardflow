@@ -6,7 +6,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // coder -> test_runner -> coder back-edge makes the fix loop visible.
 export const selfCorrectingCodeTrace: AgentTraceFile = {
   version: "0.1",
-  name: "self_correcting_code.json",
+  name: "self_correcting_code.jsonl",
   meta: {
     source: "custom",
     createdAt: "2026-06-03T11:30:00Z",

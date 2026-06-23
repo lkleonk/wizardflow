@@ -4,7 +4,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // tickets into specialist branches, then rejoins for urgency and resolution.
 export const itHelpdeskRouterTrace: AgentTraceFile = {
   version: "0.1",
-  name: "it_helpdesk_router.json",
+  name: "it_helpdesk_router.jsonl",
   meta: {
     source: "custom",
     createdAt: "2026-06-09T12:00:00Z",

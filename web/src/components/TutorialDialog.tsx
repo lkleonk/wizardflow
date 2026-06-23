@@ -8,25 +8,51 @@ import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
 
-const pythonSdkExample = `import wizardflow
+const connectGraphExample = `import wizardflow
 
-app = workflow.compile()  # your compiled LangGraph app
+wizardflow.init_from_langgraph(
+    app,
+    output_dir="traces",
+    file_prefix="run",
+)`;
 
-wizardflow.init_from_langgraph(app, file_prefix="run")
-# No LangGraph instance? Use wizardflow.init(..., nodes=[...], edges=[...]).
+const logValuesExample = `# These values already exist in your agent.
+wizardflow.log(message_id, "router", "input", prompt)
+wizardflow.log(message_id, "router", "route", route)
+wizardflow.log(message_id, "tool_node")
+wizardflow.log(message_id, "final_response", "output", response)
 
-# Log with the node ids from your graph.
-# log(message_id, node, payload_label, payload_value)
-wizardflow.log("msg-1", "router", "Input", "What's the weather?")
-wizardflow.log("msg-1", "router", "route", "weather")
-wizardflow.log("msg-1", "tool_node")
-wizardflow.log("msg-1", "final_response", "Output", "19C and cloudy.")
-wizardflow.end_message("msg-1")  # appends to run__<timestamp>.jsonl`;
+# Finalize the message, write it to disk, and return the trace file path.
+trace_path = wizardflow.end_message(message_id)`;
 
 type TutorialDialogProps = {
   open: boolean;
   onClose: () => void;
 };
+
+function CodeBlock({ children }: { children: string }) {
+  return (
+    <Box
+      component="pre"
+      sx={{
+        m: 0,
+        p: 1.25,
+        overflowX: "auto",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1,
+        bgcolor: "action.hover",
+        color: "text.secondary",
+        fontFamily: "var(--font-geist-mono), monospace",
+        fontSize: 12,
+        lineHeight: 1.55,
+        whiteSpace: "pre",
+      }}
+    >
+      <Box component="code">{children}</Box>
+    </Box>
+  );
+}
 
 export function LocalDataDetails() {
   return (
@@ -73,45 +99,69 @@ export default function TutorialDialog({ open, onClose }: TutorialDialogProps) {
           pb: 1,
         }}
       >
-        Tutorial
+        Create your first trace
         <IconButton size="small" onClick={onClose} aria-label="Close">
           <CloseIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
       <DialogContent sx={{ pb: 3 }}>
-        <Box sx={{ display: "grid", gap: 2.25 }}>
+        <Box sx={{ display: "grid", gap: 2.5 }}>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ lineHeight: 1.7 }}
+          >
+            WizardFlow records values your agent already has and writes them to
+            a local trace file.
+          </Typography>
           <Box sx={{ display: "grid", gap: 0.75 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              Start
+              1. Install
+            </Typography>
+            <CodeBlock>pip install wizardflow</CodeBlock>
+          </Box>
+          <Box sx={{ display: "grid", gap: 0.75 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              2. Connect your graph
             </Typography>
             <Typography
               variant="body2"
               color="text.secondary"
               sx={{ lineHeight: 1.7 }}
             >
-              Upload a WizardFlow trace file (.jsonl or .json), browse a bundled
-              example, or create a trace with the Python SDK and open it in the
-              viewer.
+              Pass your compiled LangGraph app:
             </Typography>
-            <Box
-              component="pre"
-              sx={{
-                m: 0,
-                p: 1.25,
-                overflowX: "auto",
-                border: 1,
-                borderColor: "divider",
-                borderRadius: 1,
-                bgcolor: "action.hover",
-                color: "text.secondary",
-                fontFamily: "var(--font-geist-mono), monospace",
-                fontSize: 12,
-                lineHeight: 1.55,
-                whiteSpace: "pre",
-              }}
+            <CodeBlock>{connectGraphExample}</CodeBlock>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ lineHeight: 1.7 }}
             >
-              <Box component="code">{pythonSdkExample}</Box>
-            </Box>
+              Not using LangGraph? Provide nodes and edges with{" "}
+              <Box component="code">wizardflow.init()</Box>.
+            </Typography>
+          </Box>
+          <Box sx={{ display: "grid", gap: 0.75 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              3. Log existing values
+            </Typography>
+            <CodeBlock>{logValuesExample}</CodeBlock>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ lineHeight: 1.7 }}
+            >
+              Upload the generated .jsonl file here, or open it locally from the
+              command line:
+            </Typography>
+            <CodeBlock>wizardflow ui trace.jsonl</CodeBlock>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ lineHeight: 1.7 }}
+            >
+              The CLI also accepts an existing .json trace.
+            </Typography>
           </Box>
           <Box sx={{ display: "grid", gap: 0.75 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>

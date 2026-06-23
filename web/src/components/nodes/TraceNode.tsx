@@ -26,6 +26,19 @@ function recentGlow(accent: string, rank: number): string {
   return `0 0 14px ${withAlpha(accent, alpha)}`;
 }
 
+// Render a node label with a break opportunity after each underscore, so long
+// snake_case names (e.g. "ed_info_response") wrap at the underscores rather than
+// spilling past the node outline. Tokens with no underscores fall back to the
+// `overflow-wrap: anywhere` rule on `.label`.
+function labelWithBreaks(label: string) {
+  return label.split("_").map((part, i) => (
+    <Fragment key={i}>
+      {i > 0 ? <>_<wbr /></> : null}
+      {part}
+    </Fragment>
+  ));
+}
+
 function withAlpha(hex: string, alpha: number): string {
   // Expects #RRGGBB; falls back to the raw color if it's not that shape.
   const m = /^#([0-9a-f]{6})$/i.exec(hex);
@@ -83,7 +96,10 @@ function TraceNode({ data }: NodeProps) {
       ))}
       <div className={styles.surface}>
         <span className={styles.dot} style={{ background: accent }} />
-        {label}
+        {/* title carries the full label so it stays reachable when clamped. */}
+        <span className={styles.label} title={label}>
+          {labelWithBreaks(label)}
+        </span>
       </div>
     </div>
   );

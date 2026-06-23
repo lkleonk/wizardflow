@@ -10,6 +10,7 @@ import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
 import { exampleFlows } from "@/data";
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { visibleGraph } from "@/utils/traceSelectors";
 
 type ExampleGalleryProps = {
   open: boolean;
@@ -58,7 +59,7 @@ export default function ExampleGallery({
         >
           {exampleFlows.map((flow) => {
             const isCurrent = !!currentName && flow.trace.name === currentName;
-            const nodeCount = flow.trace.graph.nodes.length;
+            const nodeCount = visibleGraph(flow.trace).nodes.length;
             const messageCount = flow.trace.messages.length;
             return (
               <ButtonBase

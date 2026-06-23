@@ -22,3 +22,6 @@ htmlcov/
 # agent/assistant instruction files (kept out of the published repo)
 AGENTS.md
 CLAUDE.md
+
+# local-only scratch / planning notes (never committed)
+internal/

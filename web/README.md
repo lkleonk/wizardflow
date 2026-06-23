@@ -18,7 +18,7 @@ selected node.
   - repeat the current message
   - continue with the next message
 - Playback speed cycle: `0.5x`, `1x`, `1.5x`, `2x`.
-- Example flow gallery (bundled sample flows) plus JSON flow upload.
+- Example flow gallery (bundled sample flows) plus JSONL/JSON trace upload.
 - Light and dark mode.
 
 ## Keyboard Controls
@@ -37,11 +37,13 @@ Keyboard shortcuts are ignored while typing or while a button/input has focus.
 
 ## Flow Format
 
-The app loads an `AgentTraceFile` JSON object:
+The app accepts JSONL traces written by the Python SDK and legacy
+single-document JSON traces. Both are parsed into one in-memory
+`AgentTraceFile`:
 
 ```ts
 type AgentTraceFile = {
-  version: "0.1";
+  version: "0.1" | "0.2";
   name?: string;
   meta?: Record<string, string | number | boolean>;
   graph: {

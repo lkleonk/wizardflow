@@ -15,7 +15,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // - a node that is visited but logs no payloads (tool_node in message 1)
 export const routerAgentTrace: AgentTraceFile = {
   version: "0.1",
-  name: "router_agent.json",
+  name: "router_agent.jsonl",
   meta: {
     source: "langgraph",
     createdAt: "2026-06-02T10:00:00Z",

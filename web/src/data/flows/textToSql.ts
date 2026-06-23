@@ -9,7 +9,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // db_executor back-edge makes the repair loop visible.
 export const textToSqlTrace: AgentTraceFile = {
   version: "0.1",
-  name: "text_to_sql.json",
+  name: "text_to_sql.jsonl",
   meta: {
     source: "custom",
     createdAt: "2026-06-05T10:15:00Z",

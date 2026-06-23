@@ -67,9 +67,9 @@ export default function DatenschutzPage() {
         </section>
 
         <section className={styles.section}>
-          <h2>Upload von JSON-Dateien</h2>
+          <h2>Upload von JSON-/JSONL-Dateien</h2>
           <p>
-            WizardFlow liest hochgeladene JSON-Dateien lokal im Browser.
+            WizardFlow liest hochgeladene JSON-/JSONL-Dateien lokal im Browser.
             Nach aktuellem Stand werden diese Dateien durch die App nicht an
             einen Server uebertragen und nicht serverseitig gespeichert.
           </p>
