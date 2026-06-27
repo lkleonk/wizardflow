@@ -1,5 +1,8 @@
 import type { AgentTraceFile, AgentTraceMessage } from "@/types/agenttrace";
 
+export const INVALID_AGENT_TRACE_FILE_MESSAGE =
+  "That file doesn't look like a WizardFlow trace (.jsonl or .json).";
+
 // Minimal shape check: enough to reject obviously-wrong files without turning
 // the viewer into a full schema validator.
 export function isAgentTraceFile(value: unknown): value is AgentTraceFile {
@@ -33,6 +36,17 @@ export function parseAgentTrace(text: string): AgentTraceFile | null {
   } catch {
     return null;
   }
+}
+
+export async function readAgentTraceFile(
+  file: File
+): Promise<AgentTraceFile | null> {
+  const parsed = parseAgentTrace(await file.text());
+  if (!parsed) return null;
+
+  // The on-disk file name is what the user recognizes - use it as the trace's
+  // display name, overriding any name baked into the file.
+  return { ...parsed, name: file.name };
 }
 
 function parseJsonlTrace(text: string): AgentTraceFile | null {

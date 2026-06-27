@@ -24,6 +24,7 @@ import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import ViewSidebarOutlinedIcon from "@mui/icons-material/ViewSidebarOutlined";
 import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
+import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import CloseIcon from "@mui/icons-material/Close";
@@ -36,6 +37,7 @@ import PlaybackControls, {
   type PlaybackMode,
   type PlaybackSpeed,
 } from "@/components/PlaybackControls";
+import TraceDropTarget from "@/components/TraceDropTarget";
 import TraceUploader from "@/components/TraceUploader";
 import TraceInfo from "@/components/TraceInfo";
 import ExampleGallery from "@/components/ExampleGallery";
@@ -355,12 +357,10 @@ export default function Home() {
   }, [disableGraphArrangeMode]);
 
   // Clear the current flow. trace is `savedFlow ?? emptyTrace`, so dropping the
-  // saved flow leaves an empty canvas; we open the gallery so the user can pick
-  // another instead of being dumped back onto a default flow.
+  // saved flow leaves the empty canvas with upload, example, and drop targets.
   const handleDropFlow = useCallback(() => {
     disableGraphArrangeMode();
     setSavedFlow(null);
-    setGalleryOpen(true);
   }, [disableGraphArrangeMode]);
 
   // Local SDK launcher support: `wizardflow ui trace.json` serves the bundled
@@ -638,6 +638,7 @@ export default function Home() {
         maxWidth="sm"
         fullWidth
       >
+        <TraceDropTarget onLoad={handleLoadTrace}>
         <DialogTitle id="welcome-dialog-title" sx={{ pb: 1 }}>
           <Box
             sx={{
@@ -725,6 +726,18 @@ export default function Home() {
             >
               Browse examples
             </Button>
+            <Button
+              size="medium"
+              variant="outlined"
+              startIcon={<MenuBookOutlinedIcon />}
+              onClick={() => {
+                setWelcomeDismissed();
+                setTutorialOpen(true);
+              }}
+              sx={{ minWidth: 150, width: { xs: "100%", sm: "auto" } }}
+            >
+              Tutorial
+            </Button>
           </Box>
           <Typography
             component="a"
@@ -744,6 +757,7 @@ export default function Home() {
             Need a flow file? Use the Python SDK
           </Typography>
         </DialogActions>
+        </TraceDropTarget>
       </Dialog>
 
       <ExampleGallery
@@ -923,7 +937,8 @@ export default function Home() {
               onArrangeModeChange={setGraphArrangeMode}
             />
           ) : (
-            <Box
+            <TraceDropTarget
+              onLoad={handleLoadTrace}
               sx={{
                 height: "100%",
                 display: "flex",
@@ -968,7 +983,7 @@ export default function Home() {
                   sx={{ width: { xs: "100%", sm: "auto" } }}
                 />
               </Box>
-            </Box>
+            </TraceDropTarget>
           )}
         </Paper>
         {inspectorOpen && (
