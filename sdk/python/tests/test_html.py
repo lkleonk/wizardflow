@@ -56,6 +56,23 @@ def test_renders_standalone_document():
     assert html.rstrip().endswith("</html>")
 
 
+def test_node_descriptions_rendered_when_present():
+    trace = _trace()
+    trace["graph"]["nodes"] = [
+        {"id": "router", "description": "Chooses & routes."},
+        {"id": "planner"},
+    ]
+    html = render_html(trace)
+    assert '<section class="nodes">' in html
+    assert "Chooses &amp; routes." in html    # HTML-escaped
+    assert html.count("<li>") == 1            # only described nodes are listed
+
+
+def test_no_nodes_section_without_descriptions():
+    html = render_html(_trace())
+    assert '<section class="nodes">' not in html   # old traces render as before
+
+
 def test_no_javascript_or_external_assets():
     html = render_html(_trace())
     assert "<script" not in html

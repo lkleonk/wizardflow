@@ -13,6 +13,8 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // - multiple messages with different paths
 // - duplicate payload labels within a node's step ("Input" → "Input"/"Input_2")
 // - a node that is visited but logs no payloads (tool_node in message 1)
+// - node descriptions (info icon in the inspector when the node is selected);
+//   user_input deliberately has none, to show the icon-less case
 export const routerAgentTrace: AgentTraceFile = {
   version: "0.1",
   name: "router_agent.jsonl",
@@ -30,12 +32,40 @@ export const routerAgentTrace: AgentTraceFile = {
   graph: {
     nodes: [
       { id: "user_input", label: "User Input" },
-      { id: "router", label: "Router" },
-      { id: "planner", label: "Planner" },
-      { id: "retriever", label: "Retriever" },
-      { id: "tool_node", label: "Tool" },
-      { id: "generator", label: "Generator" },
-      { id: "final_response", label: "Final Response" },
+      {
+        id: "router",
+        label: "Router",
+        description:
+          "Classifies each request and picks the branch: planner for tasks " +
+          "that need tools, retriever for questions answered from documents.",
+      },
+      {
+        id: "planner",
+        label: "Planner",
+        description: "Decomposes the request into concrete tool calls.",
+      },
+      {
+        id: "retriever",
+        label: "Retriever",
+        description:
+          "Fetches the most relevant documents for the query from the corpus.",
+      },
+      {
+        id: "tool_node",
+        label: "Tool",
+        description: "Executes the planned tool calls against external APIs.",
+      },
+      {
+        id: "generator",
+        label: "Generator",
+        description:
+          "Writes the answer from the tool results or retrieved documents.",
+      },
+      {
+        id: "final_response",
+        label: "Final Response",
+        description: "Formats and delivers the answer back to the user.",
+      },
     ],
     edges: [
       { source: "user_input", target: "router" },

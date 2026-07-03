@@ -30,6 +30,11 @@ export type AgentTraceNode = {
   label?: string;
   /** Optional override for the node's accent color. Falls back to a palette color. */
   color?: string;
+  /**
+   * Optional short human description of what this node does. Surfaced behind
+   * an info icon when the node is selected — never rendered permanently.
+   */
+  description?: string;
 };
 
 export type AgentTraceEdge = {

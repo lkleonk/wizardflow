@@ -19,11 +19,34 @@ export const ragPipelineTrace: AgentTraceFile = {
   graph: {
     nodes: [
       { id: "user_input", label: "User Input" },
-      { id: "embedder", label: "Embedder" },
-      { id: "vector_search", label: "Vector Search" },
-      { id: "reranker", label: "Reranker" },
-      { id: "generator", label: "Generator" },
-      { id: "final_response", label: "Final Response" },
+      {
+        id: "embedder",
+        label: "Embedder",
+        description: "Turns the question into an embedding vector.",
+      },
+      {
+        id: "vector_search",
+        label: "Vector Search",
+        description:
+          "Finds the nearest chunks in the drug-information knowledge base.",
+      },
+      {
+        id: "reranker",
+        label: "Reranker",
+        description:
+          "Re-scores the hits against the full question and keeps the best.",
+      },
+      {
+        id: "generator",
+        label: "Generator",
+        description:
+          "The only LLM call: writes the answer grounded in the kept chunks.",
+      },
+      {
+        id: "final_response",
+        label: "Final Response",
+        description: "Returns the grounded answer to the user.",
+      },
     ],
     edges: [
       { source: "user_input", target: "embedder" },

@@ -51,6 +51,8 @@ No runtime dependencies. Developing the SDK itself? See
 ## Quickstart
 
 ```python
+import uuid
+
 import wizardflow
 
 wizardflow.init(
@@ -63,10 +65,11 @@ wizardflow.init(
 
 # Every log names its message in the first argument:
 # log(message_id, node, payload_label, payload_value)
-wizardflow.log("msg-1", "router", "llm_input", prompt)    # same node, two payloads ->
-wizardflow.log("msg-1", "router", "llm_output", output)   #   folded into one step
-wizardflow.log("msg-1", "tool_node")                       # visited, no payloads
-wizardflow.end_message("msg-1")                            # -> writes the trace
+msg_id = str(uuid.uuid4())                                # one fresh id per message
+wizardflow.log(msg_id, "router", "llm_input", prompt)     # same node, two payloads ->
+wizardflow.log(msg_id, "router", "llm_output", output)    #   folded into one step
+wizardflow.log(msg_id, "tool_node")                       # visited, no payloads
+wizardflow.end_message(msg_id)                            # -> writes the trace
 ```
 
 There is **no `save()`** and no autosave: `log()` only accumulates in memory,
@@ -102,6 +105,82 @@ Pass the **string `id`**, never a handle object — safe to hand to a callback o
 across threads. A message is created on first reference and finalized by
 `end_message`; `end_message(id, title="...")` optionally gives it a human title.
 
+### Choosing message ids
+
+A message is **one unit of work** — one user turn, one run through the graph.
+Its id only has to be unique within the run, and it **cannot be reused** once
+`end_message` has been called on it. The simplest safe choice is a fresh UUID
+per message:
+
+```python
+import uuid
+
+msg_id = str(uuid.uuid4())
+```
+
+Do **not** use a session id, user id, or thread id as the message id. Those
+identify a *conversation*, and a conversation contains many messages — after
+the first `end_message(session_id)`, every further `log(session_id, ...)` in
+that session raises, because that "message" has already ended. If you want the
+session visible in the trace, put it in `init(meta=...)` or in the message
+title (`end_message(msg_id, title=...)`) — never in the id. Ids are opaque:
+the viewer only displays and groups by them, so encoding meaning into them
+buys nothing. Hardcoded ids like `"msg-1"` are fine for demo scripts; `uuid4`
+is the right default for real applications.
+
+## One flow, or several at once
+
+`init()` installs the client it returns as the module default. With a single
+flow — the common case — **ignore the return value** and call
+`wizardflow.log(...)` / `wizardflow.end_message(...)` directly: they work from
+any module, with no handle to thread through your code.
+
+Running several agent flows side by side (say, a doctor flow and a patient
+flow) means several traces, and each needs its own instance. Keep the returned
+client per flow and log through it — and name it **`tracer`**, not `client`,
+since `client` in an agent codebase is almost always the LLM client:
+
+```python
+doctor_tracer  = wizardflow.init(file_prefix="doctor",  nodes=[...], edges=[...])
+patient_tracer = wizardflow.init(file_prefix="patient", nodes=[...], edges=[...])
+
+doctor_tracer.log(doc_msg, "diagnose", "llm_input", prompt)
+patient_tracer.log(pat_msg, "intake", "llm_input", prompt)
+```
+
+With more than one tracer, don't mix in the bare module-level calls:
+`wizardflow.log(...)` always targets the most recently initialized tracer.
+
+## Node descriptions, labels & colors
+
+Nodes can carry a short human description of what they do. In the viewer it
+stays out of the way: when a node is selected, a small info icon appears next
+to its name in the inspector — click it to read the description. Nodes without
+one show no icon, and `wizardflow md` / `wizardflow html` list the described
+nodes under the graph.
+
+```python
+wizardflow.init(
+    nodes=["router", "retriever", "generator"],
+    edges=[("router", "retriever"), ("retriever", "generator")],
+    node_descriptions={
+        "router": "Chooses the next step.",
+        "retriever": "Fetches relevant documents.",
+        "generator": "Writes the final answer.",
+    },
+)
+```
+
+Two sibling kwargs work the same way: `node_labels` maps ids to the display
+name the viewer shows instead of the raw id (especially useful with
+`init_from_langgraph`, where the extracted ids are your function names), and
+`node_colors` sets accent colors. All three are validated against the declared
+nodes: an unknown id raises a `WizardFlowError` at `init()` time so typos fail
+fast; with `silent=True` it is logged as a warning on the `wizardflow` logger
+and skipped instead. All three also work on `init_from_langgraph`, where they
+attach to the extracted node ids — `log()` always targets the **id**, never
+the label.
+
 ## LangGraph: automatic topology
 
 Instead of listing `nodes`/`edges` by hand, read them straight from a compiled
@@ -133,8 +212,8 @@ wizardflow.init_from_langgraph(
 ```
 
 By default, a color key that does not match an extracted node id raises a
-`WizardFlowError` so typos fail fast. With `silent=True`, unknown color keys are
-ignored.
+`WizardFlowError` so typos fail fast. With `silent=True`, unknown color keys
+are skipped and logged as a warning instead.
 
 It extracts node ids (keeping `__start__` / `__end__`) and directed edges, and
 marks runtime branches with `"conditional": true` (deterministic and parallel
@@ -155,23 +234,23 @@ A non-LangGraph object raises `LangGraphExtractionError`; missing conditional
 metadata never fails extraction (the edge is just emitted plain). Call it
 **after `compile()`**, when the topology actually exists.
 
-## API (v0.2)
+## API
 
-> **Breaking change in 0.2:** traces are now JSON Lines (`.jsonl`), written by
-> appending — the old single-document `.json` format is gone from the SDK
-> (writer *and* CLI readers). The web UI at getwizardflow.com still opens old
-> `.json` traces.
-
-- `init(output_dir=, file_prefix="wizardflow", name=, description=, nodes=, edges=, meta=, silent=False, max_bytes=16_000_000, max_messages=2_000) -> Client`
+- `init(output_dir=, file_prefix="wizardflow", name=, description=, nodes=, edges=, node_labels=, node_colors=, node_descriptions=, meta=, silent=False, max_bytes=16_000_000, max_messages=2_000) -> Client`
   - `description` lands in `meta.description` (matches the schema field).
   - `nodes=` enables fast-fail: `log()` to an undeclared node raises
     `UnknownNodeError` immediately (unless silenced).
+  - `node_labels` / `node_colors` / `node_descriptions` map declared node ids
+    to a display name / CSS color / short description; an unknown id raises
+    unless silenced (then it's logged as a warning and skipped).
   - `output_dir` is optional; omitted, traces are written in cwd.
   - `file_prefix` is optional; omitted, filenames start with `wizardflow`.
   - `max_bytes` / `max_messages` cap each part file before rotation (see below).
-- `init_from_langgraph(app, output_dir=, file_prefix="wizardflow", name=, description=, meta=, node_colors=, silent=False, max_bytes=..., max_messages=...) -> Client`
+- `init_from_langgraph(app, output_dir=, file_prefix="wizardflow", name=, description=, meta=, node_labels=, node_colors=, node_descriptions=, silent=False, max_bytes=..., max_messages=...) -> Client`
   - same as `init`, but `nodes`/`edges` come from `app.get_graph()`.
-  - `node_colors` maps extracted node ids to CSS colors such as `"#A78BFA"`.
+  - `node_labels` renames extracted ids for display (they're your function
+    names); `node_colors` maps them to CSS colors such as `"#A78BFA"`;
+    `node_descriptions` to short descriptions.
 - `log(id, node, label=None, content=None)` — the first positional is the
   **message id**, the second is the node. With `label`/`content` it records a
   payload; bare `log(id, "node")` records a visit with no payloads. The message
@@ -179,6 +258,13 @@ metadata never fails extraction (the edge is just emitted plain). Call it
 - `end_message(id, title=None)` — finalize a message and append it to the
   trace; returns the current trace path. The **only** call that touches disk.
   Optional `title` sets the message's human title. Idempotent.
+- `reinit(name=None, description=None, meta=None)` — start a **new trace
+  file** (fresh timestamped name), keeping the graph and output configuration.
+  Use it at natural boundaries of a long-lived process — a new user session, a
+  new day. The old file is left as-is (**no seal**: it's a finished run, not a
+  rotated part). Open messages carry over and are written wherever they end;
+  completed message ids become reusable. `name`/`description`/`meta` replace
+  the current values when given. Returns the new trace path.
 - `Client.current_path` — the trace file currently being written.
 - `to_dict()` / `to_json()` — inspect the active part (completed messages),
   assembled into one `AgentTraceFile` object.
@@ -203,6 +289,10 @@ Readers skip records with an unknown `type` (forward compat) and drop an
 unparseable final line (a crash mid-append leaves a torn tail; everything
 before it is intact). Only **completed** messages are written; an in-progress
 message lives in memory until it ends.
+
+> Early SDK versions (0.1) wrote a trace as one single-document `.json` file
+> instead. Newer versions write JSONL only, but every reader — the CLI
+> subcommands and the web UI at getwizardflow.com — still opens both formats.
 
 ### How saving works
 
@@ -264,6 +354,20 @@ This is separate from `silent=` (which governs raise-vs-swallow for *errors*).
 Consecutive `log()` calls to the **same** node within a message fold into a
 single step with multiple payloads (e.g. a router step carrying both
 `llm_input` and `llm_output`). A `log()` to a different node starts a new step.
+
+## What to log (conventions)
+
+Payload labels are free-form strings — the schema reserves none of them. These
+conventions just keep traces consistent and readable:
+
+- **LLM-backed nodes** — log the exact prompt as `llm_input` and the raw
+  completion as `llm_output`. When a run goes wrong, the trace then shows
+  precisely what the model saw and what it said — most of what you need to
+  debug an agent — and step folding merges the pair into one step.
+- **Everything else** — log the node's real domain data under honest labels: a
+  retriever logs its `query` and `results`, a tool node `tool_input` and
+  `tool_output`, a deterministic router its `decision`. Don't force
+  `llm_input`/`llm_output` onto nodes that never call a model.
 
 ## Examples
 

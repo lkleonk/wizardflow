@@ -36,11 +36,21 @@ def render_markdown(
 
     blocks.append(_meta_table(trace, meta))
 
+    # The Graph section holds the diagram and the node-description list; the
+    # --no-mermaid flag omits only the diagram, and a trace whose nodes carry
+    # no descriptions renders exactly as before.
+    graph = trace.get("graph") or {}
+    graph_parts: List[str] = []
     if mermaid:
-        diagram = _mermaid(trace.get("graph") or {})
+        diagram = _mermaid(graph)
         if diagram:
-            blocks.append("## Graph")
-            blocks.append(diagram)
+            graph_parts.append(diagram)
+    node_list = _node_descriptions(graph)
+    if node_list:
+        graph_parts.append(node_list)
+    if graph_parts:
+        blocks.append("## Graph")
+        blocks.extend(graph_parts)
 
     for message in trace.get("messages") or []:
         blocks.extend(_message_blocks(message))
@@ -56,6 +66,16 @@ def _meta_table(trace: Dict[str, Any], meta: Dict[str, Any]) -> str:
         rows.append((key, value))
     lines = ["| field | value |", "| --- | --- |"]
     lines += [f"| {key} | {value} |" for key, value in rows]
+    return "\n".join(lines)
+
+
+def _node_descriptions(graph: Dict[str, Any]) -> str:
+    """Bullet list of the nodes that carry a description; empty when none do."""
+    lines = [
+        f"- **{node.get('label') or node.get('id')}** — {node['description']}"
+        for node in graph.get("nodes") or []
+        if isinstance(node.get("description"), str) and node["description"]
+    ]
     return "\n".join(lines)
 
 

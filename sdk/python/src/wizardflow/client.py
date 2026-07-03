@@ -54,6 +54,8 @@ class LangGraphExtractionError(WizardFlowError):
 NodeSpec = Union[str, Dict[str, Any]]
 EdgeSpec = Union[Tuple[str, str], Dict[str, str]]
 NodeColorMap = Mapping[str, str]
+NodeDescriptionMap = Mapping[str, str]
+NodeLabelMap = Mapping[str, str]
 
 
 def _now_iso() -> str:
@@ -125,26 +127,46 @@ def _dedupe_edges(edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return list(by_key.values())
 
 
-def _apply_node_colors(
+def _apply_node_field(
     nodes: List[Dict[str, Any]],
-    node_colors: Optional[NodeColorMap],
+    values: Optional[Mapping[str, Any]],
     *,
+    field: str,
+    option_name: str,
     silent: bool,
 ) -> List[Dict[str, Any]]:
-    if not node_colors:
+    """Attach per-node values (colors, descriptions) keyed by node id.
+
+    Validation runs at init() time, before anything is written — a trace on
+    disk is never affected. Unknown ids fail fast so typos surface immediately;
+    with ``silent=True`` they are logged as a warning on the ``wizardflow``
+    logger and skipped instead. When a mapping targets a node whose dict spec
+    already carries the field, the mapping wins.
+    """
+    if not values:
+        return nodes
+    if not nodes:
+        problem = f"{option_name} was given but no nodes are declared"
+        if not silent:
+            raise WizardFlowError(f"{problem} (nothing to attach to)")
+        logger.warning("%s; ignored", problem)
         return nodes
 
     known = {n["id"] for n in nodes}
-    unknown = sorted(node_id for node_id in node_colors if node_id not in known)
-    if unknown and not silent:
-        raise WizardFlowError(
-            "node_colors contains unknown node id(s): "
-            f"{unknown}. Extracted nodes: {sorted(known)}"
+    unknown = sorted(node_id for node_id in values if node_id not in known)
+    if unknown:
+        if not silent:
+            raise WizardFlowError(
+                f"{option_name} contains unknown node id(s): "
+                f"{unknown}. Declared nodes: {sorted(known)}"
+            )
+        logger.warning(
+            "%s contains unknown node id(s) %s; ignored", option_name, unknown
         )
 
     return [
-        {**node, "color": node_colors[node["id"]]}
-        if node["id"] in node_colors
+        {**node, field: values[node["id"]]}
+        if node["id"] in values
         else node
         for node in nodes
     ]
@@ -247,6 +269,9 @@ class Client:
         description: Optional[str] = None,
         nodes: Optional[Iterable[NodeSpec]] = None,
         edges: Optional[Iterable[EdgeSpec]] = None,
+        node_labels: Optional[NodeLabelMap] = None,
+        node_colors: Optional[NodeColorMap] = None,
+        node_descriptions: Optional[NodeDescriptionMap] = None,
         meta: Optional[Dict[str, Any]] = None,
         silent: bool = False,
         max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
@@ -271,6 +296,18 @@ class Client:
             self.meta.setdefault("description", description)
 
         self._nodes: List[Dict[str, Any]] = [_normalize_node(n) for n in (nodes or [])]
+        self._nodes = _apply_node_field(
+            self._nodes, node_labels,
+            field="label", option_name="node_labels", silent=silent,
+        )
+        self._nodes = _apply_node_field(
+            self._nodes, node_colors,
+            field="color", option_name="node_colors", silent=silent,
+        )
+        self._nodes = _apply_node_field(
+            self._nodes, node_descriptions,
+            field="description", option_name="node_descriptions", silent=silent,
+        )
         self._edges: List[Dict[str, str]] = _dedupe_edges(
             [_normalize_edge(e) for e in (edges or [])]
         )
@@ -310,7 +347,9 @@ class Client:
         name: Optional[str] = None,
         description: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
+        node_labels: Optional[NodeLabelMap] = None,
         node_colors: Optional[NodeColorMap] = None,
+        node_descriptions: Optional[NodeDescriptionMap] = None,
         silent: bool = False,
         max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
         max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
@@ -322,7 +361,6 @@ class Client:
         Runtime logging is unchanged; you still call :meth:`log`.
         """
         nodes, edges = _topology_from_langgraph(app)
-        nodes = _apply_node_colors(nodes, node_colors, silent=silent)
         return cls(
             output_dir=output_dir,
             file_prefix=file_prefix,
@@ -330,6 +368,9 @@ class Client:
             description=description,
             nodes=nodes,
             edges=edges,
+            node_labels=node_labels,
+            node_colors=node_colors,
+            node_descriptions=node_descriptions,
             meta=meta,
             silent=silent,
             max_bytes=max_bytes,
@@ -409,6 +450,52 @@ class Client:
                 self._rotate_if_needed(len(line.encode("utf-8")))
                 self._active_part.append(msg)
                 self._append_to_part(line)
+            return self.current_path
+
+    def reinit(
+        self,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Start a new trace file, keeping the graph and output configuration.
+
+        For natural boundaries in a long-lived process (a new user session, a
+        new day): the next ended message opens a fresh timestamped entry file.
+        The old file is left exactly as it is — **no seal record**, because this
+        is a new run, not a rotation (a seal means "continue at nextPart").
+
+        Open (un-ended) messages carry over: a message is written to whichever
+        file is active when its :meth:`end_message` arrives. Completed messages
+        are dropped from the registry, so their ids become reusable in the new
+        trace. ``name`` / ``description`` / ``meta`` replace the current values
+        when given; otherwise the old ones are kept. Returns the new trace path.
+        """
+        with self._lock:
+            if name is not None:
+                self.name = name
+            if meta is not None:
+                self.meta = dict(meta)
+            if description is not None:
+                self.meta["description"] = description
+            self._messages = {
+                mid: m for mid, m in self._messages.items() if not m.completed
+            }
+            # A reinit within the same millisecond would reuse the current
+            # filename and append a second header to it; spin until the
+            # timestamp (and with it the entry filename) is new.
+            new_ts = _run_timestamp()
+            while new_ts == self._run_ts:
+                new_ts = _run_timestamp()
+            self._run_ts = new_ts
+            self._active_index = 1
+            self._active_part = []
+            self._active_part_bytes = 0
+            self._part_started = False
+            logger.info(
+                "reinitialized; next trace file is %s",
+                os.path.basename(self.current_path),
+            )
             return self.current_path
 
     @staticmethod

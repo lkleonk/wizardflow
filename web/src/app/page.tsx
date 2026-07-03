@@ -578,9 +578,8 @@ export default function Home() {
     () => withUniqueLabels(getPayloadsForNode(currentMessage, selectedNodeId)),
     [currentMessage, selectedNodeId]
   );
-  const selectedNodeLabel = trace.graph.nodes.find(
-    (n) => n.id === selectedNodeId
-  )?.label;
+  const selectedNode = trace.graph.nodes.find((n) => n.id === selectedNodeId);
+  const selectedNodeLabel = selectedNode?.label;
 
   // Drag the handle on the inspector's left edge to resize it (clamped).
   const startInspectorResize = useCallback(
@@ -1014,6 +1013,7 @@ export default function Home() {
               <InspectorPanel
                 selectedNodeId={selectedNodeId}
                 selectedNodeLabel={selectedNodeLabel}
+                selectedNodeDescription={selectedNode?.description}
                 payloads={payloads}
               />
             </Paper>

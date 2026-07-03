@@ -365,6 +365,99 @@ def test_concurrent_message_ends_are_safe(tmp_path):
     assert sorted(seen) == sorted(f"m{i}" for i in range(n))  # all once, none lost
 
 
+# --- reinit ----------------------------------------------------------------
+
+def test_reinit_starts_a_new_file_and_leaves_old_part_unsealed(tmp_path):
+    c = _new(tmp_path, nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+    old_path = c.current_path
+
+    new_path = c.reinit()
+    assert new_path == c.current_path
+    assert new_path != old_path
+    assert "__part" not in os.path.basename(new_path)  # a new run, not a part
+
+    # The old file is untouched: its messages intact, and NO seal — a seal
+    # means "continue at nextPart", which a reinit is not.
+    _, old_messages, old_seal = _read_part(old_path)
+    assert [m["id"] for m in old_messages] == ["m1"]
+    assert old_seal is None
+
+    # The new file doesn't exist until something is written to it.
+    assert not os.path.exists(new_path)
+    c.log("m2", "a", "L", 2)
+    c.end_message("m2")
+    header, messages, _ = _read_part(new_path)
+    assert header["graph"]["nodes"] == [{"id": "a"}]    # graph carried over
+    assert [m["id"] for m in messages] == ["m2"]
+
+
+def test_open_message_carries_across_reinit(tmp_path):
+    # A message logged before reinit but ended after lands in the new file,
+    # with all its steps: a message is written wherever it ends.
+    c = _new(tmp_path, nodes=["a", "b"])
+    c.log("open", "a", "L", 1)
+    c.reinit()
+    c.log("open", "b", "L", 2)
+    c.end_message("open")
+    _, messages, _ = _read_part(c.current_path)
+    assert [m["id"] for m in messages] == ["open"]
+    assert [s["nodeId"] for s in messages[0]["steps"]] == ["a", "b"]
+
+
+def test_completed_id_is_reusable_after_reinit(tmp_path):
+    c = _new(tmp_path, nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+    c.reinit()
+    c.log("m1", "a", "L", 2)          # would raise "already ended" without reinit
+    c.end_message("m1")
+    _, messages, _ = _read_part(c.current_path)
+    assert [m["id"] for m in messages] == ["m1"]
+    assert messages[0]["steps"][0]["payloads"][0]["value"] == 2
+
+
+def test_reinit_overrides_replace_and_omitted_values_persist(tmp_path):
+    c = _new(tmp_path, name="first", description="one", nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+
+    c.reinit(description="two")       # name/meta not given -> kept
+    c.log("m2", "a", "L", 2)
+    c.end_message("m2")
+    header, _, _ = _read_part(c.current_path)
+    assert header["name"] == "first"
+    assert header["meta"]["description"] == "two"
+
+    c.reinit(meta={"session": "s2"}, description="three")  # meta replaced whole
+    c.log("m3", "a", "L", 3)
+    c.end_message("m3")
+    header, _, _ = _read_part(c.current_path)
+    assert header["meta"] == {"session": "s2", "description": "three"}
+
+
+def test_reinit_resets_rotation_state(tmp_path):
+    c = Client(output_dir=str(tmp_path), file_prefix="t", nodes=["a"], max_bytes=400)
+    _log_one(c, "m0", "X" * 300)      # active part already past the byte cap
+    c.reinit()
+    _log_one(c, "m1", "X" * 300)      # would rotate to __part2 without the reset
+    assert "__part" not in os.path.basename(c.current_path)
+    assert not [p for p in os.listdir(tmp_path) if "__part" in p]
+
+
+def test_module_reinit_delegates_to_default(tmp_path):
+    import wizardflow
+
+    wizardflow.init(output_dir=str(tmp_path), file_prefix="trace", nodes=["a"])
+    wizardflow.log("m1", "a", "L", 1)
+    first = wizardflow.end_message("m1")
+    new_path = wizardflow.reinit()
+    assert new_path != first
+    wizardflow.log("m1", "a", "L", 2)
+    assert wizardflow.end_message("m1") == new_path
+
+
 # --- validation & silencing ----------------------------------------------
 
 def test_unknown_node_fast_fails_when_nodes_declared(tmp_path):
@@ -542,6 +635,126 @@ def test_module_init_from_langgraph_sets_default(tmp_path):
     wizardflow.log("m1", "router", "decision", "planner")
     wizardflow.end_message("m1")
     assert wizardflow.to_dict()["graph"]["nodes"][0]["id"] == "__start__"
+
+
+# --- node descriptions (and per-node kwargs on plain init) ------------------
+
+def test_init_applies_node_descriptions(tmp_path):
+    c = _new(tmp_path, nodes=["router", "retriever"],
+             node_descriptions={"router": "Chooses the next step."})
+    nodes = {n["id"]: n for n in c.to_dict()["graph"]["nodes"]}
+    assert nodes["router"]["description"] == "Chooses the next step."
+    assert "description" not in nodes["retriever"]   # no description -> no key
+
+
+def test_init_applies_node_labels(tmp_path):
+    # label is the display name the viewer shows instead of the raw id.
+    c = _new(tmp_path, nodes=["tool_node", "router"],
+             node_labels={"tool_node": "Tool"})
+    nodes = {n["id"]: n for n in c.to_dict()["graph"]["nodes"]}
+    assert nodes["tool_node"]["label"] == "Tool"
+    assert "label" not in nodes["router"]
+
+
+def test_node_labels_unknown_id_raises(tmp_path):
+    with pytest.raises(WizardFlowError, match="node_labels contains unknown"):
+        _new(tmp_path, nodes=["a"], node_labels={"typo": "X"})
+
+
+def test_from_langgraph_applies_node_labels(tmp_path):
+    # The main use case: extracted LangGraph ids are function names; node_labels
+    # renames them for display without touching the ids log() targets.
+    c = Client.from_langgraph(
+        _consultant_app(),
+        output_dir=str(tmp_path),
+        file_prefix="t",
+        node_labels={"final_response": "Final Response"},
+    )
+    nodes = {n["id"]: n for n in c.to_dict()["graph"]["nodes"]}
+    assert nodes["final_response"]["label"] == "Final Response"
+    assert "label" not in nodes["router"]
+
+
+def test_init_applies_node_colors_kwarg(tmp_path):
+    # node_colors exists on plain Client()/init() too, mirroring from_langgraph.
+    c = _new(tmp_path, nodes=["a", "b"], node_colors={"a": "#A78BFA"})
+    nodes = {n["id"]: n for n in c.to_dict()["graph"]["nodes"]}
+    assert nodes["a"]["color"] == "#A78BFA"
+    assert "color" not in nodes["b"]
+
+
+def test_node_descriptions_unknown_id_raises(tmp_path):
+    with pytest.raises(WizardFlowError, match="node_descriptions contains unknown"):
+        _new(tmp_path, nodes=["a"], node_descriptions={"typo": "x"})
+
+
+def test_node_descriptions_silent_warns_and_skips_unknown(tmp_path, caplog):
+    with caplog.at_level("WARNING", logger="wizardflow"):
+        c = _new(tmp_path, nodes=["a"], silent=True,
+                 node_descriptions={"a": "ok", "typo": "x"})
+    nodes = {n["id"]: n for n in c.to_dict()["graph"]["nodes"]}
+    assert nodes["a"]["description"] == "ok"         # known ids still applied
+    assert any("node_descriptions" in r.message for r in caplog.records)
+
+
+def test_node_descriptions_without_declared_nodes_raises(tmp_path):
+    with pytest.raises(WizardFlowError, match="no nodes are declared"):
+        _new(tmp_path, node_descriptions={"router": "x"})
+
+
+def test_node_descriptions_without_nodes_silent_warns_and_ignores(tmp_path, caplog):
+    with caplog.at_level("WARNING", logger="wizardflow"):
+        c = _new(tmp_path, silent=True, node_descriptions={"router": "x"})
+    assert c.to_dict()["graph"]["nodes"] == []
+    assert any("no nodes are declared" in r.message for r in caplog.records)
+
+
+def test_dict_node_spec_description_kept_and_kwarg_wins(tmp_path):
+    c = _new(
+        tmp_path,
+        nodes=[{"id": "a", "description": "from spec"},
+               {"id": "b", "description": "keep"}],
+        node_descriptions={"a": "from kwarg"},
+    )
+    nodes = {n["id"]: n for n in c.to_dict()["graph"]["nodes"]}
+    assert nodes["a"]["description"] == "from kwarg"   # the mapping wins
+    assert nodes["b"]["description"] == "keep"         # spec-only untouched
+
+
+def test_from_langgraph_applies_node_descriptions(tmp_path):
+    c = Client.from_langgraph(
+        _consultant_app(),
+        output_dir=str(tmp_path),
+        file_prefix="t",
+        node_descriptions={"router": "Routes requests."},
+    )
+    nodes = {n["id"]: n for n in c.to_dict()["graph"]["nodes"]}
+    assert nodes["router"]["description"] == "Routes requests."
+    assert "description" not in nodes["planner"]
+
+
+def test_node_description_survives_jsonl_roundtrip(tmp_path):
+    # Serialization + backward compat: the description rides on the header
+    # record's graph nodes and comes back through the JSONL reader untouched.
+    # Nodes without one stay clean — an old trace is simply a trace where no
+    # node carries the field.
+    from wizardflow.reader import load_trace_file
+
+    c = _new(tmp_path, nodes=["a", "b"], node_descriptions={"a": "does A"})
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+    loaded = load_trace_file(c.current_path)
+    nodes = {n["id"]: n for n in loaded["graph"]["nodes"]}
+    assert nodes["a"]["description"] == "does A"
+    assert "description" not in nodes["b"]
+
+
+def test_module_init_passes_node_descriptions(tmp_path):
+    import wizardflow
+
+    wizardflow.init(output_dir=str(tmp_path), file_prefix="t", nodes=["a"],
+                    node_descriptions={"a": "x"})
+    assert wizardflow.to_dict()["graph"]["nodes"][0]["description"] == "x"
 
 
 # --- non-ascii round-trips ------------------------------------------------

@@ -76,6 +76,33 @@ def test_mermaid_marks_conditional_edge_dashed_and_uses_labels():
     assert '"Planner"' in md          # node label preferred over id
     assert "-.->" in md               # the conditional edge is dashed
 
+def test_node_descriptions_listed_under_graph():
+    trace = _trace()
+    trace["graph"]["nodes"] = [
+        {"id": "router", "description": "Chooses the next step."},
+        {"id": "planner", "label": "Planner"},
+    ]
+    md = render_markdown(trace)
+    assert "- **router** — Chooses the next step." in md
+    assert "- **Planner**" not in md          # no description -> not listed
+
+
+def test_node_descriptions_kept_without_mermaid():
+    # --no-mermaid omits only the diagram; the Graph section survives to carry
+    # the node-description list.
+    trace = _trace()
+    trace["graph"]["nodes"][0]["description"] = "Chooses."
+    md = render_markdown(trace, mermaid=False)
+    assert "```mermaid" not in md
+    assert "## Graph" in md
+    assert "- **router** — Chooses." in md
+
+
+def test_no_descriptions_means_no_node_list():
+    md = render_markdown(_trace())
+    assert "\n- **" not in md                 # old traces render as before
+
+
 def test_mermaid_omitted_when_disabled():
     md = render_markdown(_trace(), mermaid=False)
     assert "```mermaid" not in md and "## Graph" not in md

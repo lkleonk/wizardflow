@@ -34,6 +34,10 @@ blockquote {
   color: #8a8a8a; font-style: italic;
 }
 table.meta { border-collapse: collapse; font-size: .85rem; margin-bottom: 2rem; }
+section.nodes { margin: -1rem 0 2rem; }
+section.nodes h2 { font-size: 1.05rem; margin: 0 0 .2rem; }
+section.nodes ul { margin: 0; padding-left: 1.2rem; font-size: .9rem; }
+section.nodes li { margin: .15rem 0; }
 table.meta th, table.meta td {
   border: 1px solid #8884; padding: .25rem .6rem; text-align: left;
 }
@@ -84,6 +88,10 @@ def render_html(trace: Dict[str, Any], *, fallback_title: str = "AgentTrace") ->
 
     body.append(_meta_table(trace, meta))
 
+    nodes_block = _nodes_html(trace.get("graph") or {})
+    if nodes_block:
+        body.append(nodes_block)
+
     for message in trace.get("messages") or []:
         body.append(_message_html(message))
 
@@ -115,6 +123,23 @@ def _meta_table(trace: Dict[str, Any], meta: Dict[str, Any]) -> str:
         for key, value in rows
     )
     return f'<table class="meta">\n{cells}\n</table>'
+
+
+def _nodes_html(graph: Dict[str, Any]) -> str:
+    """A short list of the nodes that carry a description; empty when none do.
+
+    The document stays messages-only otherwise — no graph rendering here.
+    """
+    items = [
+        f'<li><span class="label">{escape(str(node.get("label") or node.get("id")))}</span>'
+        f" — {escape(str(node['description']))}</li>"
+        for node in graph.get("nodes") or []
+        if isinstance(node.get("description"), str) and node["description"]
+    ]
+    if not items:
+        return ""
+    rows = "\n".join(items)
+    return f'<section class="nodes">\n<h2>Nodes</h2>\n<ul>\n{rows}\n</ul>\n</section>'
 
 
 def _message_html(message: Dict[str, Any]) -> str:

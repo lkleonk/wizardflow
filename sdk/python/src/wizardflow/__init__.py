@@ -42,6 +42,7 @@ logging.getLogger(Logging.LOGGER_NAME).addHandler(logging.NullHandler())
 __all__ = [
     "init",
     "init_from_langgraph",
+    "reinit",
     "log",
     "end_message",
     "to_dict",
@@ -63,6 +64,9 @@ def init(
     description: Optional[str] = None,
     nodes: Optional[Iterable[NodeSpec]] = None,
     edges: Optional[Iterable[EdgeSpec]] = None,
+    node_labels: Optional[Mapping[str, str]] = None,
+    node_colors: Optional[Mapping[str, str]] = None,
+    node_descriptions: Optional[Mapping[str, str]] = None,
     meta: Optional[Dict[str, Any]] = None,
     silent: bool = False,
     max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
@@ -77,6 +81,9 @@ def init(
         description=description,
         nodes=nodes,
         edges=edges,
+        node_labels=node_labels,
+        node_colors=node_colors,
+        node_descriptions=node_descriptions,
         meta=meta,
         silent=silent,
         max_bytes=max_bytes,
@@ -92,7 +99,9 @@ def init_from_langgraph(
     name: Optional[str] = None,
     description: Optional[str] = None,
     meta: Optional[Dict[str, Any]] = None,
+    node_labels: Optional[Mapping[str, str]] = None,
     node_colors: Optional[Mapping[str, str]] = None,
+    node_descriptions: Optional[Mapping[str, str]] = None,
     silent: bool = False,
     max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
     max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
@@ -110,7 +119,9 @@ def init_from_langgraph(
         name=name,
         description=description,
         meta=meta,
+        node_labels=node_labels,
         node_colors=node_colors,
+        node_descriptions=node_descriptions,
         silent=silent,
         max_bytes=max_bytes,
         max_messages=max_messages,
@@ -125,6 +136,15 @@ def get_default() -> Client:
 
 
 # --- module-level delegation to the default client ------------------------
+
+def reinit(
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    meta: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Start a new trace file on the default client (see :meth:`Client.reinit`)."""
+    return get_default().reinit(name=name, description=description, meta=meta)
+
 
 def log(
     id: str,

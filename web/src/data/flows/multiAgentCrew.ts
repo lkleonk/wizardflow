@@ -19,12 +19,38 @@ export const multiAgentCrewTrace: AgentTraceFile = {
   graph: {
     nodes: [
       { id: "user_input", label: "User Input" },
-      { id: "orchestrator", label: "Orchestrator" },
-      { id: "researcher", label: "Researcher" },
-      { id: "coder", label: "Coder" },
-      { id: "critic", label: "Critic" },
-      { id: "synthesizer", label: "Synthesizer" },
-      { id: "final_response", label: "Final Response" },
+      {
+        id: "orchestrator",
+        label: "Orchestrator",
+        description:
+          "Splits the task into subtasks and assigns one to each specialist.",
+      },
+      {
+        id: "researcher",
+        label: "Researcher",
+        description: "Gathers background and best practices for the task.",
+      },
+      {
+        id: "coder",
+        label: "Coder",
+        description: "Writes the implementation for its assigned subtask.",
+      },
+      {
+        id: "critic",
+        label: "Critic",
+        description: "Reviews the plan and flags edge cases and pitfalls.",
+      },
+      {
+        id: "synthesizer",
+        label: "Synthesizer",
+        description:
+          "Merges the specialists' outputs into one coherent answer.",
+      },
+      {
+        id: "final_response",
+        label: "Final Response",
+        description: "Delivers the combined answer to the user.",
+      },
     ],
     edges: [
       { source: "user_input", target: "orchestrator" },
