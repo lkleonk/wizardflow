@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 type Props = {
   /** Plain address, e.g. "kontakt@getwizardflow.com". */
   email: string;
   className?: string;
 };
+
+// Nothing to subscribe to — hydration happens exactly once.
+const subscribeNever = () => () => {};
 
 // Keeps the address out of the statically-exported HTML so naive email
 // harvesters that only scan HTML can't read it. The real "@"/"mailto:" string
@@ -17,11 +20,14 @@ type Props = {
 // pre-hydration form (also the <noscript> fallback) stays human-readable so the
 // contact remains directly reachable — an Impressum (§5 TMG) requirement.
 export function ObfuscatedEmail({ email, className }: Props) {
-  const [revealed, setRevealed] = useState(false);
-
-  useEffect(() => {
-    setRevealed(true);
-  }, []);
+  // False for the server snapshot (and thus the hydration render), true on
+  // the client — detects "JS is running" without an effect and without a
+  // hydration mismatch.
+  const revealed = useSyncExternalStore(
+    subscribeNever,
+    () => true,
+    () => false
+  );
 
   if (!revealed) {
     const [user, domain] = email.split("@");

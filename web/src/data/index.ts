@@ -6,7 +6,7 @@ import { planExecuteTrace } from "./flows/planExecute";
 import { selfCorrectingCodeTrace } from "./flows/selfCorrectingCode";
 import { universityConsultantTrace } from "./flows/universityConsultant";
 import { textToSqlTrace } from "./flows/textToSql";
-import { guardrailsTrace } from "./flows/guardrails";
+import { supportHandoffTrace } from "./flows/supportHandoff";
 import { deepResearchTrace } from "./flows/deepResearch";
 import { itHelpdeskRouterTrace } from "./flows/itHelpdeskRouter";
 import { loanApplicationTrace } from "./flows/loanApplication";
@@ -75,11 +75,12 @@ export const exampleFlows: ExampleFlow[] = [
     trace: textToSqlTrace,
   },
   {
-    id: "guardrails",
-    title: "Guardrails",
-    summary: "Screens requests, refusing unsafe ones and answering benign ones.",
-    pattern: "branching",
-    trace: guardrailsTrace,
+    id: "support-handoff",
+    title: "Support agent with handoff",
+    summary:
+      "Triages billing tickets to FAQ, a policy-gated refund tool, or a human — one refund loops through a revision.",
+    pattern: "tool loop + handoff",
+    trace: supportHandoffTrace,
   },
   {
     id: "deep-research",

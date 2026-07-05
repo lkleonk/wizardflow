@@ -2,7 +2,8 @@
 
 Replay and inspect AI agent runs as messages moving through a graph.
 
-**Website: [getwizardflow.com](https://getwizardflow.com)**
+**Website: [getwizardflow.com](https://getwizardflow.com) · ▶ Live demo:
+[watch an example run replay](https://getwizardflow.com/?example=university-consultant)**
 
 ![WizardFlow replaying an agent run](sdk/python/assets/demo.gif)
 

@@ -10,6 +10,10 @@ runtime dependencies**, no daemon, no setup.
 
 ![WizardFlow replaying an agent run](https://raw.githubusercontent.com/lkleonk/wizardflow/main/sdk/python/assets/demo.gif)
 
+▶ **[Watch this exact run live](https://getwizardflow.com/?example=university-consultant)** —
+the flow from the GIF, replaying in your browser right now. No install, and
+nothing is uploaded.
+
 The file it produces is JSON Lines with a small, documented schema: line 1 is a
 `header` record carrying the `graph { nodes, edges }`, then one `message`
 record per line (`steps[] → payloads[] { label, value }`). Every line is plain

@@ -60,7 +60,7 @@ export const loanApplicationTrace: AgentTraceFile = {
             {
               label: "application",
               value: {
-                applicant: "Dana Whitfield",
+                applicant: "Dana W.",
                 amount_requested: 12000,
                 term_months: 36,
                 purpose: "debt consolidation",
@@ -139,7 +139,7 @@ export const loanApplicationTrace: AgentTraceFile = {
             {
               label: "application",
               value: {
-                applicant: "Marcus Reed",
+                applicant: "Marcus R.",
                 amount_requested: 25000,
                 term_months: 48,
                 purpose: "home renovation",
@@ -218,7 +218,7 @@ export const loanApplicationTrace: AgentTraceFile = {
             {
               label: "application",
               value: {
-                applicant: "Priya Nair",
+                applicant: "Priya N.",
                 amount_requested: 30000,
                 term_months: 60,
                 purpose: "general expenses",

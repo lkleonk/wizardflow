@@ -61,6 +61,7 @@ export const universityConsultantTrace: AgentTraceFile = {
   messages: [
     {
       id: "msg-1",
+      label: "Navigation",
       // Navigation branch: classifier -> campus_guide -> responder.
       steps: [
         {
@@ -161,6 +162,7 @@ export const universityConsultantTrace: AgentTraceFile = {
     },
     {
       id: "msg-2",
+      label: "Enrollment — eligible",
       // Course branch, eligible: course_catalog -> eligibility_check -> responder.
       steps: [
         {
@@ -272,6 +274,7 @@ export const universityConsultantTrace: AgentTraceFile = {
     },
     {
       id: "msg-3",
+      label: "Prereq escalation",
       // Course branch, NOT eligible: eligibility_check -> advisor_escalation ->
       // final_response (the escalation exit skips the responder).
       steps: [
@@ -385,6 +388,7 @@ export const universityConsultantTrace: AgentTraceFile = {
     },
     {
       id: "msg-4",
+      label: "Clarify loop",
       // Low confidence: classifier -> clarifier -> classifier (loop) -> advising.
       steps: [
         {

@@ -96,7 +96,7 @@ export const itHelpdeskRouterTrace: AgentTraceFile = {
             {
               label: "ticket",
               value: {
-                requester: "Mia Chen",
+                requester: "M. Chen",
                 department: "Finance",
                 channel: "self-service portal",
                 asset: "Okta account",
@@ -340,7 +340,7 @@ export const itHelpdeskRouterTrace: AgentTraceFile = {
             {
               label: "ticket",
               value: {
-                requester: "Alex Morgan",
+                requester: "A. Morgan",
                 app: "Figma",
                 deadline: "today",
                 business_reason: "client design review",

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import Collapse from "@mui/material/Collapse";
 import Dialog from "@mui/material/Dialog";
 import DialogContent from "@mui/material/DialogContent";
@@ -10,6 +11,7 @@ import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 
 const connectGraphExample = `import wizardflow
 
@@ -31,6 +33,8 @@ trace_path = wizardflow.end_message(message_id)`;
 type TutorialDialogProps = {
   open: boolean;
   onClose: () => void;
+  /** Loads the flagship example and starts playback (closes this dialog). */
+  onWatchDemo?: () => void;
 };
 
 function CodeBlock({ children }: { children: string }) {
@@ -83,7 +87,11 @@ export function LocalDataDetails() {
   );
 }
 
-export default function TutorialDialog({ open, onClose }: TutorialDialogProps) {
+export default function TutorialDialog({
+  open,
+  onClose,
+  onWatchDemo,
+}: TutorialDialogProps) {
   const [cliExpanded, setCliExpanded] = useState(false);
 
   const handleClose = () => {
@@ -124,6 +132,20 @@ export default function TutorialDialog({ open, onClose }: TutorialDialogProps) {
             WizardFlow records values your agent already has and writes them to
             a local trace file.
           </Typography>
+          {onWatchDemo && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<PlayArrowRoundedIcon />}
+              onClick={() => {
+                setCliExpanded(false);
+                onWatchDemo();
+              }}
+              sx={{ justifySelf: "start", textTransform: "none" }}
+            >
+              See the result first — watch a demo replay
+            </Button>
+          )}
           <Box sx={{ display: "grid", gap: 0.75 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
               1. Install

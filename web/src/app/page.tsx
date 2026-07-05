@@ -29,6 +29,7 @@ import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import { useColorScheme } from "@mui/material/styles";
 import GraphCanvas from "@/components/GraphCanvas";
 import InspectorPanel from "@/components/InspectorPanel";
@@ -42,7 +43,7 @@ import TraceUploader from "@/components/TraceUploader";
 import TraceInfo from "@/components/TraceInfo";
 import ExampleGallery from "@/components/ExampleGallery";
 import TutorialDialog, { LocalDataDetails } from "@/components/TutorialDialog";
-import { emptyTrace } from "@/data";
+import { emptyTrace, exampleFlows } from "@/data";
 import type { AgentTraceFile } from "@/types/agenttrace";
 import {
   getSavedFlow,
@@ -70,6 +71,13 @@ const MOBILE_FOOTER_RESERVED_HEIGHT = "168px";
 const MOBILE_GRAPH_CHROME_HEIGHT = "274px";
 const PYTHON_SDK_QUICKSTART_URL =
   "https://github.com/lkleonk/wizardflow/tree/main/sdk/python#quickstart";
+
+// The flow behind "Watch a demo replay" (welcome + tutorial) and the default
+// the docs deep-link to: the richest bundled example (fan-out, nested branch,
+// clarify loop), and the one shown in the README demo GIF.
+const FLAGSHIP_EXAMPLE_ID = "university-consultant";
+const flagshipExample =
+  exampleFlows.find((flow) => flow.id === FLAGSHIP_EXAMPLE_ID) ?? exampleFlows[0];
 
 const footerLinks = [
   ...(isHostedWizardFlow
@@ -225,6 +233,10 @@ export default function Home() {
   const [graphArrangeMode, setGraphArrangeMode] = useState(false);
   const [isLoadingUrlTrace, setIsLoadingUrlTrace] = useState(false);
   const loadedTraceUrlRef = useRef<string | null>(null);
+  // Set when a flow is loaded with `autoplay` (examples); consumed by the
+  // render-time reset below so playback starts the moment the flow lands.
+  const [pendingAutoplay, setPendingAutoplay] = useState(false);
+  const exampleParamHandledRef = useRef(false);
 
   const disableGraphArrangeMode = useCallback(() => {
     setGraphArrangeMode(false);
@@ -254,7 +266,8 @@ export default function Home() {
     setSelectedMessageId(trace.messages[0]?.id);
     setCurrentStepIndex(0);
     setSelectedNodeId(orderedSteps(trace.messages[0])[0]?.nodeId);
-    setIsPlaying(false);
+    setIsPlaying(pendingAutoplay);
+    if (pendingAutoplay) setPendingAutoplay(false);
     setGraphArrangeMode(false);
   }
 
@@ -347,19 +360,38 @@ export default function Home() {
     ]
   );
 
-  const handleLoadTrace = useCallback((next: AgentTraceFile) => {
-    disableGraphArrangeMode();
-    // Persist to the session store; the render-time reset above re-seeds the
-    // view (selection, step, playback). Marking the welcome dismissed means
-    // dropping the flow later lands on the sample without re-prompting.
-    setWelcomeDismissed();
-    setSavedFlow(next);
-  }, [disableGraphArrangeMode]);
+  // `autoplay` starts playback as soon as the flow lands (examples; honors
+  // prefers-reduced-motion by loading paused). `playThrough` additionally
+  // switches to play-next-message so a demo runs every message — reserved for
+  // the demo entry points, so it never overrides a mode the user picked while
+  // browsing the gallery.
+  const handleLoadTrace = useCallback(
+    (
+      next: AgentTraceFile,
+      options?: { autoplay?: boolean; playThrough?: boolean }
+    ) => {
+      disableGraphArrangeMode();
+      const autoplay =
+        !!options?.autoplay &&
+        !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (options?.playThrough && autoplay) {
+        setPlaybackMode("play-next-message");
+      }
+      setPendingAutoplay(autoplay);
+      // Persist to the session store; the render-time reset above re-seeds the
+      // view (selection, step, playback). Marking the welcome dismissed means
+      // dropping the flow later lands on the sample without re-prompting.
+      setWelcomeDismissed();
+      setSavedFlow(next);
+    },
+    [disableGraphArrangeMode]
+  );
 
   // Clear the current flow. trace is `savedFlow ?? emptyTrace`, so dropping the
   // saved flow leaves the empty canvas with upload, example, and drop targets.
   const handleDropFlow = useCallback(() => {
     disableGraphArrangeMode();
+    setPendingAutoplay(false);
     setSavedFlow(null);
   }, [disableGraphArrangeMode]);
 
@@ -420,6 +452,35 @@ export default function Home() {
       if (loadedTraceUrlRef.current === traceHref) {
         loadedTraceUrlRef.current = null;
       }
+    };
+  }, [handleLoadTrace]);
+
+  // Shareable demo deep link: `/?example=<gallery id>` loads a bundled example
+  // and autoplays it, so a link in a post lands on a running replay with no
+  // welcome dialog in between. `?trace=` (the SDK launcher) wins if both are
+  // present; an unknown id falls back to the normal welcome flow; and a flow
+  // already saved in this tab (e.g. an upload, surviving a refresh) is never
+  // clobbered by the query string.
+  useEffect(() => {
+    // Deferred to a microtask so the effect body itself doesn't set state;
+    // the handled-ref is only claimed inside it so a StrictMode double-mount
+    // (queue → cancel → queue) still performs the load exactly once.
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled || exampleParamHandledRef.current) return;
+      exampleParamHandledRef.current = true;
+
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("trace")) return;
+      const exampleParam = params.get("example");
+      if (!exampleParam || getSavedFlow()) return;
+
+      const example = exampleFlows.find((flow) => flow.id === exampleParam);
+      if (!example) return;
+      handleLoadTrace(example.trace, { autoplay: true, playThrough: true });
+    });
+    return () => {
+      cancelled = true;
     };
   }, [handleLoadTrace]);
 
@@ -660,7 +721,74 @@ export default function Home() {
             Replay recorded agent flows as messages moving through a graph,
             with node payloads and timing shown step by step.
           </Typography>
-          <Typography color="text.secondary" sx={{ lineHeight: 1.7, mt: 2 }}>
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 1,
+              mt: 3,
+            }}
+          >
+            <Button
+              size="large"
+              variant="contained"
+              startIcon={<PlayArrowRoundedIcon />}
+              onClick={() =>
+                handleLoadTrace(flagshipExample.trace, {
+                  autoplay: true,
+                  playThrough: true,
+                })
+              }
+              sx={{ width: { xs: "100%", sm: 320 } }}
+            >
+              Watch a demo replay
+            </Button>
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: { xs: "column", sm: "row" },
+                gap: 1,
+                width: { xs: "100%", sm: 320 },
+              }}
+            >
+              <TraceUploader
+                onLoad={handleLoadTrace}
+                label="Upload trace"
+                size="medium"
+                variant="outlined"
+                sx={{ flex: 1, width: { xs: "100%", sm: "auto" } }}
+              />
+              <Button
+                size="medium"
+                variant="outlined"
+                startIcon={<MenuBookOutlinedIcon />}
+                onClick={() => {
+                  setWelcomeDismissed();
+                  setTutorialOpen(true);
+                }}
+                sx={{ flex: 1, width: { xs: "100%", sm: "auto" } }}
+              >
+                Tutorial
+              </Button>
+            </Box>
+            <Button
+              variant="text"
+              size="small"
+              onClick={() => {
+                setWelcomeDismissed();
+                setGalleryOpen(true);
+              }}
+              sx={{ textTransform: "none", color: "text.secondary" }}
+            >
+              More demos: Browse examples →
+            </Button>
+          </Box>
+          <Typography
+            color="text.secondary"
+            variant="body2"
+            sx={{ lineHeight: 1.7, mt: 2.5 }}
+          >
             Your flow stays in your browser. Imported traces are processed
             locally and never uploaded — and are kept only for this tab.
           </Typography>
@@ -698,46 +826,6 @@ export default function Home() {
             pt: 1,
           }}
         >
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: { xs: "column", sm: "row" },
-              justifyContent: "center",
-              gap: 1,
-              width: { xs: "100%", sm: "auto" },
-            }}
-          >
-            <TraceUploader
-              onLoad={handleLoadTrace}
-              label="Upload trace"
-              size="medium"
-              variant="contained"
-              sx={{ minWidth: 150, width: { xs: "100%", sm: "auto" } }}
-            />
-            <Button
-              size="medium"
-              variant="outlined"
-              onClick={() => {
-                setWelcomeDismissed();
-                setGalleryOpen(true);
-              }}
-              sx={{ minWidth: 150, width: { xs: "100%", sm: "auto" } }}
-            >
-              Browse examples
-            </Button>
-            <Button
-              size="medium"
-              variant="outlined"
-              startIcon={<MenuBookOutlinedIcon />}
-              onClick={() => {
-                setWelcomeDismissed();
-                setTutorialOpen(true);
-              }}
-              sx={{ minWidth: 150, width: { xs: "100%", sm: "auto" } }}
-            >
-              Tutorial
-            </Button>
-          </Box>
           <Typography
             component="a"
             href={PYTHON_SDK_QUICKSTART_URL}
@@ -762,13 +850,20 @@ export default function Home() {
       <ExampleGallery
         open={galleryOpen}
         onClose={() => setGalleryOpen(false)}
-        onSelect={handleLoadTrace}
+        onSelect={(next) => handleLoadTrace(next, { autoplay: true })}
         currentName={trace.name}
       />
 
       <TutorialDialog
         open={tutorialOpen}
         onClose={() => setTutorialOpen(false)}
+        onWatchDemo={() => {
+          setTutorialOpen(false);
+          handleLoadTrace(flagshipExample.trace, {
+            autoplay: true,
+            playThrough: true,
+          });
+        }}
       />
 
       {/* Header */}
