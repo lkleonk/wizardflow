@@ -360,17 +360,32 @@ export default function Home() {
     ]
   );
 
+  // Drop a stale `?example=` once the deep-linked demo is replaced or cleared,
+  // so copying the address bar doesn't send a colleague to a demo the user no
+  // longer sees. `?trace=` is deliberately left alone — the SDK launcher
+  // relies on it surviving refreshes to re-read a still-running trace.
+  const clearExampleParam = useCallback(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("example")) return;
+    url.searchParams.delete("example");
+    window.history.replaceState(null, "", url);
+  }, []);
+
   // `autoplay` starts playback as soon as the flow lands (examples; honors
   // prefers-reduced-motion by loading paused). `playThrough` additionally
   // switches to play-next-message so a demo runs every message — reserved for
   // the demo entry points, so it never overrides a mode the user picked while
-  // browsing the gallery.
+  // browsing the gallery. `fromUrl` marks the deep-link load itself, which
+  // must keep its `?example=` so the address bar stays shareable.
   const handleLoadTrace = useCallback(
     (
       next: AgentTraceFile,
-      options?: { autoplay?: boolean; playThrough?: boolean }
+      options?: { autoplay?: boolean; playThrough?: boolean; fromUrl?: boolean }
     ) => {
       disableGraphArrangeMode();
+      if (!options?.fromUrl) {
+        clearExampleParam();
+      }
       const autoplay =
         !!options?.autoplay &&
         !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -384,16 +399,19 @@ export default function Home() {
       setWelcomeDismissed();
       setSavedFlow(next);
     },
-    [disableGraphArrangeMode]
+    [clearExampleParam, disableGraphArrangeMode]
   );
 
   // Clear the current flow. trace is `savedFlow ?? emptyTrace`, so dropping the
   // saved flow leaves the empty canvas with upload, example, and drop targets.
+  // Also forgets a deep-linked `?example=` so a refresh doesn't resurrect the
+  // demo the user just dismissed.
   const handleDropFlow = useCallback(() => {
     disableGraphArrangeMode();
+    clearExampleParam();
     setPendingAutoplay(false);
     setSavedFlow(null);
-  }, [disableGraphArrangeMode]);
+  }, [clearExampleParam, disableGraphArrangeMode]);
 
   // Local SDK launcher support: `wizardflow ui trace.json` serves the bundled
   // static app and opens `/?trace=/__wizardflow_trace.json&traceName=...`.
@@ -477,7 +495,11 @@ export default function Home() {
 
       const example = exampleFlows.find((flow) => flow.id === exampleParam);
       if (!example) return;
-      handleLoadTrace(example.trace, { autoplay: true, playThrough: true });
+      handleLoadTrace(example.trace, {
+        autoplay: true,
+        playThrough: true,
+        fromUrl: true,
+      });
     });
     return () => {
       cancelled = true;
