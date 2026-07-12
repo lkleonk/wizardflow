@@ -43,6 +43,16 @@ wiz = wizardflow.init(
         ("retriever", "generator"),  # branches rejoin
         ("generator", "final_response"),
     ],
+    # Optional one-line description per node (keyed by id), shown behind an
+    # info icon in the viewer when the node is selected. Plumbing nodes
+    # (user_input, final_response) are intentionally left out.
+    node_descriptions={
+        "router": "Classifies the request and picks a branch: planner or retriever.",
+        "planner": "Decomposes a tool-using request into concrete tool calls.",
+        "retriever": "Fetches the most relevant documents for the query.",
+        "tool_node": "Runs the planned tool calls against external APIs.",
+        "generator": "Writes the answer from the tool result or retrieved docs.",
+    },
 )
 
 # msg-1 — takes the planner / tool branch.
@@ -55,7 +65,14 @@ wizardflow.log("msg-1", "tool_node")  # ran the tool, logged no payload
 wizardflow.log("msg-1", "generator", "llm_input", "Answer using the tool result...")
 wizardflow.log("msg-1", "generator", "llm_output", "It's 19C and partly cloudy in Berlin.")
 wizardflow.log("msg-1", "final_response", "Output", "It's 19C and partly cloudy in Berlin.")
-wizardflow.end_message("msg-1", title="Weather in Berlin")
+# Optional meta: flat facts about the message as a whole (short scalars only),
+# shown on the message's chip in the viewer. Here it records which branch ran
+# and how the run turned out.
+wizardflow.end_message(
+    "msg-1",
+    title="Weather in Berlin",
+    meta={"branch": "planner", "outcome": "answered", "latency_ms": 10210},
+)
 
 # msg-2 — takes the retriever branch (skips planner/tool entirely).
 wizardflow.log("msg-2", "user_input", "Input", "Summarize the attached research paper.")
@@ -71,6 +88,10 @@ wizardflow.log("msg-2", "generator", "llm_output",
                "The paper proposes a sparse attention variant with near-linear cost.")
 wizardflow.log("msg-2", "final_response", "Output",
                "The paper proposes a sparse attention variant with near-linear cost.")
-wizardflow.end_message("msg-2", title="Summarize research paper")
+wizardflow.end_message(
+    "msg-2",
+    title="Summarize research paper",
+    meta={"branch": "retriever", "outcome": "answered", "docs_used": 2, "latency_ms": 7130},
+)
 
 print(f"wrote {wiz.current_path}")

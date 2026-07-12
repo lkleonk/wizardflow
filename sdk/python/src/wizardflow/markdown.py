@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from ._render import classify_value, short_time
+from ._render import classify_value, meta_text, short_time
 
 
 def render_markdown(
@@ -82,6 +82,11 @@ def _node_descriptions(graph: Dict[str, Any]) -> str:
 def _message_blocks(message: Dict[str, Any]) -> List[str]:
     title = message.get("label") or message.get("id") or "(message)"
     blocks = [f"## {title}"]
+    meta = message.get("meta")
+    if isinstance(meta, dict) and meta:
+        blocks.append(
+            " · ".join(f"**{key}**: {meta_text(value)}" for key, value in meta.items())
+        )
     for step in message.get("steps") or []:
         node = step.get("nodeId", "")
         clock = short_time(step.get("timestamp", ""))

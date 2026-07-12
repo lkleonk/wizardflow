@@ -16,7 +16,7 @@ from __future__ import annotations
 from html import escape
 from typing import Any, Dict, List
 
-from ._render import classify_value, short_time
+from ._render import classify_value, meta_text, short_time
 
 # Inline stylesheet — kept here so the output is a single self-contained file.
 # System colors + `color-scheme` give a free light/dark mode that follows the OS.
@@ -47,6 +47,7 @@ section.message {
   padding: .25rem 1rem 1rem; margin-bottom: 1.5rem;
 }
 section.message > h2 { font-size: 1.15rem; margin: .8rem 0 .4rem; }
+section.message > p.msg-meta { font-size: .85rem; color: #8a8a8a; margin: -.2rem 0 .6rem; }
 section.step { padding: .9rem 0; }
 section.step:first-of-type { padding-top: .2rem; }
 /* Divider between consecutive nodes in a message. */
@@ -145,6 +146,13 @@ def _nodes_html(graph: Dict[str, Any]) -> str:
 def _message_html(message: Dict[str, Any]) -> str:
     title = message.get("label") or message.get("id") or "(message)"
     parts = ['<section class="message">', f"<h2>{escape(str(title))}</h2>"]
+    meta = message.get("meta")
+    if isinstance(meta, dict) and meta:
+        pairs = " · ".join(
+            f'<span class="label">{escape(str(key))}</span>: {escape(meta_text(value))}'
+            for key, value in meta.items()
+        )
+        parts.append(f'<p class="msg-meta">{pairs}</p>')
     for step in message.get("steps") or []:
         node = escape(str(step.get("nodeId", "")))
         clock = short_time(step.get("timestamp", ""))

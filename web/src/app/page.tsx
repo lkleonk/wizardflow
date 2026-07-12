@@ -19,6 +19,9 @@ import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import Paper from "@mui/material/Paper";
+import Popover from "@mui/material/Popover";
+import Snackbar from "@mui/material/Snackbar";
+import Alert from "@mui/material/Alert";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
@@ -43,6 +46,9 @@ import TraceUploader from "@/components/TraceUploader";
 import TraceInfo from "@/components/TraceInfo";
 import ExampleGallery from "@/components/ExampleGallery";
 import TutorialDialog, { LocalDataDetails } from "@/components/TutorialDialog";
+import DemoExplainerToast, {
+  type DemoToastState,
+} from "@/components/DemoExplainerToast";
 import { emptyTrace, exampleFlows } from "@/data";
 import type { AgentTraceFile } from "@/types/agenttrace";
 import {
@@ -73,9 +79,10 @@ const PYTHON_SDK_QUICKSTART_URL =
   "https://github.com/lkleonk/wizardflow/tree/main/sdk/python#quickstart";
 
 // The flow behind "Watch a demo replay" (welcome + tutorial) and the default
-// the docs deep-link to: the richest bundled example (fan-out, nested branch,
-// clarify loop), and the one shown in the README demo GIF.
-const FLAGSHIP_EXAMPLE_ID = "university-consultant";
+// the docs deep-link to: the most approachable bundled example — a simulated
+// doctor's visit whose story (interview, diagnosis, allergy-checked
+// prescription, overnight lab results) needs no developer vocabulary.
+const FLAGSHIP_EXAMPLE_ID = "doctor-consultation";
 const flagshipExample =
   exampleFlows.find((flow) => flow.id === FLAGSHIP_EXAMPLE_ID) ?? exampleFlows[0];
 
@@ -202,7 +209,7 @@ function WizardHatMark() {
 export default function Home() {
   // The active flow comes from the per-tab session store: `null` on the server
   // and the first client render (so hydration matches), then the user's saved
-  // upload right after, falling back to the bundled sample when nothing is
+  // upload right after, falling back to the empty placeholder when nothing is
   // saved. See `@/utils/flowSession`.
   const savedFlow = useSyncExternalStore(
     subscribeSavedFlow,
@@ -256,9 +263,25 @@ export default function Home() {
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [offlineTipOpen, setOfflineTipOpen] = useState(false);
 
+  // Explainer toast shown over a freshly started demo replay (see
+  // DemoExplainerToast). Armed by the demo entry points: the welcome dialog
+  // and `?example=` deep links show both parts, the tutorial's demo button
+  // only part 1. Gallery picks and uploads show nothing.
+  const [demoToast, setDemoToast] = useState<DemoToastState | null>(null);
+
+  // Post-load confirmation for user-file loads (upload button, drag & drop):
+  // doubles as load feedback and as the "nothing was uploaded" reassurance at
+  // the moment it matters. Example/SDK-launcher loads don't show it.
+  const [uploadNoticeOpen, setUploadNoticeOpen] = useState(false);
+
+  // Anchor for the footer "Data stays local" popover (LocalDataDetails).
+  const [localDataAnchor, setLocalDataAnchor] = useState<HTMLElement | null>(
+    null
+  );
+
   // Re-seed the viewing position whenever the active flow changes: a saved flow
   // restored just after hydration, a fresh upload, or dropping back to the
-  // sample. Done during render (tracking the previous flow) rather than in an
+  // empty state. Done during render (tracking the previous flow) rather than in an
   // effect, per React guidance.
   const [lastFlow, setLastFlow] = useState(trace);
   if (trace !== lastFlow) {
@@ -360,14 +383,21 @@ export default function Home() {
     ]
   );
 
-  // Drop a stale `?example=` once the deep-linked demo is replaced or cleared,
-  // so copying the address bar doesn't send a colleague to a demo the user no
-  // longer sees. `?trace=` is deliberately left alone — the SDK launcher
-  // relies on it surviving refreshes to re-read a still-running trace.
-  const clearExampleParam = useCallback(() => {
+  // Keep `?example=` in the address bar in sync with what's actually loaded:
+  // set it when a bundled example is active (so the URL is always a shareable
+  // deep link), remove it when anything else is (so a copied URL doesn't send
+  // a colleague to a demo the user no longer sees). `?trace=` is deliberately
+  // left alone — the SDK launcher relies on it surviving refreshes to re-read
+  // a still-running trace. replaceState: no navigation, no history entry.
+  const syncExampleParam = useCallback((exampleId?: string) => {
     const url = new URL(window.location.href);
-    if (!url.searchParams.has("example")) return;
-    url.searchParams.delete("example");
+    if (exampleId) {
+      if (url.searchParams.get("example") === exampleId) return;
+      url.searchParams.set("example", exampleId);
+    } else {
+      if (!url.searchParams.has("example")) return;
+      url.searchParams.delete("example");
+    }
     window.history.replaceState(null, "", url);
   }, []);
 
@@ -375,17 +405,22 @@ export default function Home() {
   // prefers-reduced-motion by loading paused). `playThrough` additionally
   // switches to play-next-message so a demo runs every message — reserved for
   // the demo entry points, so it never overrides a mode the user picked while
-  // browsing the gallery. `fromUrl` marks the deep-link load itself, which
-  // must keep its `?example=` so the address bar stays shareable.
+  // browsing the gallery. `exampleId` identifies a bundled example so its
+  // deep link lands in the address bar.
   const handleLoadTrace = useCallback(
     (
       next: AgentTraceFile,
-      options?: { autoplay?: boolean; playThrough?: boolean; fromUrl?: boolean }
+      options?: {
+        autoplay?: boolean;
+        playThrough?: boolean;
+        exampleId?: string;
+      }
     ) => {
       disableGraphArrangeMode();
-      if (!options?.fromUrl) {
-        clearExampleParam();
-      }
+      syncExampleParam(options?.exampleId);
+      // A newly loaded flow invalidates the demo explainer; demo entry points
+      // re-arm it right after this call (same batch, so the later write wins).
+      setDemoToast(null);
       const autoplay =
         !!options?.autoplay &&
         !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -395,23 +430,35 @@ export default function Home() {
       setPendingAutoplay(autoplay);
       // Persist to the session store; the render-time reset above re-seeds the
       // view (selection, step, playback). Marking the welcome dismissed means
-      // dropping the flow later lands on the sample without re-prompting.
+      // dropping the flow later lands on the empty canvas without re-prompting.
       setWelcomeDismissed();
       setSavedFlow(next);
     },
-    [clearExampleParam, disableGraphArrangeMode]
+    [disableGraphArrangeMode, syncExampleParam]
+  );
+
+  // User-file entry points (upload buttons, drop targets) route through this
+  // instead of handleLoadTrace directly, so only real uploads trigger the
+  // local-processing confirmation.
+  const handleUploadLoad = useCallback(
+    (next: AgentTraceFile) => {
+      handleLoadTrace(next);
+      setUploadNoticeOpen(true);
+    },
+    [handleLoadTrace]
   );
 
   // Clear the current flow. trace is `savedFlow ?? emptyTrace`, so dropping the
   // saved flow leaves the empty canvas with upload, example, and drop targets.
-  // Also forgets a deep-linked `?example=` so a refresh doesn't resurrect the
-  // demo the user just dismissed.
+  // Also forgets `?example=` so a refresh doesn't resurrect the demo the user
+  // just dismissed.
   const handleDropFlow = useCallback(() => {
     disableGraphArrangeMode();
-    clearExampleParam();
+    syncExampleParam(undefined);
     setPendingAutoplay(false);
+    setDemoToast(null);
     setSavedFlow(null);
-  }, [clearExampleParam, disableGraphArrangeMode]);
+  }, [disableGraphArrangeMode, syncExampleParam]);
 
   // Local SDK launcher support: `wizardflow ui trace.json` serves the bundled
   // static app and opens `/?trace=/__wizardflow_trace.json&traceName=...`.
@@ -498,7 +545,14 @@ export default function Home() {
       handleLoadTrace(example.trace, {
         autoplay: true,
         playThrough: true,
-        fromUrl: true,
+        exampleId: example.id,
+      });
+      // A deep-link visitor skipped the welcome dialog entirely, so they get
+      // the full explainer toast.
+      setDemoToast({
+        step: 1,
+        flagship: example.id === FLAGSHIP_EXAMPLE_ID,
+        withSdkPitch: true,
       });
     });
     return () => {
@@ -661,6 +715,19 @@ export default function Home() {
     () => withUniqueLabels(getPayloadsForNode(currentMessage, selectedNodeId)),
     [currentMessage, selectedNodeId]
   );
+
+  // The "current visit" of the selected node: the latest step for that node at
+  // or before the playhead. Drives which payload tabs the inspector auto-selects
+  // and tints — so revisiting a node in a loop surfaces that visit's newer logs
+  // rather than freezing on the first visit. Falls back to the node's first
+  // visit when the playhead hasn't reached it yet.
+  const currentVisitStepId = useMemo(() => {
+    if (!selectedNodeId) return undefined;
+    for (let i = Math.min(currentStepIndex, steps.length - 1); i >= 0; i--) {
+      if (steps[i]?.nodeId === selectedNodeId) return steps[i].id;
+    }
+    return steps.find((s) => s.nodeId === selectedNodeId)?.id;
+  }, [steps, currentStepIndex, selectedNodeId]);
   const selectedNode = trace.graph.nodes.find((n) => n.id === selectedNodeId);
   const selectedNodeLabel = selectedNode?.label;
 
@@ -720,7 +787,7 @@ export default function Home() {
         maxWidth="sm"
         fullWidth
       >
-        <TraceDropTarget onLoad={handleLoadTrace}>
+        <TraceDropTarget onLoad={handleUploadLoad}>
         <DialogTitle id="welcome-dialog-title" sx={{ pb: 1 }}>
           <Box
             sx={{
@@ -756,12 +823,14 @@ export default function Home() {
               size="large"
               variant="contained"
               startIcon={<PlayArrowRoundedIcon />}
-              onClick={() =>
+              onClick={() => {
                 handleLoadTrace(flagshipExample.trace, {
                   autoplay: true,
                   playThrough: true,
-                })
-              }
+                  exampleId: flagshipExample.id,
+                });
+                setDemoToast({ step: 1, flagship: true, withSdkPitch: true });
+              }}
               sx={{ width: { xs: "100%", sm: 320 } }}
             >
               Watch a demo replay
@@ -775,7 +844,7 @@ export default function Home() {
               }}
             >
               <TraceUploader
-                onLoad={handleLoadTrace}
+                onLoad={handleUploadLoad}
                 label="Upload trace"
                 size="medium"
                 variant="outlined"
@@ -872,7 +941,9 @@ export default function Home() {
       <ExampleGallery
         open={galleryOpen}
         onClose={() => setGalleryOpen(false)}
-        onSelect={(next) => handleLoadTrace(next, { autoplay: true })}
+        onSelect={(flow) =>
+          handleLoadTrace(flow.trace, { autoplay: true, exampleId: flow.id })
+        }
         currentName={trace.name}
       />
 
@@ -884,9 +955,36 @@ export default function Home() {
           handleLoadTrace(flagshipExample.trace, {
             autoplay: true,
             playThrough: true,
+            exampleId: flagshipExample.id,
           });
+          setDemoToast({ step: 1, flagship: true, withSdkPitch: false });
         }}
       />
+
+      <DemoExplainerToast
+        toast={demoToast}
+        onChange={setDemoToast}
+        onOpenTutorial={() => setTutorialOpen(true)}
+      />
+
+      {/* Load feedback for user files, doubling as the privacy reassurance
+          right after the moment of doubt. Same anchor slot as the demo toast;
+          the two can't overlap since loading a file clears the demo toast. */}
+      <Snackbar
+        open={uploadNoticeOpen}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        autoHideDuration={6000}
+        onClose={() => setUploadNoticeOpen(false)}
+        sx={{ top: { xs: 104, sm: 76 } }}
+      >
+        <Alert
+          severity="success"
+          onClose={() => setUploadNoticeOpen(false)}
+          sx={{ maxWidth: 480 }}
+        >
+          Trace loaded. Processed locally; nothing was sent to a server.
+        </Alert>
+      </Snackbar>
 
       {/* Header */}
       <Box
@@ -985,7 +1083,7 @@ export default function Home() {
           >
             Examples
           </Button>
-          <TraceUploader onLoad={handleLoadTrace} />
+          <TraceUploader onLoad={handleUploadLoad} />
           <Tooltip
             title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
           >
@@ -1054,7 +1152,7 @@ export default function Home() {
             />
           ) : (
             <TraceDropTarget
-              onLoad={handleLoadTrace}
+              onLoad={handleUploadLoad}
               sx={{
                 height: "100%",
                 display: "flex",
@@ -1095,7 +1193,7 @@ export default function Home() {
                   Browse examples
                 </Button>
                 <TraceUploader
-                  onLoad={handleLoadTrace}
+                  onLoad={handleUploadLoad}
                   sx={{ width: { xs: "100%", sm: "auto" } }}
                 />
               </Box>
@@ -1132,6 +1230,7 @@ export default function Home() {
                 selectedNodeLabel={selectedNodeLabel}
                 selectedNodeDescription={selectedNode?.description}
                 payloads={payloads}
+                currentVisitStepId={currentVisitStepId}
               />
             </Paper>
           </>
@@ -1228,6 +1327,52 @@ export default function Home() {
           >
             Tutorial
           </Box>
+          <Box component="span" aria-hidden sx={{ opacity: 0.55 }}>
+            /
+          </Box>
+          {/* Persistent home of the privacy message: always visible, so the
+              reassurance is one click away at the moment someone hesitates
+              over the Upload button. Same popover affordance as TraceInfo. */}
+          <Box
+            component="button"
+            type="button"
+            onClick={(e: React.MouseEvent<HTMLElement>) =>
+              setLocalDataAnchor(e.currentTarget)
+            }
+            sx={{
+              p: 0,
+              border: 0,
+              bgcolor: "transparent",
+              color: "inherit",
+              font: "inherit",
+              lineHeight: "inherit",
+              cursor: "pointer",
+              textDecoration: "none",
+              "&:hover": {
+                color: "primary.main",
+                textDecoration: "underline",
+              },
+              "&:focus-visible": {
+                outline: "2px solid",
+                outlineColor: "primary.main",
+                outlineOffset: 2,
+                borderRadius: 0.5,
+              },
+            }}
+          >
+            Data stays local
+          </Box>
+          <Popover
+            open={Boolean(localDataAnchor)}
+            anchorEl={localDataAnchor}
+            onClose={() => setLocalDataAnchor(null)}
+            anchorOrigin={{ vertical: "top", horizontal: "center" }}
+            transformOrigin={{ vertical: "bottom", horizontal: "center" }}
+          >
+            <Box sx={{ p: 2, maxWidth: 400 }}>
+              <LocalDataDetails />
+            </Box>
+          </Popover>
           {footerLinks.map((link) => (
             <Fragment key={link.href}>
               <Box component="span" aria-hidden sx={{ opacity: 0.55 }}>

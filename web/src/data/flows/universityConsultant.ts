@@ -27,14 +27,48 @@ export const universityConsultantTrace: AgentTraceFile = {
   graph: {
     nodes: [
       { id: "user_input", label: "Student" },
-      { id: "classifier", label: "Intent Classifier" },
-      { id: "clarifier", label: "Clarify" },
-      { id: "campus_guide", label: "Campus Guide" },
-      { id: "advising_desk", label: "Advising Desk" },
-      { id: "course_catalog", label: "Course Catalog" },
-      { id: "eligibility_check", label: "Eligibility Check" },
-      { id: "advisor_escalation", label: "Advisor Escalation" },
-      { id: "responder", label: "Responder" },
+      {
+        id: "classifier",
+        label: "Intent Classifier",
+        description:
+          "Classifies the student's question into navigation, advising, or courses — or routes to the clarifier when confidence is low.",
+      },
+      {
+        id: "clarifier",
+        label: "Clarify",
+        description:
+          "Asks a short follow-up question to disambiguate an unclear request, then hands back to the classifier.",
+      },
+      {
+        id: "campus_guide",
+        label: "Campus Guide",
+        description: "Gives walking directions using the campus map facts.",
+      },
+      {
+        id: "advising_desk",
+        label: "Advising Desk",
+        description: "Answers registration and advising questions from the advising facts.",
+      },
+      {
+        id: "course_catalog",
+        label: "Course Catalog",
+        description: "Looks up the requested course's record (credits, prerequisites, schedule).",
+      },
+      {
+        id: "eligibility_check",
+        label: "Eligibility Check",
+        description: "Compares the student's completed courses against the prerequisites to decide eligibility.",
+      },
+      {
+        id: "advisor_escalation",
+        label: "Advisor Escalation",
+        description: "Opens a human advising ticket for students missing prerequisites.",
+      },
+      {
+        id: "responder",
+        label: "Responder",
+        description: "Formats the branch's result into a friendly final reply.",
+      },
       { id: "final_response", label: "Final Response" },
     ],
     edges: [
@@ -62,6 +96,7 @@ export const universityConsultantTrace: AgentTraceFile = {
     {
       id: "msg-1",
       label: "Navigation",
+      meta: { intent: "navigation", confidence: 0.95, outcome: "answered", latency_ms: 2840 },
       // Navigation branch: classifier -> campus_guide -> responder.
       steps: [
         {
@@ -163,6 +198,7 @@ export const universityConsultantTrace: AgentTraceFile = {
     {
       id: "msg-2",
       label: "Enrollment — eligible",
+      meta: { intent: "courses", eligible: true, outcome: "answered", latency_ms: 2930 },
       // Course branch, eligible: course_catalog -> eligibility_check -> responder.
       steps: [
         {
@@ -275,6 +311,7 @@ export const universityConsultantTrace: AgentTraceFile = {
     {
       id: "msg-3",
       label: "Prereq escalation",
+      meta: { intent: "courses", eligible: false, outcome: "escalated", latency_ms: 2060 },
       // Course branch, NOT eligible: eligibility_check -> advisor_escalation ->
       // final_response (the escalation exit skips the responder).
       steps: [
@@ -389,6 +426,7 @@ export const universityConsultantTrace: AgentTraceFile = {
     {
       id: "msg-4",
       label: "Clarify loop",
+      meta: { intent: "advising", clarify_rounds: 1, outcome: "answered", latency_ms: 11250 },
       // Low confidence: classifier -> clarifier -> classifier (loop) -> advising.
       steps: [
         {

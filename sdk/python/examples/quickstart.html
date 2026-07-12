@@ -18,6 +18,10 @@ blockquote {
   color: #8a8a8a; font-style: italic;
 }
 table.meta { border-collapse: collapse; font-size: .85rem; margin-bottom: 2rem; }
+section.nodes { margin: -1rem 0 2rem; }
+section.nodes h2 { font-size: 1.05rem; margin: 0 0 .2rem; }
+section.nodes ul { margin: 0; padding-left: 1.2rem; font-size: .9rem; }
+section.nodes li { margin: .15rem 0; }
 table.meta th, table.meta td {
   border: 1px solid #8884; padding: .25rem .6rem; text-align: left;
 }
@@ -27,6 +31,7 @@ section.message {
   padding: .25rem 1rem 1rem; margin-bottom: 1.5rem;
 }
 section.message > h2 { font-size: 1.15rem; margin: .8rem 0 .4rem; }
+section.message > p.msg-meta { font-size: .85rem; color: #8a8a8a; margin: -.2rem 0 .6rem; }
 section.step { padding: .9rem 0; }
 section.step:first-of-type { padding-top: .2rem; }
 /* Divider between consecutive nodes in a message. */
@@ -57,33 +62,42 @@ pre code { background: none; padding: 0; }
 <table class="meta">
 <tr><th>version</th><td>0.2</td></tr>
 </table>
+<section class="nodes">
+<h2>Nodes</h2>
+<ul>
+<li><span class="label">router</span> — Classifies the request and picks the next node.</li>
+<li><span class="label">planner</span> — Decomposes the request into concrete tool calls.</li>
+<li><span class="label">tool_node</span> — Runs the planned tool calls against external APIs.</li>
+</ul>
+</section>
 <section class="message">
 <h2>msg-1</h2>
 <section class="step">
-<h3>user_input <span class="time">· 21:39:58</span></h3>
+<h3>user_input <span class="time">· 13:13:58</span></h3>
 <p class="scalar"><span class="label">Input</span> <code>What&#x27;s the weather in Berlin?</code></p>
 </section>
 <section class="step">
-<h3>router <span class="time">· 21:39:58</span></h3>
+<h3>router <span class="time">· 13:13:58</span></h3>
 <p class="scalar"><span class="label">llm_input</span> <code>Route this request...</code></p>
 <p class="scalar"><span class="label">llm_output</span> <code>{&quot;route&quot;: &quot;planner&quot;}</code></p>
 </section>
 <section class="step">
-<h3>tool_node <span class="time">· 21:39:58</span></h3>
+<h3>tool_node <span class="time">· 13:13:58</span></h3>
 </section>
 <section class="step">
-<h3>final_response <span class="time">· 21:39:58</span></h3>
+<h3>final_response <span class="time">· 13:13:58</span></h3>
 <p class="scalar"><span class="label">Output</span> <code>It&#x27;s 19C and partly cloudy in Berlin.</code></p>
 </section>
 </section>
 <section class="message">
 <h2>Summarize the paper</h2>
+<p class="msg-meta"><span class="label">outcome</span>: answered · <span class="label">latency_ms</span>: 320</p>
 <section class="step">
-<h3>user_input <span class="time">· 21:39:58</span></h3>
+<h3>user_input <span class="time">· 13:13:58</span></h3>
 <p class="scalar"><span class="label">Input</span> <code>Summarize the paper.</code></p>
 </section>
 <section class="step">
-<h3>router <span class="time">· 21:39:58</span></h3>
+<h3>router <span class="time">· 13:13:58</span></h3>
 <p class="scalar"><span class="label">llm_output</span> <code>{&quot;route&quot;: &quot;planner&quot;}</code></p>
 </section>
 </section>

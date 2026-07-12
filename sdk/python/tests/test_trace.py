@@ -166,6 +166,43 @@ def test_no_label_means_no_label_field(tmp_path):
     assert "label" not in c.to_dict()["messages"][0]
 
 
+# --- message meta ----------------------------------------------------------
+
+def test_end_message_sets_meta_in_dict_and_written_record(tmp_path):
+    c = _new(tmp_path, nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    path = c.end_message("m1", meta={"outcome": "ok", "latency_ms": 320})
+    assert c.to_dict()["messages"][0]["meta"] == {"outcome": "ok", "latency_ms": 320}
+    _, messages, _ = _read_part(path)
+    assert messages[0]["meta"] == {"outcome": "ok", "latency_ms": 320}
+
+
+def test_module_end_message_sets_meta(tmp_path):
+    import wizardflow
+
+    wizardflow.init(output_dir=str(tmp_path), file_prefix="trace", nodes=["a"])
+    wizardflow.log("m1", "a", "L", 1)
+    wizardflow.end_message("m1", meta={"user": "u-7"})
+    assert wizardflow.to_dict()["messages"][0]["meta"] == {"user": "u-7"}
+
+
+def test_end_message_copies_meta(tmp_path):
+    # Caller mutating the dict after end_message must not change the message.
+    c = _new(tmp_path, nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    meta = {"outcome": "ok"}
+    c.end_message("m1", meta=meta)
+    meta["outcome"] = "mutated"
+    assert c.to_dict()["messages"][0]["meta"] == {"outcome": "ok"}
+
+
+def test_no_meta_means_no_meta_field(tmp_path):
+    c = _new(tmp_path, nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+    assert "meta" not in c.to_dict()["messages"][0]
+
+
 # --- completed-only persistence ------------------------------------------
 
 def test_only_completed_messages_are_emitted(tmp_path):

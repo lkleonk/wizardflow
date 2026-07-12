@@ -109,6 +109,29 @@ def test_message_and_step_headings():
     assert 'router <span class="time">· 14:30:22</span>' in html
 
 
+def test_message_meta_rendered_and_escaped():
+    trace = _trace()
+    trace["messages"][0]["meta"] = {"outcome": "ok & done", "latency_ms": 320}
+    html = render_html(trace)
+    assert '<p class="msg-meta">' in html
+    assert '<span class="label">outcome</span>: ok &amp; done' in html
+    assert '<span class="label">latency_ms</span>: 320' in html
+
+
+def test_out_of_contract_nested_meta_value_renders_as_escaped_json():
+    # Meta values are scalars by contract, but a nested dict/list must still
+    # render readably (compact JSON, escaped), not as a Python repr.
+    trace = _trace()
+    trace["messages"][0]["meta"] = {"user": {"id": "u-1"}}
+    html = render_html(trace)
+    assert '<span class="label">user</span>: {&quot;id&quot;: &quot;u-1&quot;}' in html
+
+
+def test_no_message_meta_means_no_meta_line():
+    html = render_html(_trace())
+    assert '<p class="msg-meta">' not in html
+
+
 def test_scalar_inline_structured_pre_and_json_spellings():
     html = render_html(_trace())
     assert "<code>planner</code>" in html                 # scalar string inline

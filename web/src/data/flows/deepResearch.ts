@@ -21,12 +21,38 @@ export const deepResearchTrace: AgentTraceFile = {
   graph: {
     nodes: [
       { id: "user_input", label: "User Input" },
-      { id: "planner", label: "Planner" },
-      { id: "searcher", label: "Searcher" },
-      { id: "synthesizer", label: "Synthesizer" },
-      { id: "gap_analyzer", label: "Gap Analyzer" },
-      { id: "writer", label: "Writer" },
-      { id: "critic", label: "Critic" },
+      {
+        id: "planner",
+        label: "Planner",
+        description:
+          "Turns the topic into a search query, refining it based on gaps found in later rounds.",
+      },
+      {
+        id: "searcher",
+        label: "Searcher",
+        description: "Runs the search query and returns the raw results.",
+      },
+      {
+        id: "synthesizer",
+        label: "Synthesizer",
+        description: "Merges the search results into concise research notes.",
+      },
+      {
+        id: "gap_analyzer",
+        label: "Gap Analyzer",
+        description:
+          "Judges whether the notes cover the topic well enough to write the briefing, looping back to the planner when coverage is thin.",
+      },
+      {
+        id: "writer",
+        label: "Writer",
+        description: "Drafts, and later revises, the briefing from the research notes.",
+      },
+      {
+        id: "critic",
+        label: "Critic",
+        description: "Reviews the draft for accuracy and completeness, approving it or requesting a revision.",
+      },
       { id: "final_response", label: "Final Response" },
     ],
     edges: [
@@ -46,6 +72,7 @@ export const deepResearchTrace: AgentTraceFile = {
   messages: [
     {
       id: "msg-1",
+      meta: { research_rounds: 2, revisions: 1, outcome: "approved", latency_ms: 22360 },
       steps: [
         {
           id: "m1-s1",

@@ -52,6 +52,13 @@ export type AgentTraceEdge = {
 export type AgentTraceMessage = {
   id: string;
   label?: string;
+  /**
+   * Optional flat metadata about this message as a whole (outcome, latency,
+   * user id, …), as opposed to step payloads, which belong to one node visit.
+   * Shown in the message chip's tooltip and expanded card. Keep values short —
+   * large structured data belongs in payloads.
+   */
+  meta?: Record<string, string | number | boolean>;
   steps: AgentTraceStep[];
 };
 

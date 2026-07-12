@@ -64,6 +64,59 @@ export function setSavedFlow(flow: AgentTraceFile | null): void {
   listeners.forEach((listener) => listener());
 }
 
+// --- Message timeline density (per-tab) ---
+//
+// Whether the message strip shows expanded cards (title + preview + meta)
+// instead of compact chips. Same useSyncExternalStore shape as the flow:
+// compact on the server and first client render, real value after hydration.
+
+const TIMELINE_EXPANDED_KEY = "wizardflow:timeline-expanded";
+
+let timelineExpanded = false;
+let timelineInitialized = false;
+const timelineListeners = new Set<() => void>();
+
+export function subscribeTimelineExpanded(onChange: () => void): () => void {
+  timelineListeners.add(onChange);
+  return () => timelineListeners.delete(onChange);
+}
+
+export function getTimelineExpanded(): boolean {
+  if (!timelineInitialized) {
+    timelineInitialized = true;
+    if (typeof window !== "undefined") {
+      try {
+        timelineExpanded =
+          window.sessionStorage.getItem(TIMELINE_EXPANDED_KEY) === "1";
+      } catch {
+        timelineExpanded = false;
+      }
+    }
+  }
+  return timelineExpanded;
+}
+
+export function getServerTimelineExpanded(): false {
+  return false;
+}
+
+export function setTimelineExpanded(expanded: boolean): void {
+  timelineInitialized = true;
+  timelineExpanded = expanded;
+  if (typeof window !== "undefined") {
+    try {
+      if (expanded) {
+        window.sessionStorage.setItem(TIMELINE_EXPANDED_KEY, "1");
+      } else {
+        window.sessionStorage.removeItem(TIMELINE_EXPANDED_KEY);
+      }
+    } catch {
+      // Storage unavailable: keep the choice in memory for this session.
+    }
+  }
+  timelineListeners.forEach((listener) => listener());
+}
+
 // --- Welcome dialog dismissal (per-tab) ---
 //
 // Remembers that the user has made their initial choice (use example / upload /
@@ -118,3 +171,88 @@ export function setWelcomeDismissed(): void {
   }
   welcomeListeners.forEach((listener) => listener());
 }
+
+// --- Inspector payload display settings (per-tab) ---
+//
+// Two independent toggles for how the inspector renders a payload's raw text:
+// highlighting JSON object keys, and turning literal `\n` sequences (from
+// JSON.stringify-ing a multi-line string) into real line breaks. Both default
+// to on — off is the explicit "show me the exact raw text" choice. Same
+// useSyncExternalStore shape as the other settings above, generalized here
+// since a default-`true` boolean needs to distinguish "never set" from
+// "explicitly turned off", which the default-`false` settings above don't.
+function createPersistedBooleanSetting(storageKey: string, defaultValue: boolean) {
+  let value = defaultValue;
+  let isInitialized = false;
+  const listeners = new Set<() => void>();
+
+  function get(): boolean {
+    if (!isInitialized) {
+      isInitialized = true;
+      if (typeof window !== "undefined") {
+        try {
+          const raw = window.sessionStorage.getItem(storageKey);
+          if (raw !== null) value = raw === "1";
+        } catch {
+          // Storage unavailable: fall back to the default for this session.
+        }
+      }
+    }
+    return value;
+  }
+
+  function getServer(): boolean {
+    return defaultValue;
+  }
+
+  function set(next: boolean): void {
+    isInitialized = true;
+    value = next;
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.setItem(storageKey, next ? "1" : "0");
+      } catch {
+        // Storage unavailable: keep the choice in memory for this session.
+      }
+    }
+    listeners.forEach((listener) => listener());
+  }
+
+  function subscribe(onChange: () => void): () => void {
+    listeners.add(onChange);
+    return () => listeners.delete(onChange);
+  }
+
+  return { get, getServer, set, subscribe };
+}
+
+const inspectorHighlightKeysSetting = createPersistedBooleanSetting(
+  "wizardflow:inspector-highlight-keys",
+  true
+);
+export const getInspectorHighlightKeys = inspectorHighlightKeysSetting.get;
+export const getServerInspectorHighlightKeys = inspectorHighlightKeysSetting.getServer;
+export const setInspectorHighlightKeys = inspectorHighlightKeysSetting.set;
+export const subscribeInspectorHighlightKeys = inspectorHighlightKeysSetting.subscribe;
+
+const inspectorRenderNewlinesSetting = createPersistedBooleanSetting(
+  "wizardflow:inspector-render-newlines",
+  true
+);
+export const getInspectorRenderNewlines = inspectorRenderNewlinesSetting.get;
+export const getServerInspectorRenderNewlines = inspectorRenderNewlinesSetting.getServer;
+export const setInspectorRenderNewlines = inspectorRenderNewlinesSetting.set;
+export const subscribeInspectorRenderNewlines = inspectorRenderNewlinesSetting.subscribe;
+
+// Off by default — this replaces the familiar raw-JSON view with a flattened
+// `key: value` tree (no braces/brackets/quoted keys), so it's an opt-in
+// rather than a "turn this off to get back to normal" toggle like the two
+// above.
+const inspectorCompactViewSetting = createPersistedBooleanSetting(
+  "wizardflow:inspector-compact-view",
+  false
+);
+export const getInspectorCompactView = inspectorCompactViewSetting.get;
+export const getServerInspectorCompactView = inspectorCompactViewSetting.getServer;
+export const setInspectorCompactView = inspectorCompactViewSetting.set;
+export const subscribeInspectorCompactView = inspectorCompactViewSetting.subscribe;

@@ -155,8 +155,12 @@ def log(
     get_default().log(id, node, label, content)
 
 
-def end_message(id: str, title: Optional[str] = None) -> str:
-    return get_default().end_message(id, title=title)
+def end_message(
+    id: str,
+    title: Optional[str] = None,
+    meta: Optional[Dict[str, Any]] = None,
+) -> str:
+    return get_default().end_message(id, title=title, meta=meta)
 
 
 def to_dict() -> Dict[str, Any]:

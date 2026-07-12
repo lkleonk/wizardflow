@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import InitColorSchemeScript from "@mui/material/InitColorSchemeScript";
 import "./globals.css";
+import ColorSchemeScript from "@/components/ColorSchemeScript";
 import Providers from "./providers";
 
 const geistSans = Geist({
@@ -88,7 +88,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable}`}
     >
       <body>
-        <InitColorSchemeScript defaultMode="dark" />
+        <ColorSchemeScript />
         <Providers>{children}</Providers>
       </body>
     </html>

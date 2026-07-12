@@ -23,12 +23,36 @@ export const loanApplicationTrace: AgentTraceFile = {
   graph: {
     nodes: [
       { id: "__start__", label: "__start__" },
-      { id: "intake", label: "Application Intake" },
-      { id: "risk_assessment", label: "Risk Assessment" },
-      { id: "decision", label: "Decision Router" },
-      { id: "approve", label: "Approve" },
-      { id: "counter_offer", label: "Counter-Offer" },
-      { id: "decline", label: "Decline" },
+      {
+        id: "intake",
+        label: "Application Intake",
+        description: "Captures the loan application details (amount, term, purpose, income).",
+      },
+      {
+        id: "risk_assessment",
+        label: "Risk Assessment",
+        description: "Scores the applicant's credit risk (score, debt-to-income, delinquencies) into a risk band.",
+      },
+      {
+        id: "decision",
+        label: "Decision Router",
+        description: "Routes the application to approve, counter-offer, or decline based on the risk assessment.",
+      },
+      {
+        id: "approve",
+        label: "Approve",
+        description: "Finalizes the loan terms and writes the approval reply.",
+      },
+      {
+        id: "counter_offer",
+        label: "Counter-Offer",
+        description: "Adjusts the requested amount to an affordable offer and writes the counter-offer reply.",
+      },
+      {
+        id: "decline",
+        label: "Decline",
+        description: "Lists the decline reasons and writes the decline reply with reapplication guidance.",
+      },
       { id: "__end__", label: "__end__" },
     ],
     edges: [
@@ -46,6 +70,7 @@ export const loanApplicationTrace: AgentTraceFile = {
   messages: [
     {
       id: "msg-1",
+      meta: { risk_band: "low", outcome: "approved", apr: 8.4, latency_ms: 1720 },
       steps: [
         {
           id: "m1-s1",
@@ -125,6 +150,7 @@ export const loanApplicationTrace: AgentTraceFile = {
     },
     {
       id: "msg-2",
+      meta: { risk_band: "medium", outcome: "counter_offer", apr: 11.9, latency_ms: 1840 },
       steps: [
         {
           id: "m2-s1",
@@ -205,6 +231,7 @@ export const loanApplicationTrace: AgentTraceFile = {
     },
     {
       id: "msg-3",
+      meta: { risk_band: "high", outcome: "declined", reasons_count: 3, latency_ms: 1760 },
       steps: [
         {
           id: "m3-s1",

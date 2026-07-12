@@ -219,6 +219,7 @@ class _Message:
     def __init__(self, message_id: str, label: Optional[str], silent: bool):
         self.id = message_id
         self.label = label
+        self.meta: Optional[Dict[str, Any]] = None
         self.silent = silent
         self.completed = False
         self.steps: List[Dict[str, Any]] = []
@@ -249,6 +250,8 @@ class _Message:
         message: Dict[str, Any] = {"id": self.id, "steps": self.steps}
         if self.label is not None:
             message["label"] = self.label
+        if self.meta is not None:
+            message["meta"] = self.meta
         return message
 
 
@@ -424,16 +427,24 @@ class Client:
             except Exception as exc:  # pragma: no cover - defensive
                 self._fail(msg.silent, exc)
 
-    def end_message(self, id: str, title: Optional[str] = None) -> str:
+    def end_message(
+        self,
+        id: str,
+        title: Optional[str] = None,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """Finalize message ``id`` and append it to the active part. Returns its path.
 
         This is the **only** thing that writes to disk; :meth:`log` just
-        accumulates in memory. Optional ``title`` sets the message's human title.
-        Exactly one line is appended per ended message — O(1) however large the
-        part already is. If the active part would exceed ``max_bytes`` (or holds
-        ``max_messages`` already), it is sealed and the message starts a fresh
-        part (rotation happens only at message boundaries). Idempotent: a second
-        end on the same id won't append twice.
+        accumulates in memory. Optional ``title`` sets the message's human title;
+        optional ``meta`` attaches flat metadata about the message as a whole
+        (outcome, latency, user id, …) — keep values short scalars, like the
+        trace-level ``meta``; large structured data belongs in :meth:`log`
+        payloads. Exactly one line is appended per ended message — O(1) however
+        large the part already is. If the active part would exceed ``max_bytes``
+        (or holds ``max_messages`` already), it is sealed and the message starts
+        a fresh part (rotation happens only at message boundaries). Idempotent:
+        a second end on the same id won't append twice.
         """
         with self._lock:
             msg = self._messages.get(id)
@@ -445,6 +456,8 @@ class Client:
             if not msg.completed:
                 if title is not None:
                     msg.label = title
+                if meta is not None:
+                    msg.meta = dict(meta)
                 msg.completed = True
                 line = self._render_line({Records.TYPE_KEY: Records.MESSAGE, **msg.to_dict()})
                 self._rotate_if_needed(len(line.encode("utf-8")))

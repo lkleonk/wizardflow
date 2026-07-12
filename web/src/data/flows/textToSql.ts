@@ -23,11 +23,31 @@ export const textToSqlTrace: AgentTraceFile = {
   graph: {
     nodes: [
       { id: "user_input", label: "User Input" },
-      { id: "schema_lookup", label: "Schema Lookup" },
-      { id: "sql_generator", label: "SQL Generator" },
-      { id: "db_executor", label: "DB Executor" },
-      { id: "sql_repair", label: "SQL Repair" },
-      { id: "answer_writer", label: "Answer Writer" },
+      {
+        id: "schema_lookup",
+        label: "Schema Lookup",
+        description: "Looks up the relevant table schema for the question.",
+      },
+      {
+        id: "sql_generator",
+        label: "SQL Generator",
+        description: "Generates a SQL query from the question and schema.",
+      },
+      {
+        id: "db_executor",
+        label: "DB Executor",
+        description: "Runs the SQL query against the database and returns rows or an error.",
+      },
+      {
+        id: "sql_repair",
+        label: "SQL Repair",
+        description: "Rewrites the failed SQL using the database error before it's retried.",
+      },
+      {
+        id: "answer_writer",
+        label: "Answer Writer",
+        description: "Explains the query results in plain language.",
+      },
       { id: "final_response", label: "Final Response" },
     ],
     edges: [
@@ -45,6 +65,7 @@ export const textToSqlTrace: AgentTraceFile = {
   messages: [
     {
       id: "msg-1",
+      meta: { repairs: 0, rows_returned: 3, outcome: "success", latency_ms: 3880 },
       steps: [
         {
           id: "m1-s1",
@@ -158,6 +179,7 @@ export const textToSqlTrace: AgentTraceFile = {
     },
     {
       id: "msg-2",
+      meta: { repairs: 1, rows_returned: 4, outcome: "success", latency_ms: 5620 },
       steps: [
         {
           id: "m2-s1",

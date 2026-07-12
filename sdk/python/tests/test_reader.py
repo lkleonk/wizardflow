@@ -39,6 +39,16 @@ def test_assembles_header_and_messages_in_file_order(tmp_path):
     assert "type" not in trace and all("type" not in m for m in trace["messages"])
 
 
+def test_message_meta_passes_through(tmp_path):
+    p = tmp_path / "t.jsonl"
+    p.write_text(
+        _lines(HEADER, _msg("m1", meta={"outcome": "ok", "latency_ms": 320})),
+        encoding="utf-8",
+    )
+    trace = load_trace_file(p)
+    assert trace["messages"][0]["meta"] == {"outcome": "ok", "latency_ms": 320}
+
+
 def test_header_only_part_is_a_valid_empty_trace(tmp_path):
     p = tmp_path / "t.jsonl"
     p.write_text(_lines(HEADER), encoding="utf-8")

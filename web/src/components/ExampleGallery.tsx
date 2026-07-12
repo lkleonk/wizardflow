@@ -8,14 +8,14 @@ import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
-import { exampleFlows } from "@/data";
-import type { AgentTraceFile } from "@/types/agenttrace";
+import { exampleFlows, type ExampleFlow } from "@/data";
 import { visibleGraph } from "@/utils/traceSelectors";
 
 type ExampleGalleryProps = {
   open: boolean;
   onClose: () => void;
-  onSelect: (trace: AgentTraceFile) => void;
+  /** Receives the whole flow so callers can use its id (e.g. deep links). */
+  onSelect: (flow: ExampleFlow) => void;
   /** Name of the currently-loaded trace, used to highlight its card. */
   currentName?: string;
 };
@@ -65,7 +65,7 @@ export default function ExampleGallery({
               <ButtonBase
                 key={flow.id}
                 onClick={() => {
-                  onSelect(flow.trace);
+                  onSelect(flow);
                   onClose();
                 }}
                 aria-current={isCurrent || undefined}

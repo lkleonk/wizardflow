@@ -93,6 +93,7 @@ export const supportHandoffTrace: AgentTraceFile = {
     {
       id: "msg-1",
       label: "FAQ answer",
+      meta: { user: "u-1094", lane: "faq", outcome: "answered", latency_ms: 2140 },
       // FAQ lane: triage -> faq_answer -> responder.
       steps: [
         {
@@ -213,6 +214,7 @@ export const supportHandoffTrace: AgentTraceFile = {
     {
       id: "msg-2",
       label: "Refund — revise loop",
+      meta: { user: "u-4821", lane: "refund", outcome: "refund issued", revisions: 1, latency_ms: 6820 },
       // Refund lane with the revision loop: the first draft is rejected by the
       // policy gate (missing the duplicate invoice pair), the tool revises it,
       // and the second check approves and issues.
@@ -414,6 +416,7 @@ export const supportHandoffTrace: AgentTraceFile = {
     {
       id: "msg-3",
       label: "Refund — escalated",
+      meta: { user: "u-3377", lane: "refund", outcome: "escalated to human", latency_ms: 5310 },
       // Refund lane, out of policy: the gate fails two rules and hands the
       // draft to a human instead of looping or approving.
       steps: [
@@ -569,6 +572,7 @@ export const supportHandoffTrace: AgentTraceFile = {
     {
       id: "msg-4",
       label: "Churn risk — handoff",
+      meta: { user: "u-4821", lane: "human", outcome: "handed off", churn_risk: "high", latency_ms: 1670 },
       // Human lane: triage recognizes an angry churn-risk ticket and skips
       // automation entirely.
       steps: [

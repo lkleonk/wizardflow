@@ -19,8 +19,16 @@ export const selfCorrectingCodeTrace: AgentTraceFile = {
   graph: {
     nodes: [
       { id: "user_input", label: "User Input" },
-      { id: "coder", label: "Coder" },
-      { id: "test_runner", label: "Test Runner" },
+      {
+        id: "coder",
+        label: "Coder",
+        description: "Writes, or patches, the implementation from the task description and any test failure.",
+      },
+      {
+        id: "test_runner",
+        label: "Test Runner",
+        description: "Runs the test suite and reports pass/fail results, looping back to the coder on failure.",
+      },
       { id: "final_response", label: "Final Response" },
     ],
     edges: [
@@ -33,6 +41,7 @@ export const selfCorrectingCodeTrace: AgentTraceFile = {
   messages: [
     {
       id: "msg-1",
+      meta: { attempts: 2, tests_failed_first_run: 1, outcome: "passed", latency_ms: 6300 },
       steps: [
         {
           id: "m1-s1",
@@ -155,6 +164,7 @@ export const selfCorrectingCodeTrace: AgentTraceFile = {
     },
     {
       id: "msg-2",
+      meta: { attempts: 2, tests_failed_first_run: 1, outcome: "passed", latency_ms: 6380 },
       steps: [
         {
           id: "m2-s1",

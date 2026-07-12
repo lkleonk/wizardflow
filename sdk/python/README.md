@@ -107,7 +107,11 @@ wizardflow.end_message("msg-2")          # writes msg-2
 
 Pass the **string `id`**, never a handle object — safe to hand to a callback or
 across threads. A message is created on first reference and finalized by
-`end_message`; `end_message(id, title="...")` optionally gives it a human title.
+`end_message`; `end_message(id, title="...")` optionally gives it a human title,
+and `end_message(id, meta={...})` attaches flat metadata about the message as a
+whole (outcome, latency, user id, …) — the viewer shows it on the message's
+timeline chip. Keep meta values short scalars; large structured data belongs in
+`log()` payloads.
 
 ### Choosing message ids
 
@@ -126,8 +130,9 @@ Do **not** use a session id, user id, or thread id as the message id. Those
 identify a *conversation*, and a conversation contains many messages — after
 the first `end_message(session_id)`, every further `log(session_id, ...)` in
 that session raises, because that "message" has already ended. If you want the
-session visible in the trace, put it in `init(meta=...)` or in the message
-title (`end_message(msg_id, title=...)`) — never in the id. Ids are opaque:
+session visible in the trace, put it in `init(meta=...)` or in the message's
+meta (`end_message(msg_id, meta={"session": session_id})`) — never in the id.
+Ids are opaque:
 the viewer only displays and groups by them, so encoding meaning into them
 buys nothing. Hardcoded ids like `"msg-1"` are fine for demo scripts; `uuid4`
 is the right default for real applications.
@@ -259,9 +264,11 @@ metadata never fails extraction (the edge is just emitted plain). Call it
   **message id**, the second is the node. With `label`/`content` it records a
   payload; bare `log(id, "node")` records a visit with no payloads. The message
   is created on first reference; this only accumulates in memory.
-- `end_message(id, title=None)` — finalize a message and append it to the
-  trace; returns the current trace path. The **only** call that touches disk.
-  Optional `title` sets the message's human title. Idempotent.
+- `end_message(id, title=None, meta=None)` — finalize a message and append it
+  to the trace; returns the current trace path. The **only** call that touches
+  disk. Optional `title` sets the message's human title; optional `meta` (a
+  flat dict of short scalars) attaches message-level metadata shown on the
+  message's chip in the viewer. Idempotent.
 - `reinit(name=None, description=None, meta=None)` — start a **new trace
   file** (fresh timestamped name), keeping the graph and output configuration.
   Use it at natural boundaries of a long-lived process — a new user session, a

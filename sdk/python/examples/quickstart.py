@@ -26,6 +26,15 @@ wiz = wizardflow.init(
         ("planner", "tool_node"),
         ("tool_node", "final_response"),
     ],
+    # Optional: a one-line description per node, keyed by node id. It shows
+    # behind an info icon in the viewer when the node is selected. Plumbing
+    # nodes (user_input, final_response) are left out on purpose — not every
+    # node needs one.
+    node_descriptions={
+        "router": "Classifies the request and picks the next node.",
+        "planner": "Decomposes the request into concrete tool calls.",
+        "tool_node": "Runs the planned tool calls against external APIs.",
+    },
 )
 
 # Message 1 — each log names its message ("msg-1") in the first argument.
@@ -36,10 +45,16 @@ wizardflow.log("msg-1", "tool_node")  # visited, no payloads
 wizardflow.log("msg-1", "final_response", "Output", "It's 19C and partly cloudy in Berlin.")
 wizardflow.end_message("msg-1")  # <- writes the file; msg-1 is now persisted
 
-# Message 2 — same shape; an optional title gives the message a human title.
+# Message 2 — same shape; an optional title gives the message a human title,
+# and optional meta attaches flat facts about the message as a whole (shown on
+# the message's chip in the viewer). Keep meta values short scalars.
 wizardflow.log("msg-2", "user_input", "Input", "Summarize the paper.")
 wizardflow.log("msg-2", "router", "llm_output", '{"route": "planner"}')
-wizardflow.end_message("msg-2", title="Summarize the paper")
+wizardflow.end_message(
+    "msg-2",
+    title="Summarize the paper",
+    meta={"outcome": "answered", "latency_ms": 320},
+)
 # -> the part file now contains msg-1 and msg-2
 
 print(f"wrote {wiz.current_path}")

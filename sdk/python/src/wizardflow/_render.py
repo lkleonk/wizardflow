@@ -18,6 +18,15 @@ def short_time(timestamp: Any) -> str:
     return clock.split(".", 1)[0] if "." in clock else clock
 
 
+def meta_text(value: Any) -> str:
+    """Render a meta value for display. Meta values are short scalars by
+    contract; an out-of-contract dict/list still renders readably as compact
+    JSON instead of its Python repr."""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
 def classify_value(value: Any) -> Tuple[str, str]:
     """Classify a payload value for rendering, returning ``(kind, text)``.
 

@@ -1,10 +1,12 @@
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { doctorConsultationTrace } from "./flows/doctorConsultation";
 import { routerAgentTrace } from "./flows/routerAgent";
 import { ragPipelineTrace } from "./flows/ragPipeline";
 import { multiAgentCrewTrace } from "./flows/multiAgentCrew";
 import { planExecuteTrace } from "./flows/planExecute";
 import { selfCorrectingCodeTrace } from "./flows/selfCorrectingCode";
 import { universityConsultantTrace } from "./flows/universityConsultant";
+import { degreeConsultantTrace } from "./flows/degreeConsultant";
 import { textToSqlTrace } from "./flows/textToSql";
 import { supportHandoffTrace } from "./flows/supportHandoff";
 import { deepResearchTrace } from "./flows/deepResearch";
@@ -23,6 +25,14 @@ export type ExampleFlow = {
 };
 
 export const exampleFlows: ExampleFlow[] = [
+  {
+    id: "doctor-consultation",
+    title: "AI doctor consultation",
+    summary:
+      "Runs a full doctor's visit for two patients — interview, diagnosis, an allergy-checked prescription, and a blood test that comes back the next day.",
+    pattern: "branches + loop",
+    trace: doctorConsultationTrace,
+  },
   {
     id: "router",
     title: "Router agent",
@@ -65,6 +75,14 @@ export const exampleFlows: ExampleFlow[] = [
       "Routes questions across navigation, advising, and courses — with a prereq escalation and a clarify loop.",
     pattern: "branch + loop",
     trace: universityConsultantTrace,
+  },
+  {
+    id: "degree-consultant",
+    title: "Degree consultant",
+    summary:
+      "Fans a student question out to an off-topic reply, a direct rule answer, a course lookup, or a full plan check.",
+    pattern: "uneven branches",
+    trace: degreeConsultantTrace,
   },
   {
     id: "text-to-sql",

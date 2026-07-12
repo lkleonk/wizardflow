@@ -17,28 +17,117 @@ export const itHelpdeskRouterTrace: AgentTraceFile = {
   graph: {
     nodes: [
       { id: "user_input", label: "User Input" },
-      { id: "ticket_intake", label: "Ticket Intake" },
-      { id: "ticket_classifier", label: "Ticket Classifier" },
-      { id: "password_mfa_path", label: "Password/MFA" },
-      { id: "identity_check", label: "Identity Check" },
-      { id: "account_recovery", label: "Account Recovery" },
-      { id: "network_path", label: "Network" },
-      { id: "site_status_check", label: "Site Status" },
-      { id: "network_diagnostics", label: "Diagnostics" },
-      { id: "hardware_path", label: "Laptop Hardware" },
-      { id: "device_lookup", label: "Device Lookup" },
-      { id: "replacement_triage", label: "Replacement Triage" },
-      { id: "software_path", label: "Software Access" },
-      { id: "license_check", label: "License Check" },
-      { id: "install_request", label: "Install Request" },
-      { id: "email_path", label: "Email/Calendar" },
-      { id: "mailbox_check", label: "Mailbox Check" },
-      { id: "calendar_rules_audit", label: "Rules Audit" },
-      { id: "security_path", label: "Security Incident" },
-      { id: "phishing_triage", label: "Phishing Triage" },
-      { id: "containment_steps", label: "Containment" },
-      { id: "urgency_check", label: "Urgency Check" },
-      { id: "resolution_plan", label: "Resolution Plan" },
+      {
+        id: "ticket_intake",
+        label: "Ticket Intake",
+        description: "Captures ticket details from the employee message (requester, department, asset, or impact).",
+      },
+      {
+        id: "ticket_classifier",
+        label: "Ticket Classifier",
+        description:
+          "Classifies the ticket into a specialist branch: password/MFA, network, hardware, software, email, or security.",
+      },
+      {
+        id: "password_mfa_path",
+        label: "Password/MFA",
+        description: "Routes password and MFA tickets toward identity verification before recovery.",
+      },
+      {
+        id: "identity_check",
+        label: "Identity Check",
+        description: "Determines which identity checks are required before account recovery proceeds.",
+      },
+      {
+        id: "account_recovery",
+        label: "Account Recovery",
+        description: "Resets the password and re-enrolls MFA once identity is verified.",
+      },
+      {
+        id: "network_path",
+        label: "Network",
+        description: "Routes connectivity tickets toward site-status and diagnostic checks.",
+      },
+      {
+        id: "site_status_check",
+        label: "Site Status",
+        description: "Checks for a building-wide outage and identifies the affected access point.",
+      },
+      {
+        id: "network_diagnostics",
+        label: "Diagnostics",
+        description: "Runs signal and channel-utilization diagnostics on the affected access point.",
+      },
+      {
+        id: "hardware_path",
+        label: "Laptop Hardware",
+        description: "Routes laptop hardware tickets toward device lookup and replacement triage.",
+      },
+      {
+        id: "device_lookup",
+        label: "Device Lookup",
+        description: "Looks up the employee's device record for the hardware ticket.",
+      },
+      {
+        id: "replacement_triage",
+        label: "Replacement Triage",
+        description: "Assesses whether the device needs repair or replacement.",
+      },
+      {
+        id: "software_path",
+        label: "Software Access",
+        description: "Routes software-access tickets toward license and install checks.",
+      },
+      {
+        id: "license_check",
+        label: "License Check",
+        description: "Checks seat availability and approval requirements for the requested app.",
+      },
+      {
+        id: "install_request",
+        label: "Install Request",
+        description: "Prepares the software install and delivery details.",
+      },
+      {
+        id: "email_path",
+        label: "Email/Calendar",
+        description: "Routes email/calendar tickets toward mailbox and rules checks.",
+      },
+      {
+        id: "mailbox_check",
+        label: "Mailbox Check",
+        description: "Checks the employee's mailbox for the reported issue.",
+      },
+      {
+        id: "calendar_rules_audit",
+        label: "Rules Audit",
+        description: "Audits calendar sharing and forwarding rules relevant to the ticket.",
+      },
+      {
+        id: "security_path",
+        label: "Security Incident",
+        description: "Routes security-incident tickets straight to phishing triage and containment.",
+      },
+      {
+        id: "phishing_triage",
+        label: "Phishing Triage",
+        description: "Assesses whether credentials or attachments were exposed in the incident.",
+      },
+      {
+        id: "containment_steps",
+        label: "Containment",
+        description: "Lists the containment actions needed (session revocation, password reset, escalation).",
+      },
+      {
+        id: "urgency_check",
+        label: "Urgency Check",
+        description: "Assigns a priority level to the ticket based on business impact.",
+      },
+      {
+        id: "resolution_plan",
+        label: "Resolution Plan",
+        description: "Compiles the concrete resolution steps for the ticket.",
+      },
       { id: "final_response", label: "Final Response" },
     ],
     edges: [
@@ -75,6 +164,7 @@ export const itHelpdeskRouterTrace: AgentTraceFile = {
   messages: [
     {
       id: "msg-1",
+      meta: { category: "password_mfa", priority: "high", outcome: "resolved", latency_ms: 3020 },
       steps: [
         {
           id: "m1-s1",
@@ -198,6 +288,7 @@ export const itHelpdeskRouterTrace: AgentTraceFile = {
     },
     {
       id: "msg-2",
+      meta: { category: "network", priority: "medium", outcome: "resolved", latency_ms: 3240 },
       steps: [
         {
           id: "m2-s1",
@@ -319,6 +410,7 @@ export const itHelpdeskRouterTrace: AgentTraceFile = {
     },
     {
       id: "msg-3",
+      meta: { category: "software_access", priority: "high", outcome: "pending approval", latency_ms: 3260 },
       steps: [
         {
           id: "m3-s1",
@@ -441,6 +533,7 @@ export const itHelpdeskRouterTrace: AgentTraceFile = {
     },
     {
       id: "msg-4",
+      meta: { category: "security_incident", priority: "critical", outcome: "contained", latency_ms: 3280 },
       steps: [
         {
           id: "m4-s1",

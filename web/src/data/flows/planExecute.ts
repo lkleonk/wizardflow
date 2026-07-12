@@ -19,9 +19,21 @@ export const planExecuteTrace: AgentTraceFile = {
   graph: {
     nodes: [
       { id: "user_input", label: "User Input" },
-      { id: "planner", label: "Planner" },
-      { id: "executor", label: "Executor" },
-      { id: "replanner", label: "Replanner" },
+      {
+        id: "planner",
+        label: "Planner",
+        description: "Turns the request into an ordered JSON plan of tool steps.",
+      },
+      {
+        id: "executor",
+        label: "Executor",
+        description: "Executes the next planned step by calling its tool.",
+      },
+      {
+        id: "replanner",
+        label: "Replanner",
+        description: "Decides whether to continue with the next step or finish, given progress so far.",
+      },
       { id: "final_response", label: "Final Response" },
     ],
     edges: [
@@ -35,6 +47,7 @@ export const planExecuteTrace: AgentTraceFile = {
   messages: [
     {
       id: "msg-1",
+      meta: { plan_steps: 2, tool_calls: 2, outcome: "completed", latency_ms: 7010 },
       steps: [
         {
           id: "m1-s1",
@@ -153,6 +166,7 @@ export const planExecuteTrace: AgentTraceFile = {
     },
     {
       id: "msg-2",
+      meta: { plan_steps: 2, tool_calls: 2, outcome: "completed", latency_ms: 6990 },
       steps: [
         {
           id: "m2-s1",

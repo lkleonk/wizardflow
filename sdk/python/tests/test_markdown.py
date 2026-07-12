@@ -121,6 +121,27 @@ def test_message_and_step_headings():
     assert "### router · 14:30:22" in md     # timestamp reduced to clock time
 
 
+def test_message_meta_renders_as_pair_line():
+    trace = _trace()
+    trace["messages"][0]["meta"] = {"outcome": "ok", "latency_ms": 320}
+    md = render_markdown(trace)
+    assert "**outcome**: ok · **latency_ms**: 320" in md
+
+
+def test_out_of_contract_nested_meta_value_renders_as_json():
+    # Meta values are scalars by contract, but a nested dict/list must still
+    # render readably (compact JSON), not as a Python repr.
+    trace = _trace()
+    trace["messages"][0]["meta"] = {"user": {"id": "u-1", "plan": "pro"}}
+    md = render_markdown(trace)
+    assert '**user**: {"id": "u-1", "plan": "pro"}' in md
+
+
+def test_no_message_meta_renders_as_before():
+    md = render_markdown(_trace())
+    assert "**outcome**" not in md
+
+
 def test_scalar_inline_structured_fenced():
     md = render_markdown(_trace())
     assert "**decision**: `planner`" in md          # scalar inline

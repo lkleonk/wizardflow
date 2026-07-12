@@ -98,6 +98,12 @@ export function orderedSteps(
  * elapsed time since the message start.
  */
 export type TimedPayload = AgentTracePayload & {
+  /**
+   * Id of the step (node visit) that emitted this payload. A node visited more
+   * than once per message contributes several contiguous runs here; this is the
+   * robust key the inspector groups tabs by (timestamps can collide when coarse).
+   */
+  stepId: string;
   timestamp: string;
   deltaMs?: number;
   elapsedMs?: number;
@@ -122,7 +128,13 @@ export function getPayloadsForNode(
     const deltaMs = deltaMsAtStep(steps, index);
     const elapsedMs = elapsedMsAtStep(steps, index);
     for (const payload of step.payloads) {
-      result.push({ ...payload, timestamp: step.timestamp, deltaMs, elapsedMs });
+      result.push({
+        ...payload,
+        stepId: step.id,
+        timestamp: step.timestamp,
+        deltaMs,
+        elapsedMs,
+      });
     }
   });
   return result;

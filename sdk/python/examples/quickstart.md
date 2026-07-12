@@ -21,30 +21,36 @@ flowchart TD
     n3 --> n4
 ```
 
+- **router** — Classifies the request and picks the next node.
+- **planner** — Decomposes the request into concrete tool calls.
+- **tool_node** — Runs the planned tool calls against external APIs.
+
 ## msg-1
 
-### user_input · 21:39:58
+### user_input · 13:13:58
 
 **Input**: `What's the weather in Berlin?`
 
-### router · 21:39:58
+### router · 13:13:58
 
 **llm_input**: `Route this request...`
 
 **llm_output**: `{"route": "planner"}`
 
-### tool_node · 21:39:58
+### tool_node · 13:13:58
 
-### final_response · 21:39:58
+### final_response · 13:13:58
 
 **Output**: `It's 19C and partly cloudy in Berlin.`
 
 ## Summarize the paper
 
-### user_input · 21:39:58
+**outcome**: answered · **latency_ms**: 320
+
+### user_input · 13:13:58
 
 **Input**: `Summarize the paper.`
 
-### router · 21:39:58
+### router · 13:13:58
 
 **llm_output**: `{"route": "planner"}`
