@@ -5,7 +5,6 @@ import { ragPipelineTrace } from "./flows/ragPipeline";
 import { multiAgentCrewTrace } from "./flows/multiAgentCrew";
 import { planExecuteTrace } from "./flows/planExecute";
 import { selfCorrectingCodeTrace } from "./flows/selfCorrectingCode";
-import { universityConsultantTrace } from "./flows/universityConsultant";
 import { degreeConsultantTrace } from "./flows/degreeConsultant";
 import { textToSqlTrace } from "./flows/textToSql";
 import { supportHandoffTrace } from "./flows/supportHandoff";
@@ -67,14 +66,6 @@ export const exampleFlows: ExampleFlow[] = [
     summary: "Writes code, runs tests, and patches itself until they pass.",
     pattern: "test loop",
     trace: selfCorrectingCodeTrace,
-  },
-  {
-    id: "university-consultant",
-    title: "University consultant",
-    summary:
-      "Routes questions across navigation, advising, and courses — with a prereq escalation and a clarify loop.",
-    pattern: "branch + loop",
-    trace: universityConsultantTrace,
   },
   {
     id: "degree-consultant",

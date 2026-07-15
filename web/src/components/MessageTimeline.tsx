@@ -25,6 +25,7 @@ type MessageTimelineProps = {
 
 const PREVIEW_MAX = 24;
 const TOOLTIP_META_VALUE_MAX = 160;
+const MESSAGE_TOOLTIP_ENTER_DELAY = 500;
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -260,6 +261,7 @@ export default function MessageTimeline({
               key={message.id}
               title={tooltipTitle}
               placement="top"
+              enterDelay={MESSAGE_TOOLTIP_ENTER_DELAY}
               disableInteractive
             >
               <Box

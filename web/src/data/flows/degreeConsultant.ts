@@ -131,12 +131,8 @@ sose26
 
 Return valid JSON only.`;
 
-const OFFTOPIC_SYSTEM = `You are the degree-consulting bot's fallback for off-topic messages.
-Politely explain you can only help with this CS Master's degree — rules, LP
-requirements, course offerings, and study-plan checks — and invite the student
-to ask something in that scope. Keep it to one or two sentences.
-
-Return valid JSON only.`;
+const OFFTOPIC_RESPONSE =
+  "I'm just set up to help with this CS Master's program — degree rules, LP requirements, course offerings, and study-plan checks. Happy to help with any of those!";
 
 const PARSER_SYSTEM = `Domain: CS Master's program under the local Studien- und Pruefungsordnung.
 
@@ -160,7 +156,8 @@ export const degreeConsultantTrace: AgentTraceFile = {
       "selector plus a deterministic bucket lookup), or a full study-plan " +
       "check (a plan parser plus a deterministic rule checker). The lookup " +
       "and plan-check branches rejoin at a shared answer composer; off-topic " +
-      "replies on its own. Genericized from a real trace — the huge system " +
+      "uses a fixed redirect response and replies on its own. Genericized from " +
+      "a real trace — the huge system " +
       "prompt is resent almost verbatim on every LLM call, exactly as logged.",
   },
   graph: {
@@ -174,7 +171,8 @@ export const degreeConsultantTrace: AgentTraceFile = {
       {
         id: "offtopic",
         label: "Off-Topic Reply",
-        description: "Politely declines and redirects off-topic messages back to degree-consulting topics.",
+        description:
+          "Returns a hardcoded redirect to degree-consulting topics; no LLM call is made.",
       },
       {
         id: "course_key_selector",
@@ -245,16 +243,14 @@ export const degreeConsultantTrace: AgentTraceFile = {
           timestamp: "2026-07-01T10:00:03.400Z",
           payloads: [
             {
-              label: "llm_input",
+              label: "node_input",
               value: {
-                prompt: OFFTOPIC_SYSTEM,
                 msg: "User message:\ncan you write me a poem about summer break instead?",
               },
             },
             {
-              label: "llm_output",
-              value:
-                '{\n  "message": "I\'m just set up to help with this CS Master\'s program — degree rules, LP requirements, course offerings, and study-plan checks. Happy to help with any of those!"\n}',
+              label: "node_output",
+              value: { message: OFFTOPIC_RESPONSE },
             },
           ],
         },
