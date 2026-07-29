@@ -4,7 +4,7 @@ import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 // Generated as a static file at build — required for `output: "export"`.
 export const dynamic = "force-static";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://wizardflow.com";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://getwizardflow.com";
 
 // Static, hand-maintained sitemap. The hosted website includes legal pages;
 // the local SDK UI keeps only the replay viewer and project link.

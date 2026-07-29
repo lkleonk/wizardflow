@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import Box from "@mui/material/Box";
 import ButtonBase from "@mui/material/ButtonBase";
 import Chip from "@mui/material/Chip";
@@ -21,11 +21,22 @@ type MessageTimelineProps = {
   messages: AgentTraceMessage[];
   selectedMessageId?: string;
   onSelectMessage: (messageId: string) => void;
+  /**
+   * Messages appended by a live trace update while the user was parked on an
+   * older one. When > 0 a "+N new" chip is pinned at the strip's right edge;
+   * clicking it calls `onJumpToNewest`.
+   */
+  newMessageCount?: number;
+  onJumpToNewest?: () => void;
 };
 
 const PREVIEW_MAX = 24;
 const TOOLTIP_META_VALUE_MAX = 160;
 const MESSAGE_TOOLTIP_ENTER_DELAY = 500;
+// How far from the strip's right edge still counts as "parked at the end".
+// Wide enough to cover the strip's right padding, which scrollIntoView leaves
+// behind when it aligns the last chip.
+const STRIP_END_SLACK_PX = 32;
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -44,12 +55,55 @@ export default function MessageTimeline({
   messages,
   selectedMessageId,
   onSelectMessage,
+  newMessageCount = 0,
+  onJumpToNewest,
 }: MessageTimelineProps) {
   const expanded = useSyncExternalStore(
     subscribeTimelineExpanded,
     getTimelineExpanded,
     getServerTimelineExpanded
   );
+
+  // Keep the selected chip in view: matters for keyboard message navigation
+  // and for live tail-follow, where the strip grows off-screen to the right.
+  const selectedItemRef = useRef<HTMLSpanElement | null>(null);
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  // Tail-follow must not fight the user. Scrolling back to older chips parks
+  // the strip, and appended messages stop dragging it to the right edge until
+  // it returns there. Recorded on scroll rather than measured in the effect
+  // because an append widens the strip without moving scrollLeft (no scroll
+  // event fires), so this still reflects where the user left it.
+  const atStripEndRef = useRef(true);
+  const messageCountRef = useRef(messages.length);
+  const firstMessageIdRef = useRef(messages[0]?.id);
+
+  function handleStripScroll() {
+    const strip = stripRef.current;
+    if (!strip) return;
+    atStripEndRef.current =
+      strip.scrollWidth - strip.clientWidth - strip.scrollLeft <=
+      STRIP_END_SLACK_PX;
+  }
+
+  useEffect(() => {
+    // An append keeps the same first message and adds to the end; a different
+    // flow (or another part of a rotated run) replaces the list, and must
+    // scroll whatever it lands on into view however far right the strip was.
+    const firstMessageId = messages[0]?.id;
+    const appended =
+      firstMessageId === firstMessageIdRef.current &&
+      messages.length > messageCountRef.current;
+    firstMessageIdRef.current = firstMessageId;
+    messageCountRef.current = messages.length;
+    // Only appends are suppressed while parked; a deliberate selection change
+    // (chip click, arrow keys, the "+N new" chip) always scrolls into view.
+    if (appended && !atStripEndRef.current) return;
+    selectedItemRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [selectedMessageId, messages]);
 
   return (
     <Box
@@ -102,6 +156,8 @@ export default function MessageTimeline({
         </ButtonBase>
       </Tooltip>
       <Box
+        ref={stripRef}
+        onScroll={handleStripScroll}
         sx={{
           display: "flex",
           alignItems: "center",
@@ -266,6 +322,7 @@ export default function MessageTimeline({
             >
               <Box
                 component="span"
+                ref={selected ? selectedItemRef : undefined}
                 sx={{ display: "inline-flex", flexShrink: 0 }}
               >
                 {item}
@@ -273,6 +330,32 @@ export default function MessageTimeline({
             </Tooltip>
           );
         })}
+        {newMessageCount > 0 && onJumpToNewest && (
+          // Pinned to the strip's right edge (sticky, over its own opaque
+          // background) so it stays visible however far back the user has
+          // scrolled; `ml: auto` keeps it at the edge on short strips too.
+          <Box
+            component="span"
+            sx={{
+              position: "sticky",
+              right: 0,
+              zIndex: 1,
+              ml: "auto",
+              pl: 0.75,
+              display: "inline-flex",
+              flexShrink: 0,
+              bgcolor: "background.paper",
+            }}
+          >
+            <Chip
+              label={`+${newMessageCount} new`}
+              onClick={onJumpToNewest}
+              color="primary"
+              variant="outlined"
+              size="small"
+            />
+          </Box>
+        )}
       </Box>
     </Box>
   );

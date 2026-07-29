@@ -50,3 +50,22 @@ That script runs the shared Next frontend with
 `NEXT_PUBLIC_WIZARDFLOW_TARGET=local`, copies the static export into
 `src/wizardflow/_ui/`, and removes hosted-only legal route artifacts (`Impressum`
 / `Datenschutz`). The SDK UI keeps the GitHub project link.
+
+## Checking live traces by hand
+
+The viewer follows a trace file while it is still being written: it polls with
+`If-None-Match`, extends the timeline without losing your place, and stops when
+the part rotates away. None of that is covered by an automated test, so there is
+a generator to watch it with:
+
+```bash
+cd sdk/python
+python scripts/live_trace_demo.py
+```
+
+It records a synthetic run with the ordinary SDK calls, writing into the
+monorepo's `web/public/` (so the trace is same-origin for `npm run dev` in
+`web/`) and printing the viewer URL. It rotates after 18 messages, so the sealed
+part, the part navigation, and the live pulse dot can all be seen in a couple of
+minutes. Like `build_ui.py`, it needs the full monorepo checkout and is never
+packaged.

@@ -31,6 +31,8 @@ import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import CloseIcon from "@mui/icons-material/Close";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import { useColorScheme } from "@mui/material/styles";
@@ -73,6 +75,34 @@ import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 import { parseAgentTrace } from "@/utils/agentTraceFile";
 
 const PLAYBACK_INTERVAL_MS = 1200;
+
+// Live-update polling for the SDK launcher (`?trace=`): fast while the trace
+// is changing, slowing down once it goes quiet. A finished run is
+// indistinguishable from a paused one (a normally-completed part has no seal
+// record), so polling never stops on its own — it only gets cheap: every poll
+// revalidates with If-None-Match, so an unchanged file costs one 304 round
+// trip. The one true stop condition is rotation (`meta.nextPart`): a sealed
+// part can never grow again.
+const LIVE_POLL_FAST_MS = 2_000;
+const LIVE_POLL_SLOW_MS = 15_000;
+const LIVE_POLL_SLOWDOWN_AFTER_MS = 60_000;
+
+// A live update can only append messages — the graph and every other field
+// live in the JSONL header line, written once — so "same run, newer snapshot"
+// reduces to: the previous message list is a prefix of the new one. Checked
+// via ids at the prefix edges only; a false positive merely preserves view
+// state it could have reset, never the data shown (the trace is always
+// replaced wholesale).
+function isTraceExtension(prev: AgentTraceFile, next: AgentTraceFile): boolean {
+  if (next.messages.length < prev.messages.length) return false;
+  const lastIndex = prev.messages.length - 1;
+  if (lastIndex < 0) return true;
+  return (
+    prev.messages[0].id === next.messages[0]?.id &&
+    prev.messages[lastIndex].id === next.messages[lastIndex]?.id
+  );
+}
+
 const MOBILE_FOOTER_RESERVED_HEIGHT = "168px";
 const MOBILE_GRAPH_CHROME_HEIGHT = "274px";
 const PYTHON_SDK_QUICKSTART_URL =
@@ -240,6 +270,32 @@ export default function Home() {
   const [graphArrangeMode, setGraphArrangeMode] = useState(false);
   const [isLoadingUrlTrace, setIsLoadingUrlTrace] = useState(false);
   const loadedTraceUrlRef = useRef<string | null>(null);
+  // Live-watch state for the SDK launcher: while the served trace is being
+  // polled for updates the header shows a pulse dot, and messages that arrive
+  // while the user is parked on an older one are counted for the timeline's
+  // "+N new" chip. `pendingExtend` tells the render-time reset below that the
+  // next trace change is a live extension (keep the view) rather than a new
+  // flow (reset the view) — state, not a ref, so it can be consumed during
+  // render like `pendingAutoplay`. `stopLiveWatchRef` lets user-initiated
+  // loads end the watch, so a later poll never overwrites an upload.
+  const [isLiveWatching, setIsLiveWatching] = useState(false);
+  const [newLiveMessageCount, setNewLiveMessageCount] = useState(0);
+  const [pendingExtend, setPendingExtend] = useState<{
+    prevLastMessageId?: string;
+    prevMessageCount: number;
+  } | null>(null);
+  const stopLiveWatchRef = useRef<(() => void) | null>(null);
+  // Part navigation for a rotated trace. The launcher opens exactly one part;
+  // `partRequest` is the neighbour the user stepped to (null = whatever
+  // `?trace=` names), and `activeTraceHref` is the URL the loaded trace
+  // actually came from — the base that `meta.prevPart` / `meta.nextPart`
+  // resolve against, and the reason an *uploaded* part file shows no
+  // navigation: it carries the neighbour names but no URL to walk.
+  const [partRequest, setPartRequest] = useState<{
+    href: string;
+    name: string;
+  } | null>(null);
+  const [activeTraceHref, setActiveTraceHref] = useState<string | null>(null);
   // Set when a flow is loaded with `autoplay` (examples); consumed by the
   // render-time reset below so playback starts the moment the flow lands.
   const [pendingAutoplay, setPendingAutoplay] = useState(false);
@@ -286,12 +342,33 @@ export default function Home() {
   const [lastFlow, setLastFlow] = useState(trace);
   if (trace !== lastFlow) {
     setLastFlow(trace);
-    setSelectedMessageId(trace.messages[0]?.id);
-    setCurrentStepIndex(0);
-    setSelectedNodeId(orderedSteps(trace.messages[0])[0]?.nodeId);
-    setIsPlaying(pendingAutoplay);
-    if (pendingAutoplay) setPendingAutoplay(false);
-    setGraphArrangeMode(false);
+    const extend = pendingExtend;
+    if (extend) setPendingExtend(null);
+    if (extend && trace.messages.some((m) => m.id === selectedMessageId)) {
+      // Live extension of the flow being viewed: keep the view (selection,
+      // step, playback, arrange mode) intact. On the previous *last* message
+      // the view follows the run to the newest one — tail -f behavior;
+      // anywhere earlier nothing moves and the arrivals are counted for the
+      // timeline's "+N new" chip instead.
+      if (selectedMessageId === extend.prevLastMessageId) {
+        const tail = trace.messages[trace.messages.length - 1];
+        setSelectedMessageId(tail.id);
+        setCurrentStepIndex(0);
+        setSelectedNodeId(orderedSteps(tail)[0]?.nodeId);
+      } else {
+        setNewLiveMessageCount(
+          (count) => count + trace.messages.length - extend.prevMessageCount
+        );
+      }
+    } else {
+      setSelectedMessageId(trace.messages[0]?.id);
+      setCurrentStepIndex(0);
+      setSelectedNodeId(orderedSteps(trace.messages[0])[0]?.nodeId);
+      setIsPlaying(pendingAutoplay);
+      if (pendingAutoplay) setPendingAutoplay(false);
+      setGraphArrangeMode(false);
+      setNewLiveMessageCount(0);
+    }
   }
 
   const { mode, systemMode, setMode } = useColorScheme();
@@ -306,6 +383,16 @@ export default function Home() {
   );
   const currentMessage =
     currentMessageIndex >= 0 ? trace.messages[currentMessageIndex] : undefined;
+
+  // The "+N new" counter clears once the user reaches the newest message —
+  // whether via the chip itself, arrow keys, or live tail-follow. Adjusted
+  // during render (like the flow reset above) rather than in an effect.
+  if (
+    newLiveMessageCount > 0 &&
+    currentMessageIndex === trace.messages.length - 1
+  ) {
+    setNewLiveMessageCount(0);
+  }
 
   // The replay sequence — steps sorted by timestamp. Everything downstream
   // (active node, recent glow, scrubber, deltas) reads from this, not raw order.
@@ -416,6 +503,14 @@ export default function Home() {
         exampleId?: string;
       }
     ) => {
+      // Loading a flow ends any live watch — a poll must never overwrite what
+      // the user just loaded. (The launcher's own initial load runs before the
+      // watch starts, so this is a no-op there.)
+      stopLiveWatchRef.current?.();
+      // Whatever is being loaded is not a served part until the launcher says
+      // so — it re-sets this right after this call, so a part switch keeps its
+      // navigation while an upload drops it.
+      setActiveTraceHref(null);
       disableGraphArrangeMode();
       syncExampleParam(options?.exampleId);
       // A newly loaded flow invalidates the demo explainer; demo entry points
@@ -453,6 +548,7 @@ export default function Home() {
   // Also forgets `?example=` so a refresh doesn't resurrect the demo the user
   // just dismissed.
   const handleDropFlow = useCallback(() => {
+    stopLiveWatchRef.current?.();
     disableGraphArrangeMode();
     syncExampleParam(undefined);
     setPendingAutoplay(false);
@@ -460,13 +556,57 @@ export default function Home() {
     setSavedFlow(null);
   }, [disableGraphArrangeMode, syncExampleParam]);
 
+  // A rotated run is split across numbered part files, and the viewer holds one
+  // part at a time — that is the point of rotating. The chain is walkable
+  // without a manifest: a part's header carries `meta.prevPart`, and the seal
+  // record that closed it carries `meta.nextPart`. Resolving those bare file
+  // names against the URL this part was served from gives the neighbours.
+  const partLinks = useMemo(() => {
+    if (!activeTraceHref) return null;
+    const meta = trace.meta;
+    const prev = typeof meta?.prevPart === "string" ? meta.prevPart : undefined;
+    const next = typeof meta?.nextPart === "string" ? meta.nextPart : undefined;
+    if (!prev && !next) return null;
+    // Part 1's header omits `part` (an unrotated trace stays clean), so a
+    // trace that has neighbours but no index is the first one.
+    return { prev, next, index: typeof meta?.part === "number" ? meta.part : 1 };
+  }, [activeTraceHref, trace.meta]);
+
+  // A trace loaded from a URL (the SDK launcher) is the only kind that can be
+  // watched or walked part by part, so it's also the only one that gets the
+  // status slot and the divider before the action icons.
+  const isServedTrace = activeTraceHref !== null;
+
+  const goToPart = useCallback(
+    (name: string) => {
+      if (!activeTraceHref) return;
+      setPartRequest({ href: new URL(name, activeTraceHref).href, name });
+    },
+    [activeTraceHref]
+  );
+
+  // The timeline's "+N new" chip jumps to the newest live message; the counter
+  // clears via the tail-reached effect above.
+  const handleJumpToNewest = useCallback(() => {
+    const tail = trace.messages[trace.messages.length - 1];
+    if (tail) handleSelectMessage(tail.id);
+  }, [trace.messages, handleSelectMessage]);
+
   // Local SDK launcher support: `wizardflow ui trace.json` serves the bundled
   // static app and opens `/?trace=/__wizardflow_trace.json&traceName=...`.
   // Keep this same-origin only; the hosted website should not become a generic
   // cross-origin JSON fetcher just because a query string says so.
+  //
+  // After the initial load the URL keeps being polled — the file may still be
+  // written to by a running agent. Each poll revalidates with If-None-Match
+  // (the launcher's trace route answers 304 from a stat() when unchanged, and
+  // static hosts do the same natively), slows down once the trace goes quiet,
+  // and stops for good when the part rotates away (`meta.nextPart`).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const traceParam = params.get("trace");
+    // A part switch re-runs this effect with the neighbour's URL; everything
+    // below (load, watch, cleanup) is the same either way.
+    const traceParam = partRequest?.href ?? params.get("trace");
     if (!traceParam) return;
 
     const traceUrl = new URL(traceParam, window.location.href);
@@ -477,8 +617,118 @@ export default function Home() {
     const traceHref = traceUrl.href;
     if (loadedTraceUrlRef.current === traceHref) return;
     loadedTraceUrlRef.current = traceHref;
+    const traceName = partRequest?.name ?? params.get("traceName");
+    const withName = (parsed: AgentTraceFile): AgentTraceFile =>
+      traceName ? { ...parsed, name: traceName } : parsed;
 
     let cancelled = false;
+    let stopped = false;
+    let polling = false;
+    let timer: number | undefined;
+    let etag: string | null = null;
+    let lastChangeAt = Date.now();
+
+    function stopWatching() {
+      stopped = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+      if (stopLiveWatchRef.current === stopWatching) {
+        stopLiveWatchRef.current = null;
+      }
+      setIsLiveWatching(false);
+    }
+
+    function schedule() {
+      if (cancelled || stopped) return;
+      const quiet = Date.now() - lastChangeAt >= LIVE_POLL_SLOWDOWN_AFTER_MS;
+      timer = window.setTimeout(
+        poll,
+        quiet ? LIVE_POLL_SLOW_MS : LIVE_POLL_FAST_MS
+      );
+    }
+
+    // Swap in a newer snapshot of the same run without resetting the view. A
+    // snapshot that is not an extension (the file was replaced by a new run)
+    // gets new-flow semantics from the render-time reset instead. Returns
+    // whether anything was applied, so the backoff timer only counts real
+    // changes — on an ETag-less host every poll is a 200 with identical data.
+    function applyLiveSnapshot(parsed: AgentTraceFile): boolean {
+      const next = withName(parsed);
+      const current = getSavedFlow();
+      if (current && isTraceExtension(current, next)) {
+        // Equal length with matching edge ids: nothing new. (An in-place
+        // amend of an existing message isn't detectable by ids — rare enough
+        // to ride along with the next append.)
+        if (next.messages.length === current.messages.length) return false;
+        setPendingExtend({
+          prevLastMessageId: current.messages[current.messages.length - 1]?.id,
+          prevMessageCount: current.messages.length,
+        });
+      } else {
+        setPendingExtend(null);
+      }
+      setSavedFlow(next);
+      return true;
+    }
+
+    async function poll() {
+      if (cancelled || stopped || polling) return;
+      // A hidden tab skips the fetch but keeps the loop alive; the
+      // visibilitychange listener below polls immediately on return.
+      if (document.hidden) {
+        schedule();
+        return;
+      }
+      polling = true;
+      try {
+        const response = await fetch(traceHref, {
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: etag ? { "If-None-Match": etag } : undefined,
+        });
+        if (cancelled || stopped) return;
+        if (response.ok) {
+          const parsed = parseAgentTrace(await response.text());
+          if (cancelled || stopped) return;
+          if (parsed) {
+            etag = response.headers.get("ETag");
+            if (applyLiveSnapshot(parsed)) {
+              lastChangeAt = Date.now();
+            }
+            if (parsed.meta?.nextPart) {
+              // The part rotated away: it is sealed and can never grow again.
+              stopWatching();
+              return;
+            }
+          }
+        }
+        // 304 (unchanged) and error statuses both just wait for the next
+        // tick — the server may be mid-restart.
+      } catch {
+        // Network hiccup (server stopped or restarting): keep polling quietly.
+      } finally {
+        polling = false;
+      }
+      schedule();
+    }
+
+    function onVisibilityChange() {
+      if (document.hidden || cancelled || stopped || polling) return;
+      if (timer !== undefined) window.clearTimeout(timer);
+      poll();
+    }
+
+    function startWatching(initialEtag: string | null) {
+      etag = initialEtag;
+      lastChangeAt = Date.now();
+      stopLiveWatchRef.current = stopWatching;
+      setIsLiveWatching(true);
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      schedule();
+    }
+
     async function loadTraceFromUrl() {
       setIsLoadingUrlTrace(true);
       try {
@@ -497,8 +747,24 @@ export default function Home() {
         }
         if (cancelled) return;
 
-        const traceName = params.get("traceName");
-        handleLoadTrace(traceName ? { ...parsed, name: traceName } : parsed);
+        handleLoadTrace(withName(parsed));
+        // Remember where it came from, so `meta.prevPart` / `meta.nextPart`
+        // can be resolved into sibling URLs for the header's part controls.
+        setActiveTraceHref(traceHref);
+        // Once the user has stepped to another part, keep `?trace=` pointing
+        // at it: a refresh should come back to the part on screen, not to the
+        // one the launcher happened to open.
+        if (partRequest) {
+          const url = new URL(window.location.href);
+          url.searchParams.set("trace", traceUrl.pathname);
+          url.searchParams.set("traceName", partRequest.name);
+          window.history.replaceState(null, "", url);
+        }
+        // Watch for the file to grow — unless this part already rotated away
+        // (a sealed part never changes).
+        if (!parsed.meta?.nextPart) {
+          startWatching(response.headers.get("ETag"));
+        }
       } catch {
         if (!cancelled) {
           alert("Could not load the WizardFlow trace file from the URL.");
@@ -514,11 +780,13 @@ export default function Home() {
     loadTraceFromUrl();
     return () => {
       cancelled = true;
+      stopWatching();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       if (loadedTraceUrlRef.current === traceHref) {
         loadedTraceUrlRef.current = null;
       }
     };
-  }, [handleLoadTrace]);
+  }, [handleLoadTrace, partRequest]);
 
   // Shareable demo deep link: `/?example=<gallery id>` loads a bundled example
   // and autoplays it, so a link in a post lands on a running replay with no
@@ -1050,6 +1318,123 @@ export default function Home() {
           {/* Flow actions sit together as a tight, center-aligned cluster so the
               info and clear icons read as a pair rather than drifting apart. */}
           <Box sx={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+            {/* Status first, next to the file name it describes: is this part
+                still growing, and which part is it. The slot is kept even when
+                the dot is out, so a rotation doesn't shift everything beside
+                it sideways. */}
+            {isServedTrace && (
+              <Box sx={{ display: "flex", alignItems: "center", px: 0.75 }}>
+                {isLiveWatching ? (
+                  <Tooltip title="Live — watching the trace file for new messages">
+                    <Box
+                      role="status"
+                      aria-label="Watching trace for updates"
+                      sx={{ display: "flex" }}
+                    >
+                      <Box
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          bgcolor: "success.main",
+                          "@keyframes livePulse": {
+                            "0%": {
+                              boxShadow: "0 0 0 0 rgba(102, 187, 106, 0.55)",
+                            },
+                            "70%": {
+                              boxShadow: "0 0 0 6px rgba(102, 187, 106, 0)",
+                            },
+                            "100%": {
+                              boxShadow: "0 0 0 0 rgba(102, 187, 106, 0)",
+                            },
+                          },
+                          animation: "livePulse 2s ease-out infinite",
+                          "@media (prefers-reduced-motion: reduce)": {
+                            animation: "none",
+                          },
+                        }}
+                      />
+                    </Box>
+                  </Tooltip>
+                ) : (
+                  <Box sx={{ width: 8, height: 8 }} />
+                )}
+              </Box>
+            )}
+            {/* Rotated trace: step between the run's part files. Only the
+                active (last) part keeps growing, so walking back is history
+                and walking forward is where the live tail continues. */}
+            {partLinks && (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.25,
+                }}
+              >
+                <Tooltip
+                  title={
+                    partLinks.prev
+                      ? `Previous part (${partLinks.prev})`
+                      : "This is the first part"
+                  }
+                >
+                  <span>
+                    <IconButton
+                      size="small"
+                      disabled={!partLinks.prev}
+                      onClick={() =>
+                        partLinks.prev && goToPart(partLinks.prev)
+                      }
+                      aria-label="Previous trace part"
+                      sx={{ color: "text.secondary" }}
+                    >
+                      <ChevronLeftIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ whiteSpace: "nowrap" }}
+                >
+                  Part {partLinks.index}
+                </Typography>
+                <Tooltip
+                  title={
+                    partLinks.next
+                      ? `Next part (${partLinks.next})`
+                      : "This is the newest part"
+                  }
+                >
+                  <span>
+                    <IconButton
+                      size="small"
+                      disabled={!partLinks.next}
+                      onClick={() =>
+                        partLinks.next && goToPart(partLinks.next)
+                      }
+                      aria-label="Next trace part"
+                      sx={{ color: "text.secondary" }}
+                    >
+                      <ChevronRightIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Box>
+            )}
+            {/* Splits status (what you're looking at) from the actions on it,
+                so the two stop reading as one row of same-sized icons. */}
+            {isServedTrace && (
+              <Box
+                sx={{
+                  width: "1px",
+                  height: 16,
+                  mx: 0.75,
+                  bgcolor: "divider",
+                }}
+              />
+            )}
             <TraceInfo trace={trace} />
             {savedFlow && (
               <Tooltip title="Clear flow">
@@ -1259,6 +1644,8 @@ export default function Home() {
           messages={trace.messages}
           selectedMessageId={selectedMessageId}
           onSelectMessage={handleSelectMessage}
+          newMessageCount={newLiveMessageCount}
+          onJumpToNewest={handleJumpToNewest}
         />
         <PlaybackControls
           stepIndex={currentStepIndex}

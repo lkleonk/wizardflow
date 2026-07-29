@@ -10,7 +10,7 @@ runtime dependencies**, no daemon, no setup.
 
 ![WizardFlow replaying an agent run](https://raw.githubusercontent.com/lkleonk/wizardflow/main/sdk/python/assets/demo.gif)
 
-▶ **[Watch this exact run live](https://getwizardflow.com/?example=university-consultant)** —
+▶ **[Watch this exact run live](https://getwizardflow.com/?example=doctor-consultation)** —
 the flow from the GIF, replaying in your browser right now. No install, and
 nothing is uploaded.
 
@@ -404,6 +404,11 @@ wizardflow html run.jsonl
 wizardflow json run.jsonl
 # --path is equivalent everywhere:
 wizardflow ui --path run.jsonl
+# --latest: treat the path as a directory (default: the current directory) and
+# open its most recently modified *.jsonl / *.json file — handy right after a
+# run, or to attach to the trace an agent is writing right now:
+wizardflow ui --latest
+wizardflow ui --latest traces/
 ```
 
 The SDK only ever **writes** JSONL, but these commands **read** either framing —
@@ -413,16 +418,22 @@ they stay at parity with the web viewer, which also accepts both.
 ### `wizardflow ui` — local viewer
 
 ```bash
-wizardflow ui run.jsonl [--host 127.0.0.1] [--port 0] [--no-open]
+wizardflow ui run.jsonl [--latest] [--host 127.0.0.1] [--port 0] [--no-open]
 ```
 
 Binds a stdlib HTTP server, serves the static WizardFlow UI bundled in the SDK
-package, and opens the selected trace in your browser (the JSONL is assembled
-server-side and served to the UI as one JSON document, re-read on refresh — so
-you can watch a still-running trace grow).
+package, and opens the selected trace in your browser. The JSONL is assembled
+server-side and served to the UI as one JSON document, re-read on every fetch —
+and the UI **follows a still-running trace live**: it polls the file (cheap
+ETag revalidation; an unchanged file is a single `stat()` on the server) and
+extends the view in place without resetting your selection, playback position,
+or arranged node layout. A pulse dot in the header shows the watch is active;
+messages that arrive while you're inspecting an older one appear as a
+"+N new" chip in the timeline.
 
 | flag | default | meaning |
 | --- | --- | --- |
+| `--latest` | off | treat the path as a directory (default: cwd) and open its most recently modified `*.jsonl` / `*.json` |
 | `--host` | `127.0.0.1` | interface to bind |
 | `--port` | `0` | port to bind; `0` asks the OS for a free port |
 | `--no-open` | off | print the local URL instead of launching a browser |

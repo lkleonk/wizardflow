@@ -28,7 +28,7 @@ export const exampleFlows: ExampleFlow[] = [
     id: "doctor-consultation",
     title: "AI doctor consultation",
     summary:
-      "Runs a full doctor's visit for two patients — interview, diagnosis, an allergy-checked prescription, and a blood test that comes back the next day.",
+      "Runs a full doctor's visit for three patients — interview, diagnosis, safety-checked prescriptions (an allergy catch and a drug-interaction catch), and a blood test that comes back the next day.",
     pattern: "branches + loop",
     trace: doctorConsultationTrace,
   },

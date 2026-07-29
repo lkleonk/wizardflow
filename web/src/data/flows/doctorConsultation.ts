@@ -28,8 +28,9 @@ Return valid JSON only.`;
 
 // The flagship example: a chatbot that runs a full doctor's visit itself —
 // interview, diagnosis, prescription — instead of routing to specialists.
-// Two fictional patients across four messages exercise every branch: Anna's
-// sinus infection triggers the allergy safety-gate revision loop, and Jonas's
+// Three fictional patients across five messages exercise every branch: Anna's
+// sinus infection triggers the allergy safety-gate revision loop, Ben's back
+// strain trips the same gate on a blood-thinner drug interaction, and Jonas's
 // unclear fatigue orders a blood test whose results arrive a day later
 // (a real overnight gap between the two message timestamps).
 export const doctorConsultationTrace: AgentTraceFile = {
@@ -41,12 +42,14 @@ export const doctorConsultationTrace: AgentTraceFile = {
     description:
       "A simulated AI doctor that runs the whole consultation: it looks up " +
       "the patient's file, asks follow-up questions, weighs possible causes, " +
-      "and prescribes treatment behind a deterministic safety check. Two " +
+      "and prescribes treatment behind a deterministic safety check. Three " +
       "fictional patients: Anna's sinus infection is caught by the interview, " +
       "and her first prescription is rejected by the allergy check and " +
-      "revised; Jonas's unexplained tiredness is inconclusive, so the bot " +
-      "orders a blood test and finishes the diagnosis the next day when the " +
-      "results are in. Entirely fictional — not medical advice.",
+      "revised; Ben's back strain has its ibuprofen swapped out when the " +
+      "safety check flags a blood-thinner interaction; Jonas's unexplained " +
+      "tiredness is inconclusive, so the bot orders a blood test and finishes " +
+      "the diagnosis the next day when the results are in. Entirely fictional " +
+      "— not medical advice.",
   },
   graph: {
     nodes: [
@@ -137,8 +140,7 @@ export const doctorConsultationTrace: AgentTraceFile = {
               label: "Input",
               value:
                 "Hi, I've had a pounding headache and a completely blocked nose " +
-                "for about ten days now. The mucus has turned greenish, and " +
-                "since yesterday I'm also running a fever.",
+                "for about ten days now. Since yesterday I'm also running a fever.",
             },
             {
               label: "patient_record",
@@ -163,8 +165,8 @@ export const doctorConsultationTrace: AgentTraceFile = {
                 prompt: ANAMNESIS_PROMPT,
                 msg:
                   "Patient message:\nHi, I've had a pounding headache and a completely " +
-                  "blocked nose for about ten days now. The mucus has turned greenish, " +
-                  "and since yesterday I'm also running a fever.\n\n" +
+                  "blocked nose for about ten days now. Since yesterday I'm also " +
+                  "running a fever.\n\n" +
                   "Patient record: Anna M., 34. Allergies: penicillin. " +
                   "Medications: cetirizine.\n\nPending lab orders: none",
               },
@@ -172,9 +174,8 @@ export const doctorConsultationTrace: AgentTraceFile = {
             {
               label: "llm_output",
               value:
-                '{\n  "action": "ask_followups",\n  "missing": ["fever height", "facial pain pattern", "course over time"],\n' +
+                '{\n  "action": "ask_followups",\n  "missing": ["fever height", "course over time"],\n' +
                 '  "questions": [\n    "How high is the fever?",\n' +
-                '    "Does the pressure in your face get worse when you bend forward?",\n' +
                 '    "Did it briefly get better before getting worse again?"\n  ]\n}',
             },
           ],
@@ -190,16 +191,14 @@ export const doctorConsultationTrace: AgentTraceFile = {
                 prompt: REPLY_PROMPT,
                 msg:
                   "Interview outcome: ask_followups\n" +
-                  "Questions: fever height; facial pressure when bending forward; " +
-                  "better-then-worse course",
+                  "Questions: fever height; better-then-worse course",
               },
             },
             {
               label: "llm_output",
               value:
                 '{\n  "message": "That sounds unpleasant — ten days is quite a while. ' +
-                "Three quick questions so I can narrow it down: How high is the fever? " +
-                "Does the pressure in your face get worse when you bend forward? " +
+                "Two quick questions so I can narrow it down: How high is the fever? " +
                 "And did it briefly get better before getting worse again?\\n\\n" +
                 '(Demo consultation — not real medical advice.)"\n}',
             },
@@ -223,8 +222,7 @@ export const doctorConsultationTrace: AgentTraceFile = {
             {
               label: "Input",
               value:
-                "Fever is 38.4 °C. And yes — when I bend forward, my cheeks and " +
-                "forehead really throb. It actually felt better last week and " +
+                "Fever is 38.4 °C. It actually felt better last week and " +
                 "then came back worse.",
             },
             {
@@ -249,11 +247,10 @@ export const doctorConsultationTrace: AgentTraceFile = {
               value: {
                 prompt: ANAMNESIS_PROMPT,
                 msg:
-                  "Patient message:\nFever is 38.4 °C. And yes — when I bend forward, " +
-                  "my cheeks and forehead really throb. It actually felt better last " +
+                  "Patient message:\nFever is 38.4 °C. It actually felt better last " +
                   "week and then came back worse.\n\n" +
-                  "Known from this conversation: 10+ days blocked nose, greenish " +
-                  "discharge, headache, fever since yesterday.\n\n" +
+                  "Known from this conversation: 10+ days blocked nose, headache, " +
+                  "fever since yesterday.\n\n" +
                   "Patient record: Anna M., 34. Allergies: penicillin. " +
                   "Medications: cetirizine.\n\nPending lab orders: none",
               },
@@ -261,8 +258,8 @@ export const doctorConsultationTrace: AgentTraceFile = {
             {
               label: "llm_output",
               value:
-                '{\n  "action": "diagnose",\n  "summary": "10+ days of purulent nasal discharge, ' +
-                "facial pain worse on bending, fever 38.4 °C, and a better-then-worse course — " +
+                '{\n  "action": "diagnose",\n  "summary": "10+ days of nasal congestion and headache, ' +
+                "fever 38.4 °C, and a better-then-worse course — " +
                 'the picture is complete enough to assess."\n}',
             },
           ],
@@ -277,9 +274,9 @@ export const doctorConsultationTrace: AgentTraceFile = {
               value: {
                 prompt: DIFFERENTIAL_PROMPT,
                 msg:
-                  "Case summary: 34-year-old, 10+ days purulent nasal discharge, " +
-                  "facial pain worse on bending forward, fever 38.4 °C, symptoms " +
-                  "improved then worsened again ('double worsening').",
+                  "Case summary: 34-year-old, 10+ days of nasal congestion and " +
+                  "headache, fever 38.4 °C, symptoms improved then worsened again " +
+                  "('double worsening').",
               },
             },
             {
@@ -287,11 +284,11 @@ export const doctorConsultationTrace: AgentTraceFile = {
               value:
                 '{\n  "candidates": [\n' +
                 '    { "condition": "acute bacterial sinusitis", "confidence": 0.78,\n' +
-                '      "for": "duration over 10 days, purulent discharge, positional facial pain, double worsening" },\n' +
+                '      "for": "symptoms past 10 days, fever, and a better-then-worse (double-worsening) course" },\n' +
                 '    { "condition": "viral upper respiratory infection", "confidence": 0.15,\n' +
                 '      "against": "would usually resolve within 10 days, no second worsening" },\n' +
                 '    { "condition": "migraine", "confidence": 0.04,\n' +
-                '      "against": "does not explain fever or discharge" }\n' +
+                '      "against": "does not explain the fever or the 10-day course" }\n' +
                 '  ],\n  "confident": true\n}',
             },
           ],
@@ -315,7 +312,7 @@ export const doctorConsultationTrace: AgentTraceFile = {
                 diagnosis: "acute bacterial sinusitis",
                 confidence: 0.78,
                 basis:
-                  "Symptom duration, purulent discharge, positional facial pain, and double worsening.",
+                  "Symptom duration past 10 days, fever, and a better-then-worse (double-worsening) course.",
               },
             },
           ],
@@ -431,7 +428,7 @@ export const doctorConsultationTrace: AgentTraceFile = {
               label: "llm_output",
               value:
                 '{\n  "message": "Everything points to a bacterial sinus infection — the long ' +
-                "duration, the pressure when you bend forward, and the way it got better and " +
+                "duration, the fever, and the way it got better and " +
                 "then worse again. Normally the first choice would be amoxicillin, but your " +
                 "file says you're allergic to penicillin, so I'm prescribing doxycycline " +
                 "(100 mg, twice a day, 7 days) instead. Also: saline rinses, ibuprofen for " +
@@ -772,6 +769,239 @@ export const doctorConsultationTrace: AgentTraceFile = {
                 "iron supplement (100 mg daily for 8 weeks), ideally with a glass of orange " +
                 "juice and not with coffee, plus iron-rich food. We'll recheck the level in " +
                 "8 weeks — if you're not feeling clearly better by then, come back sooner.\\n\\n" +
+                '(Demo consultation — not real medical advice.)"\n}',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "msg-5",
+      label: "Ben — back strain",
+      meta: {
+        patient: "Ben H.",
+        outcome: "lower-back strain — ibuprofen swapped after blood-thinner interaction",
+      },
+      steps: [
+        {
+          id: "m5-s1",
+          nodeId: "patient_message",
+          timestamp: "2026-07-03T14:00:00.000Z",
+          payloads: [
+            {
+              label: "Input",
+              value:
+                "Hey, my lower back has been really sore for a few days — pretty " +
+                "sure I tweaked it lifting boxes. Can I take something for it?",
+            },
+            {
+              label: "patient_record",
+              value: {
+                name: "Ben H.",
+                age: 61,
+                allergies: [],
+                medications: ["warfarin (blood thinner, for atrial fibrillation)"],
+                last_visit: "2026-05-20",
+              },
+            },
+          ],
+        },
+        {
+          id: "m5-s2",
+          nodeId: "interview",
+          timestamp: "2026-07-03T14:00:00.380Z",
+          payloads: [
+            {
+              label: "llm_input",
+              value: {
+                prompt: ANAMNESIS_PROMPT,
+                msg:
+                  "Patient message:\nHey, my lower back has been really sore for a " +
+                  "few days — pretty sure I tweaked it lifting boxes. Can I take " +
+                  "something for it?\n\n" +
+                  "Patient record: Ben H., 61. Allergies: none. " +
+                  "Medications: warfarin (blood thinner).\n\nPending lab orders: none",
+              },
+            },
+            {
+              label: "llm_output",
+              value:
+                '{\n  "action": "diagnose",\n  "summary": "A few days of lower-back pain ' +
+                "with a clear mechanical trigger (lifting), no radiating leg pain, numbness, " +
+                'or other red flags — enough to assess as a musculoskeletal strain."\n}',
+            },
+          ],
+        },
+        {
+          id: "m5-s3",
+          nodeId: "differential",
+          timestamp: "2026-07-03T14:00:04.100Z",
+          payloads: [
+            {
+              label: "llm_input",
+              value: {
+                prompt: DIFFERENTIAL_PROMPT,
+                msg:
+                  "Case summary: 61-year-old, a few days of lower-back pain after " +
+                  "lifting boxes, no radiating leg pain, no numbness, no urinary " +
+                  "symptoms. On warfarin.",
+              },
+            },
+            {
+              label: "llm_output",
+              value:
+                '{\n  "candidates": [\n' +
+                '    { "condition": "mechanical lower-back strain", "confidence": 0.82,\n' +
+                '      "for": "acute onset after lifting, localized movement-related pain, no neurological signs" },\n' +
+                '    { "condition": "lumbar disc herniation", "confidence": 0.12,\n' +
+                '      "against": "no pain radiating down the leg, no numbness or weakness" },\n' +
+                '    { "condition": "kidney stone", "confidence": 0.03,\n' +
+                '      "against": "no flank colic and no urinary symptoms" }\n' +
+                '  ],\n  "confident": true\n}',
+            },
+          ],
+        },
+        {
+          id: "m5-s4",
+          nodeId: "diagnosis",
+          timestamp: "2026-07-03T14:00:04.300Z",
+          payloads: [
+            {
+              label: "node_input",
+              value: {
+                top_candidate: "mechanical lower-back strain",
+                confidence: 0.82,
+                threshold: 0.6,
+              },
+            },
+            {
+              label: "node_output",
+              value: {
+                diagnosis: "mechanical lower-back strain",
+                confidence: 0.82,
+                basis:
+                  "Acute onset after lifting, movement-related localized pain, and no neurological red flags.",
+              },
+            },
+          ],
+        },
+        {
+          id: "m5-s5",
+          nodeId: "treatment_plan",
+          timestamp: "2026-07-03T14:00:07.800Z",
+          payloads: [
+            {
+              label: "llm_input",
+              value: {
+                prompt: TREATMENT_PROMPT,
+                msg: "Diagnosis: mechanical lower-back strain (confidence 0.82).\nSafety-check conflict: none",
+              },
+            },
+            {
+              label: "llm_output",
+              value:
+                '{\n  "prescription": "ibuprofen 400 mg, 3x daily with food, up to 5 days",\n' +
+                '  "supportive": ["keep gently moving — avoid bed rest", "heat on the lower back", "lift with the legs once healed"]\n}',
+            },
+          ],
+        },
+        {
+          id: "m5-s6",
+          nodeId: "safety_check",
+          timestamp: "2026-07-03T14:00:08.000Z",
+          payloads: [
+            {
+              label: "node_input",
+              value: {
+                prescription: "ibuprofen 400 mg, 3x daily, up to 5 days",
+                allergies: [],
+                medications: ["warfarin (blood thinner)"],
+              },
+            },
+            {
+              label: "node_output",
+              value: {
+                ok: false,
+                conflict:
+                  "ibuprofen is an NSAID; combined with warfarin it raises the risk of bleeding",
+                action: "revise",
+              },
+            },
+          ],
+        },
+        {
+          id: "m5-s7",
+          nodeId: "treatment_plan",
+          timestamp: "2026-07-03T14:00:11.500Z",
+          payloads: [
+            {
+              label: "llm_input",
+              value: {
+                prompt: TREATMENT_PROMPT,
+                msg:
+                  "Diagnosis: mechanical lower-back strain (confidence 0.82).\n" +
+                  "Safety-check conflict: ibuprofen is an NSAID and raises bleeding " +
+                  "risk with warfarin. Propose a non-NSAID alternative.",
+              },
+            },
+            {
+              label: "llm_output",
+              value:
+                '{\n  "prescription": "paracetamol (acetaminophen) 1 g, up to 3x daily",\n' +
+                '  "note": "NSAID-free — safe alongside warfarin",\n' +
+                '  "supportive": ["keep gently moving — avoid bed rest", "heat on the lower back", "lift with the legs once healed"]\n}',
+            },
+          ],
+        },
+        {
+          id: "m5-s8",
+          nodeId: "safety_check",
+          timestamp: "2026-07-03T14:00:11.700Z",
+          payloads: [
+            {
+              label: "node_input",
+              value: {
+                prescription: "paracetamol (acetaminophen) 1 g, up to 3x daily",
+                allergies: [],
+                medications: ["warfarin (blood thinner)"],
+              },
+            },
+            {
+              label: "node_output",
+              value: {
+                ok: true,
+                checked_against: ["warfarin (blood thinner)"],
+                note: "Paracetamol is not an NSAID and does not increase bleeding risk with warfarin.",
+              },
+            },
+          ],
+        },
+        {
+          id: "m5-s9",
+          nodeId: "doctor_reply",
+          timestamp: "2026-07-03T14:00:15.400Z",
+          payloads: [
+            {
+              label: "llm_input",
+              value: {
+                prompt: REPLY_PROMPT,
+                msg:
+                  "Diagnosis: mechanical lower-back strain.\n" +
+                  "Plan: paracetamol 1 g up to 3x daily (revised — patient takes " +
+                  "warfarin, so no ibuprofen), gentle movement, heat.\n" +
+                  "Safety check: passed.",
+              },
+            },
+            {
+              label: "llm_output",
+              value:
+                '{\n  "message": "Sounds like a classic lower-back strain from the lifting — ' +
+                "the good news is these almost always settle on their own. Normally I'd suggest " +
+                "ibuprofen, but your record shows you take warfarin, and the two together can " +
+                "raise your bleeding risk — so take paracetamol instead (up to 1 g, three times " +
+                "a day). Keep moving gently rather than resting in bed, and a heat pack helps. " +
+                "If you get numbness, leg weakness, or it hasn't eased in a couple of weeks, " +
+                "please come in.\\n\\n" +
                 '(Demo consultation — not real medical advice.)"\n}',
             },
           ],

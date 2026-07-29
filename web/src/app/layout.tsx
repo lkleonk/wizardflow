@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 // Production origin. Override with NEXT_PUBLIC_SITE_URL for preview/staging
 // deploys; the default is the live domain so canonical/OG/sitemap URLs resolve
 // absolutely without any extra config.
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://wizardflow.com";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://getwizardflow.com";
 
 const description =
   "WizardFlow is a browser-based viewer for agent runs. Upload a trace " +

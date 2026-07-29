@@ -6,10 +6,11 @@ import argparse
 import json
 import sys
 import webbrowser
+from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import unquote, urlencode, urlsplit
 
 from .html import render_html
 from .markdown import render_markdown
@@ -34,6 +35,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return run_ui(
                 trace=args.trace,
                 path=args.path,
+                latest=args.latest,
                 host=args.host,
                 port=args.port,
                 open_browser=not args.no_open,
@@ -42,6 +44,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return run_md(
                 trace=args.trace,
                 path=args.path,
+                latest=args.latest,
                 output=args.output,
                 mermaid=args.mermaid,
             )
@@ -49,12 +52,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return run_html(
                 trace=args.trace,
                 path=args.path,
+                latest=args.latest,
                 output=args.output,
             )
         if args.command == "json":
             return run_json(
                 trace=args.trace,
                 path=args.path,
+                latest=args.latest,
                 output=args.output,
             )
     except WizardFlowCliError as exc:
@@ -82,6 +87,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--path",
         dest="path",
         help="AgentTrace file (.jsonl or .json). Equivalent to the positional path.",
+    )
+    trace_input.add_argument(
+        "--latest",
+        action="store_true",
+        help="Treat the path as a directory (default: the current directory) "
+        "and use its most recently modified *.jsonl / *.json file.",
     )
 
     ui = subparsers.add_parser(
@@ -165,8 +176,9 @@ def run_ui(
     host: str,
     port: int,
     open_browser: bool,
+    latest: bool = False,
 ) -> int:
-    trace_path = _resolve_trace_path(trace=trace, path=path)
+    trace_path = _resolve_trace_path(trace=trace, path=path, latest=latest)
     _load_trace(trace_path)  # fail fast on an unreadable trace before serving
     ui_dir = _resolve_ui_dir()
 
@@ -190,10 +202,12 @@ def run_md(
     path: Optional[str],
     output: Optional[str],
     mermaid: bool,
+    latest: bool = False,
 ) -> int:
     return _render_to_output(
         trace=trace,
         path=path,
+        latest=latest,
         output=output,
         kind="Markdown",
         render=lambda data, title: render_markdown(
@@ -207,6 +221,7 @@ def run_json(
     trace: Optional[str],
     path: Optional[str],
     output: Optional[str],
+    latest: bool = False,
 ) -> int:
     """Assemble the JSONL part into one pretty-printed AgentTraceFile document.
 
@@ -217,6 +232,7 @@ def run_json(
     return _render_to_output(
         trace=trace,
         path=path,
+        latest=latest,
         output=output,
         kind="JSON",
         # The trace is already the assembled dict; ignore the fallback title.
@@ -230,10 +246,12 @@ def run_html(
     trace: Optional[str],
     path: Optional[str],
     output: Optional[str],
+    latest: bool = False,
 ) -> int:
     return _render_to_output(
         trace=trace,
         path=path,
+        latest=latest,
         output=output,
         kind="HTML",
         render=lambda data, title: render_html(data, fallback_title=title),
@@ -247,9 +265,10 @@ def _render_to_output(
     output: Optional[str],
     kind: str,
     render: "Callable[[Any, str], str]",
+    latest: bool = False,
 ) -> int:
     """Resolve + load a trace, render it, and write to a file or stdout."""
-    trace_path = _resolve_trace_path(trace=trace, path=path)
+    trace_path = _resolve_trace_path(trace=trace, path=path, latest=latest)
     data = _load_trace(trace_path)
     rendered = render(data, trace_path.name)
 
@@ -265,16 +284,43 @@ def _render_to_output(
     return 0
 
 
-def _resolve_trace_path(*, trace: Optional[str], path: Optional[str]) -> Path:
+def _resolve_trace_path(
+    *, trace: Optional[str], path: Optional[str], latest: bool = False
+) -> Path:
     if trace and path:
         raise WizardFlowCliError("pass either a positional trace path or --path, not both")
     raw = path or trace
+    if latest:
+        return _resolve_latest_trace(raw)
     if not raw:
         raise WizardFlowCliError("missing trace path: provide an AgentTrace JSON file")
     trace_path = Path(raw).expanduser().resolve()
     if not trace_path.is_file():
         raise WizardFlowCliError(f"trace file does not exist: {trace_path}")
     return trace_path
+
+
+def _resolve_latest_trace(raw: Optional[str]) -> Path:
+    """`--latest`: the most recently modified trace file in a directory.
+
+    Deliberately "literally the newest file" — a rotated ``__partN`` file wins
+    over its run's first part, because during a live run the active part is
+    the one still being written to.
+    """
+    directory = Path(raw).expanduser().resolve() if raw else Path.cwd()
+    if not directory.is_dir():
+        raise WizardFlowCliError(f"--latest expects a directory, got: {directory}")
+    candidates = [
+        candidate
+        for pattern in ("*.jsonl", "*.json")
+        for candidate in directory.glob(pattern)
+        if candidate.is_file()
+    ]
+    if not candidates:
+        raise WizardFlowCliError(
+            f"no trace files (*.jsonl or *.json) found in: {directory}"
+        )
+    return max(candidates, key=lambda candidate: candidate.stat().st_mtime)
 
 
 def _resolve_ui_dir(ui_dir: Optional[Path] = None) -> Path:
@@ -325,18 +371,39 @@ def _make_handler(*, ui_dir: Path, trace_path: Path) -> type[SimpleHTTPRequestHa
             super().__init__(*args, directory=str(ui_dir), **kwargs)
 
         def do_GET(self) -> None:  # noqa: N802 - inherited stdlib API name
-            if urlsplit(self.path).path == TRACE_ROUTE:
-                self._serve_trace()
+            path = urlsplit(self.path).path
+            if path == TRACE_ROUTE:
+                self._serve_trace(trace_path)
+                return
+            # Part navigation: the viewer resolves the bare file names in
+            # meta.prevPart / meta.nextPart against the trace URL, so another
+            # part of the same run arrives here as "/<file name>".
+            sibling = _sibling_part(trace_path, path, ui_dir)
+            if sibling is not None:
+                self._serve_trace(sibling)
                 return
             super().do_GET()
 
-        def _serve_trace(self) -> None:
+        def _serve_trace(self, path: Path) -> None:
             # Assemble the JSONL part into a plain AgentTraceFile JSON document
             # per request — the active part may have grown since the last fetch,
             # and the static UI only ever sees assembled JSON.
+            #
+            # The ETag is the file's (mtime, size), so the UI's live-update
+            # poller can revalidate for the cost of one stat(): a matching
+            # If-None-Match short-circuits to 304 with no read or re-assembly.
+            # If the file grows between stat and read, the served body is newer
+            # than its ETag — the next poll sees a changed ETag and refetches.
             try:
+                stat = path.stat()
+                etag = f'"{stat.st_mtime_ns}-{stat.st_size}"'
+                if self.headers.get("If-None-Match") == etag:
+                    self.send_response(HTTPStatus.NOT_MODIFIED)
+                    self.send_header("ETag", etag)
+                    self.end_headers()
+                    return
                 payload = json.dumps(
-                    load_trace_file(trace_path), ensure_ascii=False
+                    load_trace_file(path), ensure_ascii=False
                 ).encode("utf-8")
             except (OSError, TraceFormatError) as exc:
                 body = f"Could not read trace file: {exc}\n".encode("utf-8")
@@ -349,7 +416,10 @@ def _make_handler(*, ui_dir: Path, trace_path: Path) -> type[SimpleHTTPRequestHa
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            # no-store keeps the browser's own cache out of the way; the UI
+            # sends If-None-Match itself and holds the ETag in memory.
             self.send_header("Cache-Control", "no-store")
+            self.send_header("ETag", etag)
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
@@ -358,6 +428,30 @@ def _make_handler(*, ui_dir: Path, trace_path: Path) -> type[SimpleHTTPRequestHa
             return
 
     return WizardFlowUiHandler
+
+
+def _sibling_part(trace_path: Path, url_path: str, ui_dir: Path) -> Optional[Path]:
+    """Resolve a request path to another part file of the run being served.
+
+    A rotated run is several files next to each other; the viewer walks it by
+    name. Only a plain file name (no separators, no traversal) naming an
+    existing trace file in the served trace's own directory qualifies, and a
+    bundled UI asset of the same name always wins — `wizardflow ui` stays a
+    viewer for one run's files, not a directory server.
+    """
+    name = unquote(url_path.lstrip("/"))
+    if not name or Path(name).name != name:
+        return None
+    if Path(name).suffix not in {".jsonl", ".json"}:
+        return None
+    if (ui_dir / name).exists():
+        return None
+    candidate = trace_path.parent / name
+    if not candidate.is_file():
+        return None
+    if candidate.resolve().parent != trace_path.parent.resolve():
+        return None
+    return candidate
 
 
 def _viewer_url(*, host: str, port: int, trace_name: str) -> str:
