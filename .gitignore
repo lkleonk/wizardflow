@@ -26,3 +26,8 @@ CLAUDE.md
 
 # local-only scratch / planning notes (never committed)
 internal/
+
+# throwaway traces written by sdk/python/scripts/live_trace_demo.py — they
+# land in web/public, get copied into web/out by the static export, and would
+# otherwise be baked into the shipped _ui bundle by scripts/build_ui.py
+web/public/live-demo__*.jsonl
