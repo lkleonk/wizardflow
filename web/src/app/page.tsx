@@ -470,6 +470,15 @@ export default function Home() {
     ]
   );
 
+  // Clicking a node pauses a running replay before selecting it. Playback
+  // re-selects the active node on every tick, so without pausing a mid-replay
+  // click is overridden within a step and nodes feel unclickable — exactly
+  // while the demo toast invites clicking them. Space / play resumes.
+  const handleSelectNode = useCallback((nodeId: string) => {
+    setIsPlaying(false);
+    setSelectedNodeId(nodeId);
+  }, []);
+
   // Keep `?example=` in the address bar in sync with what's actually loaded:
   // set it when a bundled example is active (so the URL is always a shareable
   // deep link), remove it when anything else is (so a copied URL doesn't send
@@ -1530,7 +1539,7 @@ export default function Home() {
               activeNodeId={activeNodeId}
               selectedNodeId={selectedNodeId}
               recentNodeIds={recentNodeIds}
-              onSelectNode={setSelectedNodeId}
+              onSelectNode={handleSelectNode}
               isPlaying={isPlaying}
               arrangeMode={graphArrangeMode}
               onArrangeModeChange={setGraphArrangeMode}
