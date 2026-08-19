@@ -31,6 +31,11 @@ export const theme = createTheme({
         mode: "dark",
         background: { default: "#0B0D10", paper: "#15181D" },
         primary: { main: "#60A5FA" },
+        // `info` drives `severity="info"` alerts (MUI derives their text and
+        // tinted background from it). Left at MUI's stock blue it sits in a
+        // different hue family than our primary, which reads as a subtly
+        // wrong blue next to everything else — so it tracks primary here.
+        info: { main: "#60A5FA" },
         divider: "rgba(255, 255, 255, 0.08)",
         text: { primary: "#E6E8EB", secondary: "#9AA1AB" },
       },
@@ -40,6 +45,7 @@ export const theme = createTheme({
         mode: "light",
         background: { default: "#F6F7F9", paper: "#FFFFFF" },
         primary: { main: "#2563EB" },
+        info: { main: "#2563EB" },
         divider: "rgba(0, 0, 0, 0.10)",
         text: { primary: "#1A1D21", secondary: "#5B636E" },
       },
