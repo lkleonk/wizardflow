@@ -267,6 +267,7 @@ export default function Home() {
   const [playbackSpeed, setPlaybackSpeed] = useState<PlaybackSpeed>(1);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorWidth, setInspectorWidth] = useState(360);
+  const [inspectorMaximized, setInspectorMaximized] = useState(false);
   const [graphArrangeMode, setGraphArrangeMode] = useState(false);
   const [isLoadingUrlTrace, setIsLoadingUrlTrace] = useState(false);
   const loadedTraceUrlRef = useRef<string | null>(null);
@@ -1017,7 +1018,10 @@ export default function Home() {
       const startWidth = inspectorWidth;
       const onMove = (ev: MouseEvent) => {
         const next = startWidth + (startX - ev.clientX); // drag left → wider
-        setInspectorWidth(Math.max(280, Math.min(720, next)));
+        // Viewport-relative cap so wide monitors aren't stuck at a fixed max,
+        // while the graph always keeps at least ~a third of the width.
+        const maxWidth = Math.min(900, Math.round(window.innerWidth * 0.65));
+        setInspectorWidth(Math.max(280, Math.min(maxWidth, next)));
       };
       const onUp = () => {
         window.removeEventListener("mousemove", onMove);
@@ -1619,14 +1623,36 @@ export default function Home() {
                 overflow: "hidden",
               }}
             >
+              {/* While maximized the panel lives in the fullscreen Dialog
+                  below instead — rendering it in both places would fork its
+                  internal tab state. */}
+              {!inspectorMaximized && (
+                <InspectorPanel
+                  selectedNodeId={selectedNodeId}
+                  selectedNodeLabel={selectedNodeLabel}
+                  selectedNodeDescription={selectedNode?.description}
+                  payloads={payloads}
+                  currentVisitStepId={currentVisitStepId}
+                  maximized={false}
+                  onMaximizedChange={setInspectorMaximized}
+                />
+              )}
+            </Paper>
+            <Dialog
+              fullScreen
+              open={inspectorMaximized}
+              onClose={() => setInspectorMaximized(false)}
+            >
               <InspectorPanel
                 selectedNodeId={selectedNodeId}
                 selectedNodeLabel={selectedNodeLabel}
                 selectedNodeDescription={selectedNode?.description}
                 payloads={payloads}
                 currentVisitStepId={currentVisitStepId}
+                maximized
+                onMaximizedChange={setInspectorMaximized}
               />
-            </Paper>
+            </Dialog>
           </>
         )}
       </Box>

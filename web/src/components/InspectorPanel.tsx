@@ -12,7 +12,9 @@ import Tab from "@mui/material/Tab";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import CloseFullscreenOutlinedIcon from "@mui/icons-material/CloseFullscreenOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import OpenInFullOutlinedIcon from "@mui/icons-material/OpenInFullOutlined";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import { formatClock, formatDuration } from "@/utils/formatTime";
 import {
@@ -55,6 +57,12 @@ type InspectorPanelProps = {
    * surfaces that visit's logs instead of freezing on the first visit.
    */
   currentVisitStepId?: string;
+  /**
+   * Whether the panel is shown maximized (fullscreen dialog) rather than as
+   * the side panel. Toggled by the header button; omitted callback hides it.
+   */
+  maximized?: boolean;
+  onMaximizedChange?: (maximized: boolean) => void;
 };
 
 // A payload value is either already structured (an object/array, always safe
@@ -190,8 +198,16 @@ export default function InspectorPanel({
   selectedNodeDescription,
   payloads,
   currentVisitStepId,
+  maximized,
+  onMaximizedChange,
 }: InspectorPanelProps) {
-  const [tab, setTab] = useState(0);
+  // Initialized to the current visit's first payload (not 0) because toggling
+  // maximize remounts the panel — the reset-key logic below only reacts to
+  // *changes*, so the initial value must already point at the right visit.
+  const [tab, setTab] = useState(() => {
+    const firstOfVisit = payloads.findIndex((p) => p.stepId === currentVisitStepId);
+    return firstOfVisit >= 0 ? firstOfVisit : 0;
+  });
   const highlightKeys = useSyncExternalStore(
     subscribeInspectorHighlightKeys,
     getInspectorHighlightKeys,
@@ -224,8 +240,26 @@ export default function InspectorPanel({
   }
 
   if (!selectedNodeId) {
+    // Maximized, this hint is a fullscreen dialog — keep a visible way back
+    // besides Esc. The plain side panel stays chrome-free.
     return (
-      <CenteredHint>Select a node to inspect its payloads.</CenteredHint>
+      <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+        {maximized && onMaximizedChange ? (
+          <Box sx={{ px: 2, pt: 1.5, display: "flex", justifyContent: "flex-end" }}>
+            <Tooltip title="Restore inspector" placement="bottom">
+              <IconButton
+                size="small"
+                onClick={() => onMaximizedChange(false)}
+                aria-label="Restore inspector"
+                sx={{ color: "text.secondary" }}
+              >
+                <CloseFullscreenOutlinedIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        ) : null}
+        <CenteredHint>Select a node to inspect its payloads.</CenteredHint>
+      </Box>
     );
   }
 
@@ -255,6 +289,25 @@ export default function InspectorPanel({
           compactView={compactView}
           onCompactViewChange={setInspectorCompactView}
         />
+      ) : null}
+      {onMaximizedChange ? (
+        <Tooltip
+          title={maximized ? "Restore inspector" : "Maximize inspector"}
+          placement="bottom"
+        >
+          <IconButton
+            size="small"
+            onClick={() => onMaximizedChange(!maximized)}
+            aria-label={maximized ? "Restore inspector" : "Maximize inspector"}
+            sx={{ color: "text.secondary", flexShrink: 0 }}
+          >
+            {maximized ? (
+              <CloseFullscreenOutlinedIcon sx={{ fontSize: 16 }} />
+            ) : (
+              <OpenInFullOutlinedIcon sx={{ fontSize: 16 }} />
+            )}
+          </IconButton>
+        </Tooltip>
       ) : null}
     </Box>
   );
