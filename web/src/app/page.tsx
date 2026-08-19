@@ -35,6 +35,7 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
+import SearchIcon from "@mui/icons-material/Search";
 import { useColorScheme } from "@mui/material/styles";
 import GraphCanvas from "@/components/GraphCanvas";
 import InspectorPanel from "@/components/InspectorPanel";
@@ -43,6 +44,7 @@ import PlaybackControls, {
   type PlaybackMode,
   type PlaybackSpeed,
 } from "@/components/PlaybackControls";
+import SearchDialog, { type SearchHit } from "@/components/SearchDialog";
 import TraceDropTarget from "@/components/TraceDropTarget";
 import TraceUploader from "@/components/TraceUploader";
 import TraceInfo from "@/components/TraceInfo";
@@ -268,6 +270,13 @@ export default function Home() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorWidth, setInspectorWidth] = useState(360);
   const [inspectorMaximized, setInspectorMaximized] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  // One-shot payload-tab focus request for the inspector, bumped per search
+  // jump (see InspectorPanel's `focusPayload`).
+  const [inspectorFocus, setInspectorFocus] = useState<{
+    index: number;
+    seq: number;
+  }>();
   const [graphArrangeMode, setGraphArrangeMode] = useState(false);
   const [isLoadingUrlTrace, setIsLoadingUrlTrace] = useState(false);
   const loadedTraceUrlRef = useRef<string | null>(null);
@@ -470,6 +479,48 @@ export default function Home() {
       trace.messages.length,
     ]
   );
+
+  // Jump the whole view to a search hit: message, playhead step, node — and,
+  // for payload hits, ask the inspector to focus that payload's tab. Opens the
+  // inspector if it was hidden, since the payload is the point of the jump.
+  const handleSearchJump = useCallback(
+    (hit: SearchHit) => {
+      const message = trace.messages[hit.messageIndex];
+      if (!message || message.id !== hit.messageId) return;
+      disableGraphArrangeMode();
+      setIsPlaying(false);
+      setSelectedMessageId(message.id);
+      const messageSteps = orderedSteps(message);
+      const stepIndex = Math.max(
+        0,
+        Math.min(hit.stepIndex ?? 0, messageSteps.length - 1)
+      );
+      setCurrentStepIndex(stepIndex);
+      setSelectedNodeId(hit.nodeId ?? messageSteps[stepIndex]?.nodeId);
+      const payloadIndex = hit.payloadIndex;
+      if (payloadIndex !== undefined) {
+        setInspectorOpen(true);
+        setInspectorFocus((prev) => ({
+          index: payloadIndex,
+          seq: (prev?.seq ?? 0) + 1,
+        }));
+      }
+    },
+    [disableGraphArrangeMode, trace.messages]
+  );
+
+  // Ctrl/Cmd+K opens search from anywhere — the transport keydown handler
+  // further down ignores modified keys, so the two never collide.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (hasFlow) setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hasFlow]);
 
   // Clicking a node pauses a running replay before selecting it. Playback
   // re-selects the active node on every tick, so without pausing a mid-replay
@@ -1219,6 +1270,13 @@ export default function Home() {
         </TraceDropTarget>
       </Dialog>
 
+      <SearchDialog
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        trace={trace}
+        onJump={handleSearchJump}
+      />
+
       <ExampleGallery
         open={galleryOpen}
         onClose={() => setGalleryOpen(false)}
@@ -1482,6 +1540,19 @@ export default function Home() {
             Examples
           </Button>
           <TraceUploader onLoad={handleUploadLoad} />
+          <Tooltip title="Search trace (Ctrl+K)">
+            {/* span so the Tooltip still anchors while the button is disabled */}
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => setSearchOpen(true)}
+                disabled={!hasFlow}
+                aria-label="Search trace"
+              >
+                <SearchIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
           <Tooltip
             title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
           >
@@ -1635,6 +1706,7 @@ export default function Home() {
                   currentVisitStepId={currentVisitStepId}
                   maximized={false}
                   onMaximizedChange={setInspectorMaximized}
+                  focusPayload={inspectorFocus}
                 />
               )}
             </Paper>
@@ -1651,6 +1723,7 @@ export default function Home() {
                 currentVisitStepId={currentVisitStepId}
                 maximized
                 onMaximizedChange={setInspectorMaximized}
+                focusPayload={inspectorFocus}
               />
             </Dialog>
           </>

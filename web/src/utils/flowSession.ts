@@ -256,3 +256,15 @@ export const getInspectorCompactView = inspectorCompactViewSetting.get;
 export const getServerInspectorCompactView = inspectorCompactViewSetting.getServer;
 export const setInspectorCompactView = inspectorCompactViewSetting.set;
 export const subscribeInspectorCompactView = inspectorCompactViewSetting.subscribe;
+
+// Whether search results show a content snippet under each hit (detailed) or
+// just the hit's location line (compact). Detailed by default — compact is
+// the opt-in scan mode for users who know the trace and only need locations.
+const searchDetailedResultsSetting = createPersistedBooleanSetting(
+  "wizardflow:search-detailed-results",
+  true
+);
+export const getSearchDetailedResults = searchDetailedResultsSetting.get;
+export const getServerSearchDetailedResults = searchDetailedResultsSetting.getServer;
+export const setSearchDetailedResults = searchDetailedResultsSetting.set;
+export const subscribeSearchDetailedResults = searchDetailedResultsSetting.subscribe;

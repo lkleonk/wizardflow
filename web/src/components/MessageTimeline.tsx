@@ -85,6 +85,25 @@ export default function MessageTimeline({
       STRIP_END_SLACK_PX;
   }
 
+  // Let a mouse wheel scroll the strip horizontally — vertical deltas are the
+  // only ones a plain mouse can produce, and the strip has no vertical axis to
+  // spend them on. Trackpads already pan sideways natively (deltaX), so those
+  // events pass through untouched. Attached natively (not via onWheel) because
+  // preventDefault — needed so the hijacked wheel can't also scroll the page
+  // on the stacked mobile layout — requires a non-passive listener.
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY === 0 || e.deltaX !== 0) return;
+      if (strip.scrollWidth <= strip.clientWidth) return;
+      strip.scrollLeft += e.deltaY;
+      e.preventDefault();
+    };
+    strip.addEventListener("wheel", onWheel, { passive: false });
+    return () => strip.removeEventListener("wheel", onWheel);
+  }, []);
+
   useEffect(() => {
     // An append keeps the same first message and adds to the end; a different
     // flow (or another part of a rotated run) replaces the list, and must

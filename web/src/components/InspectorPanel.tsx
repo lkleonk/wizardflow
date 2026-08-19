@@ -63,6 +63,12 @@ type InspectorPanelProps = {
    */
   maximized?: boolean;
   onMaximizedChange?: (maximized: boolean) => void;
+  /**
+   * One-shot request to select a specific payload tab (index into `payloads`),
+   * e.g. from a search-result jump. `seq` distinguishes repeated requests for
+   * the same index; the request only applies when `seq` changes.
+   */
+  focusPayload?: { index: number; seq: number };
 };
 
 // A payload value is either already structured (an object/array, always safe
@@ -200,6 +206,7 @@ export default function InspectorPanel({
   currentVisitStepId,
   maximized,
   onMaximizedChange,
+  focusPayload,
 }: InspectorPanelProps) {
   // Initialized to the current visit's first payload (not 0) because toggling
   // maximize remounts the panel — the reset-key logic below only reacts to
@@ -237,6 +244,18 @@ export default function InspectorPanel({
     setLastResetKey(resetKey);
     const firstOfVisit = payloads.findIndex((p) => p.stepId === currentVisitStepId);
     setTab(firstOfVisit >= 0 ? firstOfVisit : 0);
+  }
+
+  // An explicit tab request (search jump) — applied after the visit reset
+  // above so it wins when both fire in the same render (a jump changes the
+  // selection too). Initialized to the current seq so a remount (maximize
+  // toggle) doesn't replay a stale request.
+  const [lastFocusSeq, setLastFocusSeq] = useState(focusPayload?.seq);
+  if (focusPayload && focusPayload.seq !== lastFocusSeq) {
+    setLastFocusSeq(focusPayload.seq);
+    if (focusPayload.index >= 0 && focusPayload.index < payloads.length) {
+      setTab(focusPayload.index);
+    }
   }
 
   if (!selectedNodeId) {
