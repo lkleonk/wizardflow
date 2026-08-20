@@ -9,22 +9,25 @@ import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
 import { exampleFlows, type ExampleFlow } from "@/data";
-import { visibleGraph } from "@/utils/traceSelectors";
 
 type ExampleGalleryProps = {
   open: boolean;
   onClose: () => void;
   /** Receives the whole flow so callers can use its id (e.g. deep links). */
   onSelect: (flow: ExampleFlow) => void;
-  /** Name of the currently-loaded trace, used to highlight its card. */
-  currentName?: string;
+  /**
+   * Gallery id of the currently-loaded example, used to highlight its card.
+   * Matched by id rather than by trace name so an upload that happens to share
+   * a bundled flow's file name can't light up the wrong card.
+   */
+  currentExampleId?: string;
 };
 
 export default function ExampleGallery({
   open,
   onClose,
   onSelect,
-  currentName,
+  currentExampleId,
 }: ExampleGalleryProps) {
   return (
     <Dialog
@@ -58,9 +61,7 @@ export default function ExampleGallery({
           }}
         >
           {exampleFlows.map((flow) => {
-            const isCurrent = !!currentName && flow.trace.name === currentName;
-            const nodeCount = visibleGraph(flow.trace).nodes.length;
-            const messageCount = flow.trace.messages.length;
+            const isCurrent = flow.id === currentExampleId;
             return (
               <ButtonBase
                 key={flow.id}
@@ -113,7 +114,7 @@ export default function ExampleGallery({
                   color="text.disabled"
                   sx={{ fontVariantNumeric: "tabular-nums" }}
                 >
-                  {flow.pattern} · {messageCount} msg · {nodeCount} nodes
+                  {flow.pattern} · {flow.messageCount} msg · {flow.nodeCount} nodes
                 </Typography>
               </ButtonBase>
             );

@@ -53,7 +53,7 @@ import TutorialDialog, { LocalDataDetails } from "@/components/TutorialDialog";
 import DemoExplainerToast, {
   type DemoToastState,
 } from "@/components/DemoExplainerToast";
-import { emptyTrace, exampleFlows } from "@/data";
+import { emptyTrace, exampleFlows, type ExampleFlow } from "@/data";
 import type { AgentTraceFile } from "@/types/agenttrace";
 import {
   getSavedFlow,
@@ -326,6 +326,19 @@ export default function Home() {
 
   // The example-flow picker (a gallery dialog opened from the header).
   const [galleryOpen, setGalleryOpen] = useState(false);
+
+  // Gallery id of the bundled example currently loaded, or undefined for an
+  // upload / served trace / empty canvas. Drives the gallery's "current" badge.
+  const [currentExampleId, setCurrentExampleId] = useState<string | undefined>(
+    undefined
+  );
+
+  // Bundled example traces are fetched on demand (see `loadTrace` in
+  // src/data/index.ts), so a demo entry point has to await a chunk before the
+  // replay can start. This holds the id being fetched so the triggering control
+  // can show progress instead of appearing dead for a beat.
+  const [loadingExampleId, setLoadingExampleId] = useState<string | null>(null);
+  const isFlagshipLoading = loadingExampleId === FLAGSHIP_EXAMPLE_ID;
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [offlineTipOpen, setOfflineTipOpen] = useState(false);
 
@@ -339,6 +352,9 @@ export default function Home() {
   // doubles as load feedback and as the "nothing was uploaded" reassurance at
   // the moment it matters. Example/SDK-launcher loads don't show it.
   const [uploadNoticeOpen, setUploadNoticeOpen] = useState(false);
+
+  // Shown when a bundled example's chunk can't be fetched (see loadExample).
+  const [exampleErrorOpen, setExampleErrorOpen] = useState(false);
 
   // Anchor for the footer "Data stays local" popover (LocalDataDetails).
   const [localDataAnchor, setLocalDataAnchor] = useState<HTMLElement | null>(
@@ -574,6 +590,7 @@ export default function Home() {
       setActiveTraceHref(null);
       disableGraphArrangeMode();
       syncExampleParam(options?.exampleId);
+      setCurrentExampleId(options?.exampleId);
       // A newly loaded flow invalidates the demo explainer; demo entry points
       // re-arm it right after this call (same batch, so the later write wins).
       setDemoToast(null);
@@ -592,6 +609,53 @@ export default function Home() {
     },
     [disableGraphArrangeMode, syncExampleParam]
   );
+
+  // Every bundled-example entry point (welcome demo button, gallery, tutorial,
+  // `?example=` deep link) routes through here: fetch the flow's chunk, then
+  // hand the trace to handleLoadTrace. The await is normally instant — the
+  // effect below prefetches the flagship, and any chunk already fetched is
+  // cached — but a cold click resolves over the network, so `loadingExampleId`
+  // lets the triggering control show progress rather than look dead.
+  const loadExample = useCallback(
+    async (
+      flow: ExampleFlow,
+      options?: { autoplay?: boolean; playThrough?: boolean }
+    ): Promise<boolean> => {
+      setLoadingExampleId(flow.id);
+      try {
+        const next = await flow.loadTrace();
+        handleLoadTrace(next, { ...options, exampleId: flow.id });
+        return true;
+      } catch {
+        // Only realistic cause is a failed chunk fetch (offline, or a deploy
+        // that rotated the hashed file names under a long-open tab).
+        setExampleErrorOpen(true);
+        return false;
+      } finally {
+        setLoadingExampleId(null);
+      }
+    },
+    [handleLoadTrace]
+  );
+
+  // Warm the flagship's chunk once the page is idle. It's the one example most
+  // visitors open ("Watch a demo replay" is the welcome screen's main action),
+  // so fetching it early makes that click instant — but doing it after paint
+  // instead of bundling it keeps ~37 KB of trace data off the critical path.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const warm = () => {
+      void flagshipExample.loadTrace().catch(() => {
+        // A failed prefetch is harmless: the click retries and reports.
+      });
+    };
+    if (typeof window.requestIdleCallback !== "function") {
+      const timer = window.setTimeout(warm, 1500);
+      return () => window.clearTimeout(timer);
+    }
+    const handle = window.requestIdleCallback(warm, { timeout: 3000 });
+    return () => window.cancelIdleCallback(handle);
+  }, []);
 
   // User-file entry points (upload buttons, drop targets) route through this
   // instead of handleLoadTrace directly, so only real uploads trigger the
@@ -612,6 +676,7 @@ export default function Home() {
     stopLiveWatchRef.current?.();
     disableGraphArrangeMode();
     syncExampleParam(undefined);
+    setCurrentExampleId(undefined);
     setPendingAutoplay(false);
     setDemoToast(null);
     setSavedFlow(null);
@@ -871,23 +936,43 @@ export default function Home() {
 
       const example = exampleFlows.find((flow) => flow.id === exampleParam);
       if (!example) return;
-      handleLoadTrace(example.trace, {
-        autoplay: true,
-        playThrough: true,
-        exampleId: example.id,
-      });
-      // A deep-link visitor skipped the welcome dialog entirely, so they get
-      // the full explainer toast.
-      setDemoToast({
-        step: 1,
-        flagship: example.id === FLAGSHIP_EXAMPLE_ID,
-        withSdkPitch: true,
-      });
+      void loadExample(example, { autoplay: true, playThrough: true }).then(
+        (loaded) => {
+          if (cancelled || !loaded) return;
+          // A deep-link visitor skipped the welcome dialog entirely, so they
+          // get the full explainer toast.
+          setDemoToast({
+            step: 1,
+            flagship: example.id === FLAGSHIP_EXAMPLE_ID,
+            withSdkPitch: true,
+          });
+        }
+      );
     });
     return () => {
       cancelled = true;
     };
-  }, [handleLoadTrace]);
+  }, [loadExample]);
+
+  // A bundled example restored from the session store on refresh never goes
+  // through loadExample, so recover which one it is from the `?example=` param
+  // that syncExampleParam left in the address bar — otherwise the gallery would
+  // stop badging it as current. Runs after hydration so SSR sees no window.
+  // Deferred to a microtask for the same reason as the deep-link effect above:
+  // the effect body itself must not set state.
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled || !getSavedFlow()) return;
+      const id = new URLSearchParams(window.location.search).get("example");
+      if (id && exampleFlows.some((flow) => flow.id === id)) {
+        setCurrentExampleId((prev) => prev ?? id);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Toggle play/pause. Pressing play while parked at the last step either
   // advances to the next message or restarts the selected message.
@@ -1154,14 +1239,25 @@ export default function Home() {
             <Button
               size="large"
               variant="contained"
-              startIcon={<PlayArrowRoundedIcon />}
+              // The trace is fetched on click, so a cold click (before the idle
+              // prefetch lands) waits on the network — swap the play icon for a
+              // spinner rather than let the button look unresponsive.
+              startIcon={
+                isFlagshipLoading ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <PlayArrowRoundedIcon />
+                )
+              }
+              disabled={isFlagshipLoading}
               onClick={() => {
-                handleLoadTrace(flagshipExample.trace, {
+                void loadExample(flagshipExample, {
                   autoplay: true,
                   playThrough: true,
-                  exampleId: flagshipExample.id,
+                }).then((loaded) => {
+                  if (!loaded) return;
+                  setDemoToast({ step: 1, flagship: true, withSdkPitch: true });
                 });
-                setDemoToast({ step: 1, flagship: true, withSdkPitch: true });
               }}
               sx={{ width: { xs: "100%", sm: 320 } }}
             >
@@ -1280,10 +1376,10 @@ export default function Home() {
       <ExampleGallery
         open={galleryOpen}
         onClose={() => setGalleryOpen(false)}
-        onSelect={(flow) =>
-          handleLoadTrace(flow.trace, { autoplay: true, exampleId: flow.id })
-        }
-        currentName={trace.name}
+        onSelect={(flow) => {
+          void loadExample(flow, { autoplay: true });
+        }}
+        currentExampleId={currentExampleId}
       />
 
       <TutorialDialog
@@ -1291,12 +1387,13 @@ export default function Home() {
         onClose={() => setTutorialOpen(false)}
         onWatchDemo={() => {
           setTutorialOpen(false);
-          handleLoadTrace(flagshipExample.trace, {
+          void loadExample(flagshipExample, {
             autoplay: true,
             playThrough: true,
-            exampleId: flagshipExample.id,
+          }).then((loaded) => {
+            if (!loaded) return;
+            setDemoToast({ step: 1, flagship: true, withSdkPitch: false });
           });
-          setDemoToast({ step: 1, flagship: true, withSdkPitch: false });
         }}
       />
 
@@ -1322,6 +1419,26 @@ export default function Home() {
           sx={{ maxWidth: 480 }}
         >
           Trace loaded. Processed locally; nothing was sent to a server.
+        </Alert>
+      </Snackbar>
+
+      {/* Example traces are fetched on demand, so unlike an upload they can
+          fail — offline, or a redeploy that renamed the chunk under a tab that
+          has been open across it. Either way a reload fixes it. */}
+      <Snackbar
+        open={exampleErrorOpen}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        autoHideDuration={6000}
+        onClose={() => setExampleErrorOpen(false)}
+        sx={{ top: { xs: 104, sm: 76 } }}
+      >
+        <Alert
+          severity="error"
+          onClose={() => setExampleErrorOpen(false)}
+          sx={{ maxWidth: 480 }}
+        >
+          Couldn&apos;t load that example. Check your connection and try again,
+          or reload the page.
         </Alert>
       </Snackbar>
 
