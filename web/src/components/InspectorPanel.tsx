@@ -58,6 +58,14 @@ type InspectorPanelProps = {
    */
   currentVisitStepId?: string;
   /**
+   * Whether the selected message visits this node at all. Picks which of the
+   * two empty states to show: a node that ran and logged nothing says so,
+   * while one that took no part in this message gets the plainer line. The
+   * distinction matters once a selection is carried across messages to
+   * compare one node's turns.
+   */
+  visitedInMessage?: boolean;
+  /**
    * Whether the panel is shown maximized (fullscreen dialog) rather than as
    * the side panel. Toggled by the header button; omitted callback hides it.
    */
@@ -204,6 +212,7 @@ export default function InspectorPanel({
   selectedNodeDescription,
   payloads,
   currentVisitStepId,
+  visitedInMessage = true,
   maximized,
   onMaximizedChange,
   focusPayload,
@@ -335,7 +344,11 @@ export default function InspectorPanel({
     return (
       <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
         {header}
-        <CenteredHint>No payloads logged for this node.</CenteredHint>
+        <CenteredHint>
+          {visitedInMessage
+            ? "Node ran, but no payload was logged."
+            : "No payloads logged for this node."}
+        </CenteredHint>
       </Box>
     );
   }

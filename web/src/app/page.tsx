@@ -329,14 +329,37 @@ export default function Home() {
     [steps]
   );
 
+  // Selecting a message always restarts the replay at its first step. Which
+  // node the inspector is showing is a separate question, though:
+  // `keepSelectedNode` holds onto it, so reading one node across several
+  // messages doesn't lose your place every time you move.
+  //
+  // Kept even when the new message never visits that node: the panel says so
+  // (which is worth knowing when you're comparing a node across turns), and
+  // the selection survives to the next message that does have it. Dropping it
+  // instead would end the thread for good — one unrelated message and the
+  // node could never come back. Selecting a node the current message doesn't
+  // visit is already reachable by clicking one in the graph, so this is a
+  // state the inspector handles rather than a new one.
+  //
+  // The divergence between selection and playhead heals itself: goToStep
+  // re-selects the node under the playhead as soon as you step or play. And
+  // playback's own message advance deliberately doesn't pass this — there the
+  // selection should follow the playhead, which is the point of a replay.
   const goToMessageStart = useCallback(
-    (messageIndex: number) => {
+    (messageIndex: number, options?: { keepSelectedNode?: boolean }) => {
       const message = trace.messages[messageIndex];
       if (!message) return false;
 
       setSelectedMessageId(message.id);
       setCurrentStepIndex(0);
-      setSelectedNodeId(orderedSteps(message)[0]?.nodeId);
+      // Read through the updater rather than closing over selectedNodeId, so
+      // this callback stays stable for the playback effect that depends on it.
+      setSelectedNodeId((current) =>
+        options?.keepSelectedNode && current
+          ? current
+          : orderedSteps(message)[0]?.nodeId
+      );
       return true;
     },
     [trace.messages]
@@ -347,7 +370,7 @@ export default function Home() {
       disableGraphArrangeMode();
       setIsPlaying(false);
       const messageIndex = trace.messages.findIndex((m) => m.id === messageId);
-      goToMessageStart(messageIndex);
+      goToMessageStart(messageIndex, { keepSelectedNode: true });
     },
     [disableGraphArrangeMode, goToMessageStart, trace.messages]
   );
@@ -361,7 +384,7 @@ export default function Home() {
 
       disableGraphArrangeMode();
       setIsPlaying(false);
-      goToMessageStart(nextMessageIndex);
+      goToMessageStart(nextMessageIndex, { keepSelectedNode: true });
     },
     [
       currentMessageIndex,
@@ -949,6 +972,12 @@ export default function Home() {
     }
     return steps.find((s) => s.nodeId === selectedNodeId)?.id;
   }, [steps, currentStepIndex, selectedNodeId]);
+
+  // A selection carried over from another message may name a node this one
+  // never runs. The inspector says which kind of empty that is.
+  const selectedNodeVisited =
+    !selectedNodeId || steps.some((step) => step.nodeId === selectedNodeId);
+
   const selectedNode = trace.graph.nodes.find((n) => n.id === selectedNodeId);
   const selectedNodeLabel = selectedNode?.label;
 
@@ -1151,6 +1180,7 @@ export default function Home() {
                   selectedNodeDescription={selectedNode?.description}
                   payloads={payloads}
                   currentVisitStepId={currentVisitStepId}
+                  visitedInMessage={selectedNodeVisited}
                   maximized={false}
                   onMaximizedChange={inspector.setMaximized}
                   focusPayload={inspector.focus}
@@ -1168,6 +1198,7 @@ export default function Home() {
                 selectedNodeDescription={selectedNode?.description}
                 payloads={payloads}
                 currentVisitStepId={currentVisitStepId}
+                visitedInMessage={selectedNodeVisited}
                 maximized
                 onMaximizedChange={inspector.setMaximized}
                 focusPayload={inspector.focus}
