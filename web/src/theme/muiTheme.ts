@@ -68,5 +68,19 @@ export const theme = createTheme({
         },
       },
     },
+    MuiDialog: {
+      styleOverrides: {
+        // A dialog takes focus on open (MUI puts `tabIndex={-1}` on the paper)
+        // so keyboard and screen readers land inside it. MUI means to suppress
+        // the browser's focus ring for that — its own comment says so — but the
+        // `outline: 0` reset sits on the container slot while the focus target
+        // is the paper, so Chrome draws a bright ring around the whole dialog.
+        // It only shows when the last input was the keyboard (Ctrl+R yes, click
+        // reload no), which reads as a rendering glitch. Ringing the box itself
+        // marks nothing actionable anyway — the first Tab moves focus to a real
+        // control, and those keep their own rings.
+        paper: { outline: 0 },
+      },
+    },
   },
 });
