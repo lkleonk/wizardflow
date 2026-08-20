@@ -17,6 +17,11 @@ export function nodeColorAt(index: number): string {
   return NODE_PALETTE[index % NODE_PALETTE.length];
 }
 
+// Third dark surface, above the canvas (#0B0D10) and the panels/nodes
+// (#15181D). For things that float over the canvas with nothing else to
+// separate them — see the MuiAlert override below.
+const DARK_OVERLAY_SURFACE = "#232A34";
+
 // CSS-variables theme with both color schemes. The active scheme is switched by
 // the `data-mui-color-scheme` attribute on <html> (set pre-hydration by
 // InitColorSchemeScript), so toggling never re-renders styles — no flash.
@@ -66,6 +71,26 @@ export const theme = createTheme({
           backgroundImage: "none",
           border: "1px solid var(--mui-palette-divider)",
         },
+      },
+    },
+    MuiAlert: {
+      styleOverrides: {
+        // Alerts here always ride in a Snackbar floating over the graph canvas.
+        // Unlike dialogs they get no dimmed backdrop to separate them, and the
+        // app expresses depth through surface colour alone (no shadows, and
+        // MuiPaper above switches off MUI's dark elevation overlay), so the
+        // only thing that can lift a toast off the canvas is being lighter.
+        //
+        // MUI derives a standard Alert's background from the severity colour —
+        // `darken(palette.<severity>.light, 0.9)` in dark mode — which with our
+        // blue lands on #0D1219, near-identical to the #0B0D10 canvas. Paper
+        // (#15181D) isn't enough either: that's the graph nodes' own colour, so
+        // the toast reads as one more node. Hence a dedicated step above both.
+        // Light mode is left alone; MUI's tint separates fine against #F6F7F9.
+        root: ({ theme }) =>
+          theme.applyStyles("dark", {
+            backgroundColor: DARK_OVERLAY_SURFACE,
+          }),
       },
     },
     MuiDialog: {
