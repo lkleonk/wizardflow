@@ -28,6 +28,7 @@ import Tooltip from "@mui/material/Tooltip";
 import ViewSidebarOutlinedIcon from "@mui/icons-material/ViewSidebarOutlined";
 import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
+import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import CloseIcon from "@mui/icons-material/Close";
@@ -117,6 +118,15 @@ const PYTHON_SDK_QUICKSTART_URL =
 const FLAGSHIP_EXAMPLE_ID = "doctor-consultation";
 const flagshipExample =
   exampleFlows.find((flow) => flow.id === FLAGSHIP_EXAMPLE_ID) ?? exampleFlows[0];
+
+// An example load in flight or awaiting confirmation. Carries the toast its
+// entry point wants armed afterwards, so the request survives the round trip
+// through the confirm dialog without the caller holding a callback.
+type PendingExample = {
+  flow: ExampleFlow;
+  options?: { autoplay?: boolean; playThrough?: boolean };
+  toast?: DemoToastState;
+};
 
 const footerLinks = [
   ...(isHostedWizardFlow
@@ -322,7 +332,6 @@ export default function Home() {
     getWelcomeDismissed,
     getServerWelcomeDismissed
   );
-  const welcomeOpen = !welcomeDismissed && !savedFlow && !isLoadingUrlTrace;
 
   // The example-flow picker (a gallery dialog opened from the header).
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -339,6 +348,36 @@ export default function Home() {
   // can show progress instead of appearing dead for a beat.
   const [loadingExampleId, setLoadingExampleId] = useState<string | null>(null);
   const isFlagshipLoading = loadingExampleId === FLAGSHIP_EXAMPLE_ID;
+
+  // Whether this tab was opened on an `?example=` deep link that still has to
+  // resolve. Read during the first render, not from the effect that performs
+  // the load: the effect runs after hydration, and by then useSyncExternalStore
+  // has already swapped in the real (undismissed) welcome flag and painted the
+  // dialog. Deciding here means it never opens in the first place.
+  //
+  // Safe for hydration — the server renders the welcome closed anyway, and
+  // this only ever keeps it closed. Cleared once the load settles so a failed
+  // fetch still lands on the normal welcome screen.
+  const [exampleDeepLinkPending, setExampleDeepLinkPending] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("trace")) return false;
+    const id = params.get("example");
+    return !!id && exampleFlows.some((flow) => flow.id === id);
+  });
+
+  // A flow arriving in a moment counts as "a flow is loaded" here, or the
+  // welcome dialog flashes in front of it while it lands: a fresh tab has an
+  // empty session store, so the dialog would otherwise open on hydration and
+  // stay up for the whole fetch. `isLoadingUrlTrace` covers `?trace=`; the
+  // other two cover `?example=`, whose trace is now a separate chunk fetched
+  // on demand rather than part of the entry bundle.
+  const welcomeOpen =
+    !welcomeDismissed &&
+    !savedFlow &&
+    !isLoadingUrlTrace &&
+    !loadingExampleId &&
+    !exampleDeepLinkPending;
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [offlineTipOpen, setOfflineTipOpen] = useState(false);
 
@@ -355,6 +394,12 @@ export default function Home() {
 
   // Shown when a bundled example's chunk can't be fetched (see loadExample).
   const [exampleErrorOpen, setExampleErrorOpen] = useState(false);
+
+  // An example the user picked while their own flow was open, held until they
+  // confirm replacing it (see requestExample).
+  const [pendingExample, setPendingExample] = useState<PendingExample | null>(
+    null
+  );
 
   // Anchor for the footer "Data stays local" popover (LocalDataDetails).
   const [localDataAnchor, setLocalDataAnchor] = useState<HTMLElement | null>(
@@ -637,6 +682,46 @@ export default function Home() {
     },
     [handleLoadTrace]
   );
+
+  // Load an example and arm whatever toast belongs to that entry point.
+  const runExample = useCallback(
+    async (request: PendingExample) => {
+      const loaded = await loadExample(request.flow, request.options);
+      if (loaded && request.toast) setDemoToast(request.toast);
+    },
+    [loadExample]
+  );
+
+  // Every example entry point goes through here rather than calling
+  // loadExample directly, so the one destructive case is caught in one place:
+  // loading an example replaces whatever flow is open, and if that flow is the
+  // user's own it cannot be recovered from inside the app — an upload would
+  // have to be re-picked from disk. Confirm first in that case. Replacing one
+  // example with another costs nothing, so it goes straight through.
+  const requestExample = useCallback(
+    (request: PendingExample) => {
+      if (savedFlow && !currentExampleId) {
+        setPendingExample(request);
+        return;
+      }
+      void runExample(request);
+    },
+    [savedFlow, currentExampleId, runExample]
+  );
+
+  // Show an example in a second tab, leaving the user's flow untouched here.
+  // The whole query string is dropped rather than just swapping `?example=`:
+  // `?trace=` wins over `?example=` in the deep-link effect below, so a CLI
+  // session would otherwise reopen the served trace instead of the example.
+  // `noopener` is what keeps the new tab's session storage empty — a tab that
+  // keeps its opener inherits a copy, and the deep-link effect refuses to
+  // clobber an already-saved flow, which would swallow the example.
+  const openExampleInNewTab = useCallback((flow: ExampleFlow) => {
+    const url = new URL(window.location.href);
+    url.search = "";
+    url.searchParams.set("example", flow.id);
+    window.open(url.toString(), "_blank", "noopener");
+  }, []);
 
   // Warm the flagship's chunk once the page is idle. It's the one example most
   // visitors open ("Watch a demo replay" is the welcome screen's main action),
@@ -935,9 +1020,16 @@ export default function Home() {
       if (!exampleParam || getSavedFlow()) return;
 
       const example = exampleFlows.find((flow) => flow.id === exampleParam);
-      if (!example) return;
+      if (!example) {
+        setExampleDeepLinkPending(false);
+        return;
+      }
       void loadExample(example, { autoplay: true, playThrough: true }).then(
         (loaded) => {
+          // Released either way: on success the loaded flow keeps the welcome
+          // closed, on failure the user should get the welcome screen back
+          // rather than an empty canvas with no way forward.
+          setExampleDeepLinkPending(false);
           if (cancelled || !loaded) return;
           // A deep-link visitor skipped the welcome dialog entirely, so they
           // get the full explainer toast.
@@ -1251,12 +1343,10 @@ export default function Home() {
               }
               disabled={isFlagshipLoading}
               onClick={() => {
-                void loadExample(flagshipExample, {
-                  autoplay: true,
-                  playThrough: true,
-                }).then((loaded) => {
-                  if (!loaded) return;
-                  setDemoToast({ step: 1, flagship: true, withSdkPitch: true });
+                requestExample({
+                  flow: flagshipExample,
+                  options: { autoplay: true, playThrough: true },
+                  toast: { step: 1, flagship: true, withSdkPitch: true },
                 });
               }}
               sx={{ width: { xs: "100%", sm: 320 } }}
@@ -1377,22 +1467,82 @@ export default function Home() {
         open={galleryOpen}
         onClose={() => setGalleryOpen(false)}
         onSelect={(flow) => {
-          void loadExample(flow, { autoplay: true });
+          requestExample({ flow, options: { autoplay: true } });
         }}
         currentExampleId={currentExampleId}
       />
+
+      {/* Guard for the one destructive thing the gallery does. The session
+          store holds a single flow, so an example overwrites whatever is open,
+          and the app can't put a user's own trace back — the file it came from
+          isn't readable again without the user picking it. Only shown when the
+          flow on screen is theirs; swapping one example for another is free. */}
+      <Dialog
+        open={pendingExample !== null}
+        onClose={() => setPendingExample(null)}
+        maxWidth="xs"
+        fullWidth
+        aria-labelledby="replace-trace-title"
+      >
+        <DialogTitle id="replace-trace-title">Replace the open trace?</DialogTitle>
+        <DialogContent>
+          <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>
+            Opening{" "}
+            <Box component="span" sx={{ color: "text.primary", fontWeight: 600 }}>
+              {pendingExample?.flow.title}
+            </Box>{" "}
+            closes{" "}
+            <Box component="span" sx={{ color: "text.primary", fontWeight: 600 }}>
+              {trace.name || "your trace"}
+            </Box>
+            . WizardFlow holds one flow at a time, so you would have to open
+            your trace again — or open the example in a new tab and keep both.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, flexWrap: "wrap", gap: 1 }}>
+          <Button
+            size="small"
+            color="inherit"
+            onClick={() => setPendingExample(null)}
+          >
+            Cancel
+          </Button>
+          <Box sx={{ flex: 1 }} />
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<OpenInNewRoundedIcon />}
+            onClick={() => {
+              const request = pendingExample;
+              setPendingExample(null);
+              if (request) openExampleInNewTab(request.flow);
+            }}
+          >
+            New tab
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            onClick={() => {
+              const request = pendingExample;
+              setPendingExample(null);
+              if (request) void runExample(request);
+            }}
+          >
+            Open here
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <TutorialDialog
         open={tutorialOpen}
         onClose={() => setTutorialOpen(false)}
         onWatchDemo={() => {
           setTutorialOpen(false);
-          void loadExample(flagshipExample, {
-            autoplay: true,
-            playThrough: true,
-          }).then((loaded) => {
-            if (!loaded) return;
-            setDemoToast({ step: 1, flagship: true, withSdkPitch: false });
+          requestExample({
+            flow: flagshipExample,
+            options: { autoplay: true, playThrough: true },
+            toast: { step: 1, flagship: true, withSdkPitch: false },
           });
         }}
       />
