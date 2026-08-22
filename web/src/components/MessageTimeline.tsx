@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Box from "@mui/material/Box";
 import ButtonBase from "@mui/material/ButtonBase";
 import Chip from "@mui/material/Chip";
@@ -32,7 +32,7 @@ type MessageTimelineProps = {
 
 const PREVIEW_MAX = 24;
 const TOOLTIP_META_VALUE_MAX = 160;
-const MESSAGE_TOOLTIP_ENTER_DELAY = 500;
+const MESSAGE_TOOLTIP_ENTER_DELAY = 1_200;
 // How far from the strip's right edge still counts as "parked at the end".
 // Wide enough to cover the strip's right padding, which scrollIntoView leaves
 // behind when it aligns the last chip.
@@ -42,6 +42,10 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+function comparableText(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 // Meta values are short scalars by contract; an out-of-contract object/array
 // (from a hand-written trace) still renders readably as JSON instead of
 // "[object Object]".
@@ -49,6 +53,217 @@ function metaText(value: unknown): string {
   return typeof value === "object" && value !== null
     ? JSON.stringify(value)
     : String(value);
+}
+
+function useClippedText(text: string) {
+  const textRef = useRef<HTMLDivElement | null>(null);
+  const [clipped, setClipped] = useState(false);
+
+  useEffect(() => {
+    const element = textRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      setClipped(
+        element.scrollWidth > element.clientWidth + 1 ||
+          element.scrollHeight > element.clientHeight + 1
+      );
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text]);
+
+  return { textRef, clipped };
+}
+
+function ClampedMessageText({
+  text,
+  textRef,
+  lines,
+  variant,
+  sx,
+  children,
+}: {
+  text: string;
+  textRef: React.Ref<HTMLDivElement>;
+  lines: number;
+  variant: "body2" | "caption";
+  sx?: Record<string, unknown>;
+  children?: React.ReactNode;
+}) {
+  return (
+    <Typography
+      ref={textRef}
+      component="div"
+      variant={variant}
+      sx={{
+        display: "-webkit-box",
+        WebkitBoxOrient: "vertical",
+        WebkitLineClamp: lines,
+        overflow: "hidden",
+        maxWidth: "100%",
+        wordBreak: "break-word",
+        ...sx,
+      }}
+    >
+      {children ?? text}
+    </Typography>
+  );
+}
+
+function ExpandedMessageCard({
+  messageId,
+  index,
+  fullText,
+  secondary,
+  metaEntries,
+  selected,
+  onSelectMessage,
+  anchorRef,
+}: {
+  messageId: string;
+  index: number;
+  fullText: string;
+  secondary: string;
+  metaEntries: [string, unknown][];
+  selected: boolean;
+  onSelectMessage: (messageId: string) => void;
+  anchorRef?: React.Ref<HTMLSpanElement>;
+}) {
+  const headline = useClippedText(fullText);
+  const input = useClippedText(secondary);
+  const metaSummary = metaEntries
+    .map(([key, value]) => `${key}: ${metaText(value)}`)
+    .join(" · ");
+  const meta = useClippedText(metaSummary);
+  const mutedSx = selected
+    ? { color: "inherit", opacity: 0.85 }
+    : { color: "text.secondary" };
+
+  const hasClippedContent =
+    headline.clipped || input.clipped || meta.clipped;
+  const tooltipTitle = hasClippedContent ? (
+    <Box>
+      {headline.clipped && (
+        <Typography
+          variant="caption"
+          sx={{ display: "block", fontWeight: 600, mb: 0.5 }}
+        >
+          {fullText}
+        </Typography>
+      )}
+      {input.clipped && (
+        <Box sx={{ mb: meta.clipped ? 0.5 : 0 }}>
+          <Typography variant="caption" sx={{ display: "block", opacity: 0.65 }}>
+            Input
+          </Typography>
+          <Typography variant="caption" sx={{ display: "block" }}>
+            {secondary}
+          </Typography>
+        </Box>
+      )}
+      {meta.clipped &&
+        metaEntries.map(([key, value]) => (
+          <Box key={key} sx={{ display: "flex", gap: 1, py: 0.1 }}>
+            <Typography variant="caption" sx={{ opacity: 0.7, flexShrink: 0 }}>
+              {key}
+            </Typography>
+            <Typography variant="caption" sx={{ wordBreak: "break-word" }}>
+              {truncate(metaText(value), TOOLTIP_META_VALUE_MAX)}
+            </Typography>
+          </Box>
+        ))}
+    </Box>
+  ) : (
+    ""
+  );
+
+  return (
+    <Tooltip
+      title={tooltipTitle}
+      placement="top"
+      enterDelay={MESSAGE_TOOLTIP_ENTER_DELAY}
+      enterNextDelay={MESSAGE_TOOLTIP_ENTER_DELAY}
+      disableInteractive
+    >
+      <Box
+        component="span"
+        ref={anchorRef}
+        sx={{ display: "inline-flex", flexShrink: 0 }}
+      >
+        <ButtonBase
+          onClick={() => onSelectMessage(messageId)}
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            textAlign: "left",
+            border: 1,
+            borderColor: selected ? "primary.main" : "divider",
+            bgcolor: selected ? "primary.main" : "transparent",
+            color: selected ? "primary.contrastText" : "text.primary",
+            borderRadius: 2,
+            px: 1.25,
+            py: 0.5,
+            maxWidth: { xs: 240, sm: 320 },
+          }}
+        >
+          <ClampedMessageText
+            text={fullText}
+            textRef={headline.textRef}
+            variant="body2"
+            lines={2}
+            sx={{ fontWeight: 500 }}
+          >
+            <Box
+              component="span"
+              sx={{ opacity: 0.65, fontWeight: 400, mr: 0.5 }}
+            >
+              {index + 1}
+              {fullText && " ·"}
+            </Box>
+            {fullText}
+          </ClampedMessageText>
+          {secondary && (
+            <ClampedMessageText
+              text={secondary}
+              textRef={input.textRef}
+              variant="caption"
+              lines={2}
+              sx={mutedSx}
+            />
+          )}
+          {metaEntries.length > 0 && (
+            <Box
+              sx={{
+                position: "relative",
+                width: "100%",
+                mt: 0.4,
+                pt: 0.4,
+                "&::before": {
+                  content: '""',
+                  position: "absolute",
+                  top: 0,
+                  right: 0,
+                  left: 0,
+                  borderTop: "1px solid",
+                  borderColor: "currentColor",
+                  opacity: 0.18,
+                },
+              }}
+            >
+              <ClampedMessageText
+                text={metaSummary}
+                textRef={meta.textRef}
+                variant="caption"
+                lines={1}
+                sx={mutedSx}
+              />
+            </Box>
+          )}
+        </ButtonBase>
+      </Box>
+    </Tooltip>
+  );
 }
 
 export default function MessageTimeline({
@@ -196,127 +411,44 @@ export default function MessageTimeline({
           const preview = messageInputText(message);
           const fullText = title || preview;
           const metaEntries = message.meta ? Object.entries(message.meta) : [];
-
-          // Tooltip carries everything the chip/card may clip: the headline,
-          // the input preview when a dev title displaced it from the headline,
-          // and the meta as key/value rows (values truncated — the expanded
-          // strip is the place to actually read things).
-          const secondary = title ? preview : "";
-          let tooltipTitle: React.ReactNode = "";
-          if (metaEntries.length > 0 || secondary) {
-            tooltipTitle = (
-              <Box>
-                {fullText && (
-                  <Typography
-                    variant="caption"
-                    sx={{ display: "block", fontWeight: 600, mb: 0.25 }}
-                  >
-                    {fullText}
-                  </Typography>
-                )}
-                {secondary && (
-                  <Typography
-                    variant="caption"
-                    sx={{ display: "block", opacity: 0.8, mb: 0.25 }}
-                  >
-                    {secondary}
-                  </Typography>
-                )}
-                {metaEntries.map(([key, value]) => (
-                  <Box key={key} sx={{ display: "flex", gap: 1, py: 0.1 }}>
-                    <Typography
-                      variant="caption"
-                      sx={{ opacity: 0.7, flexShrink: 0 }}
-                    >
-                      {key}
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{ wordBreak: "break-word" }}
-                    >
-                      {truncate(metaText(value), TOOLTIP_META_VALUE_MAX)}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
+          const secondary =
+            title && comparableText(title) !== comparableText(preview)
+              ? preview
+              : "";
+          if (expanded) {
+            return (
+              <ExpandedMessageCard
+                key={message.id}
+                messageId={message.id}
+                index={index}
+                fullText={fullText}
+                secondary={secondary}
+                metaEntries={metaEntries}
+                selected={selected}
+                onSelectMessage={onSelectMessage}
+                anchorRef={selected ? selectedItemRef : undefined}
+              />
             );
-          } else if (fullText.length > PREVIEW_MAX) {
-            tooltipTitle = fullText;
           }
 
-          let item: React.ReactNode;
-          if (expanded) {
-            const mutedSx = selected
-              ? { color: "inherit", opacity: 0.85 }
-              : { color: "text.secondary" };
-            item = (
-              <ButtonBase
-                onClick={() => onSelectMessage(message.id)}
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "flex-start",
-                  textAlign: "left",
-                  border: 1,
-                  borderColor: selected ? "primary.main" : "divider",
-                  bgcolor: selected ? "primary.main" : "transparent",
-                  color: selected ? "primary.contrastText" : "text.primary",
-                  borderRadius: 2,
-                  px: 1.25,
-                  py: 0.5,
-                  maxWidth: { xs: 240, sm: 320 },
-                }}
-              >
-                <Typography
-                  variant="body2"
-                  noWrap
-                  sx={{ maxWidth: "100%", fontWeight: 500 }}
-                >
-                  <Box
-                    component="span"
-                    sx={{ opacity: 0.65, fontWeight: 400, mr: 0.5 }}
-                  >
-                    {index + 1}
-                    {fullText && " ·"}
-                  </Box>
-                  {fullText}
-                </Typography>
-                {secondary && (
-                  <Typography
-                    variant="caption"
-                    noWrap
-                    sx={{ maxWidth: "100%", ...mutedSx }}
-                  >
-                    {secondary}
-                  </Typography>
-                )}
-                {metaEntries.length > 0 && (
-                  <Typography
-                    variant="caption"
-                    noWrap
-                    sx={{ maxWidth: "100%", ...mutedSx }}
-                  >
-                    {metaEntries
-                      .map(([key, value]) => `${key}: ${metaText(value)}`)
-                      .join(" · ")}
-                  </Typography>
-                )}
-              </ButtonBase>
-            );
-          } else {
-            // Every chip leads with a muted position index — the strip is a
-            // timeline, so order stays visible even on titled messages. The
-            // text is the dev title when set, else the input preview.
-            const label = (
-              <>
-                <Box component="span" sx={{ opacity: 0.65, mr: 0.5 }}>
-                  {index + 1}
-                  {fullText && " ·"}
-                </Box>
-                {truncate(fullText, PREVIEW_MAX)}
-              </>
-            );
-            item = (
+          // Compact chips are navigation only. Expanding the timeline is the
+          // explicit way to reveal message details.
+          const label = (
+            <>
+              <Box component="span" sx={{ opacity: 0.65, mr: 0.5 }}>
+                {index + 1}
+                {fullText && " ·"}
+              </Box>
+              {truncate(fullText, PREVIEW_MAX)}
+            </>
+          );
+          return (
+            <Box
+              key={message.id}
+              component="span"
+              ref={selected ? selectedItemRef : undefined}
+              sx={{ display: "inline-flex", flexShrink: 0 }}
+            >
               <Chip
                 label={label}
                 onClick={() => onSelectMessage(message.id)}
@@ -325,28 +457,7 @@ export default function MessageTimeline({
                 size="small"
                 sx={{ maxWidth: { xs: 240, sm: 320 } }}
               />
-            );
-          }
-
-          // Anchor the Tooltip to a stable <span>, not the chip/card — otherwise
-          // re-rendering it (e.g. selecting it) disturbs the cloned tooltip
-          // child and makes it flicker. Empty title = no tooltip.
-          return (
-            <Tooltip
-              key={message.id}
-              title={tooltipTitle}
-              placement="top"
-              enterDelay={MESSAGE_TOOLTIP_ENTER_DELAY}
-              disableInteractive
-            >
-              <Box
-                component="span"
-                ref={selected ? selectedItemRef : undefined}
-                sx={{ display: "inline-flex", flexShrink: 0 }}
-              >
-                {item}
-              </Box>
-            </Tooltip>
+            </Box>
           );
         })}
         {newMessageCount > 0 && onJumpToNewest && (
