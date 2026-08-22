@@ -1184,6 +1184,8 @@ export default function Home() {
                   maximized={false}
                   onMaximizedChange={inspector.setMaximized}
                   focusPayload={inspector.focus}
+                  selectedPayload={inspector.selectedPayload}
+                  onSelectedPayloadChange={inspector.setSelectedPayload}
                 />
               )}
             </Paper>
@@ -1202,6 +1204,8 @@ export default function Home() {
                 maximized
                 onMaximizedChange={inspector.setMaximized}
                 focusPayload={inspector.focus}
+                selectedPayload={inspector.selectedPayload}
+                onSelectedPayloadChange={inspector.setSelectedPayload}
               />
             </Dialog>
           </>

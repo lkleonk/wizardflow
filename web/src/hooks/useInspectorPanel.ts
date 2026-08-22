@@ -8,6 +8,9 @@ export type InspectorPanelState = {
   setMaximized: (maximized: boolean) => void;
   /** One-shot payload-tab focus request (see InspectorPanel's `focusPayload`). */
   focus: { index: number; seq: number } | undefined;
+  /** Last payload tab selected for a node visit, retained across panel remounts. */
+  selectedPayload: { contextKey: string; index: number } | undefined;
+  setSelectedPayload: (selection: { contextKey: string; index: number }) => void;
   /** Open the panel and ask it to focus one payload tab. */
   revealPayload: (index: number) => void;
   /** mousedown on the drag handle along the panel's left edge. */
@@ -22,6 +25,10 @@ export function useInspectorPanel(onInteract: () => void): InspectorPanelState {
   const [width, setWidth] = useState(360);
   const [maximized, setMaximized] = useState(false);
   const [focus, setFocus] = useState<{ index: number; seq: number }>();
+  const [selectedPayload, setSelectedPayload] = useState<{
+    contextKey: string;
+    index: number;
+  }>();
 
   const toggle = useCallback(() => setOpen((current) => !current), []);
 
@@ -69,9 +76,20 @@ export function useInspectorPanel(onInteract: () => void): InspectorPanelState {
       maximized,
       setMaximized,
       focus,
+      selectedPayload,
+      setSelectedPayload,
       revealPayload,
       startResize,
     }),
-    [open, toggle, width, maximized, focus, revealPayload, startResize]
+    [
+      open,
+      toggle,
+      width,
+      maximized,
+      focus,
+      selectedPayload,
+      revealPayload,
+      startResize,
+    ]
   );
 }

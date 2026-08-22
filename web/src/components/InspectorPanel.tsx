@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Box from "@mui/material/Box";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
@@ -77,6 +77,12 @@ type InspectorPanelProps = {
    * the same index; the request only applies when `seq` changes.
    */
   focusPayload?: { index: number; seq: number };
+  /** Selected tab retained by the panel frame across docked/fullscreen remounts. */
+  selectedPayload?: { contextKey: string; index: number };
+  onSelectedPayloadChange?: (selection: {
+    contextKey: string;
+    index: number;
+  }) => void;
 };
 
 // A payload value is either already structured (an object/array, always safe
@@ -216,11 +222,16 @@ export default function InspectorPanel({
   maximized,
   onMaximizedChange,
   focusPayload,
+  selectedPayload,
+  onSelectedPayloadChange,
 }: InspectorPanelProps) {
-  // Initialized to the current visit's first payload (not 0) because toggling
-  // maximize remounts the panel — the reset-key logic below only reacts to
-  // *changes*, so the initial value must already point at the right visit.
+  const resetKey = `${selectedNodeId}:${currentVisitStepId}`;
+
+  // Maximizing swaps the docked panel for the fullscreen instance. Restore the
+  // shared selection when it belongs to this node visit; otherwise initialize
+  // to the current visit's first payload as before.
   const [tab, setTab] = useState(() => {
+    if (selectedPayload?.contextKey === resetKey) return selectedPayload.index;
     const firstOfVisit = payloads.findIndex((p) => p.stepId === currentVisitStepId);
     return firstOfVisit >= 0 ? firstOfVisit : 0;
   });
@@ -247,7 +258,6 @@ export default function InspectorPanel({
   // id (not payload count, which is identical across visits of the same node).
   // Done during render (tracking the previous key) rather than in an effect, per
   // React guidance — the rendered index is still clamped below as a safety net.
-  const resetKey = `${selectedNodeId}:${currentVisitStepId}`;
   const [lastResetKey, setLastResetKey] = useState(resetKey);
   if (resetKey !== lastResetKey) {
     setLastResetKey(resetKey);
@@ -266,6 +276,13 @@ export default function InspectorPanel({
       setTab(focusPayload.index);
     }
   }
+
+  // Keep the selection above the two mutually exclusive panel instances so a
+  // maximize/restore remount cannot reset it. The context key prevents a tab
+  // index from one node visit leaking into another.
+  useEffect(() => {
+    onSelectedPayloadChange?.({ contextKey: resetKey, index: tab });
+  }, [onSelectedPayloadChange, resetKey, tab]);
 
   if (!selectedNodeId) {
     // Maximized, this hint is a fullscreen dialog — keep a visible way back
