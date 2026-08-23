@@ -95,6 +95,14 @@ def test_bare_wizardflow_prints_help(capsys):
     out = capsys.readouterr().out
     assert "usage: wizardflow" in out
     assert "ui" in out
+    assert "examples:" in out
+
+
+def test_version_flag_prints_version(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--version"])
+    assert excinfo.value.code == 0
+    assert capsys.readouterr().out.startswith("wizardflow ")
 
 
 def test_run_ui_without_path_hints_when_cwd_has_no_traces(tmp_path, monkeypatch):

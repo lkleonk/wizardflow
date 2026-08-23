@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 import sys
 import webbrowser
@@ -69,10 +70,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     return 0
 
 
+def _package_version() -> str:
+    try:
+        return importlib.metadata.version("wizardflow")
+    except importlib.metadata.PackageNotFoundError:
+        # Running from a source checkout without an installed distribution.
+        return "unknown (not installed)"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wizardflow",
         description="Record and inspect WizardFlow agent traces.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  wizardflow ui                     open the newest trace in this directory\n"
+            "  wizardflow ui run.jsonl           open a specific trace\n"
+            "  wizardflow md run.jsonl -o run.md render a trace to Markdown"
+        ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"wizardflow {_package_version()}",
     )
     # Not required: a bare `wizardflow` prints the full help (see main()).
     subparsers = parser.add_subparsers(dest="command")
