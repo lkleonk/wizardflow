@@ -74,7 +74,8 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="wizardflow",
         description="Record and inspect WizardFlow agent traces.",
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    # Not required: a bare `wizardflow` prints the full help (see main()).
+    subparsers = parser.add_subparsers(dest="command")
 
     # Shared by every subcommand that reads a trace file.
     trace_input = argparse.ArgumentParser(add_help=False)
@@ -98,7 +99,8 @@ def _build_parser() -> argparse.ArgumentParser:
     ui = subparsers.add_parser(
         "ui",
         parents=[trace_input],
-        help="Open a local WizardFlow viewer for an AgentTrace file.",
+        help="Open a local WizardFlow viewer for an AgentTrace file "
+        "(default: the newest trace in the current directory).",
     )
     ui.add_argument(
         "--host",
@@ -178,7 +180,20 @@ def run_ui(
     open_browser: bool,
     latest: bool = False,
 ) -> int:
-    trace_path = _resolve_trace_path(trace=trace, path=path, latest=latest)
+    # Bare `wizardflow ui` behaves like `--latest` on the current directory —
+    # the trace is still served through TRACE_ROUTE, so live updates work
+    # exactly as with an explicit path.
+    inferred = trace is None and path is None and not latest
+    if inferred:
+        try:
+            trace_path = _resolve_latest_trace(None)
+        except WizardFlowCliError as exc:
+            raise WizardFlowCliError(
+                f"{exc} (pass a trace file: wizardflow ui path/to/trace.jsonl)"
+            ) from exc
+        print(f"Serving newest trace: {trace_path}")
+    else:
+        trace_path = _resolve_trace_path(trace=trace, path=path, latest=latest)
     _load_trace(trace_path)  # fail fast on an unreadable trace before serving
     ui_dir = _resolve_ui_dir()
 

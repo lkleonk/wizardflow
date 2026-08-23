@@ -17,7 +17,9 @@ from wizardflow.cli import (
     _resolve_trace_path,
     _sibling_part,
     _viewer_url,
+    main,
     run_json,
+    run_ui,
 )
 
 
@@ -86,6 +88,20 @@ def test_resolve_trace_path_latest_rejects_files_and_empty_dirs(tmp_path):
     empty.mkdir()
     with pytest.raises(WizardFlowCliError, match="no trace files"):
         _resolve_trace_path(trace=str(empty), path=None, latest=True)
+
+
+def test_bare_wizardflow_prints_help(capsys):
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    assert "usage: wizardflow" in out
+    assert "ui" in out
+
+
+def test_run_ui_without_path_hints_when_cwd_has_no_traces(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(WizardFlowCliError, match="pass a trace file"):
+        run_ui(trace=None, path=None, host="127.0.0.1", port=0, open_browser=False)
 
 
 def test_resolve_trace_path_rejects_ambiguous_input(tmp_path):
