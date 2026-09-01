@@ -13,10 +13,10 @@
 // Must stay in lockstep with the theme config: the attribute matches
 // `colorSchemeSelector` in src/theme/muiTheme.ts, `mui-mode` is MUI's
 // default modeStorageKey (written by useColorScheme's setMode), and the
-// fallback mode mirrors defaultMode="dark". Both schemes are named exactly
+// fallback mode mirrors defaultMode="system". Both schemes are named exactly
 // "light"/"dark", so mode resolves to the scheme name directly.
 const INIT_COLOR_SCHEME = `(function(){try{
-var mode=localStorage.getItem('mui-mode')||'dark';
+var mode=localStorage.getItem('mui-mode')||'system';
 var scheme='';
 if(mode==='system'){scheme=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
 else if(mode==='light'||mode==='dark'){scheme=mode;}

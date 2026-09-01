@@ -1,6 +1,11 @@
 import { Fragment, useState } from "react";
 import Box from "@mui/material/Box";
-import Popover from "@mui/material/Popover";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import CloseIcon from "@mui/icons-material/Close";
 import { LocalDataDetails } from "@/components/TutorialDialog";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 
@@ -51,10 +56,7 @@ type FooterLinksProps = {
 };
 
 export default function FooterLinks({ onOpenTutorial }: FooterLinksProps) {
-  // Anchor for the "Data stays local" popover (LocalDataDetails).
-  const [localDataAnchor, setLocalDataAnchor] = useState<HTMLElement | null>(
-    null
-  );
+  const [localDataOpen, setLocalDataOpen] = useState(false);
 
   return (
     <Box
@@ -83,28 +85,72 @@ export default function FooterLinks({ onOpenTutorial }: FooterLinksProps) {
       <Separator />
       {/* Persistent home of the privacy message: always visible, so the
           reassurance is one click away at the moment someone hesitates
-          over the Upload button. Same popover affordance as TraceInfo. */}
+          over the Upload button. */}
       <Box
         component="button"
         type="button"
-        onClick={(e: React.MouseEvent<HTMLElement>) =>
-          setLocalDataAnchor(e.currentTarget)
-        }
+        onClick={() => setLocalDataOpen(true)}
         sx={linkButtonSx}
       >
         Data stays local
       </Box>
-      <Popover
-        open={Boolean(localDataAnchor)}
-        anchorEl={localDataAnchor}
-        onClose={() => setLocalDataAnchor(null)}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        transformOrigin={{ vertical: "bottom", horizontal: "center" }}
+      <Dialog
+        open={localDataOpen}
+        onClose={() => setLocalDataOpen(false)}
+        aria-labelledby="local-data-dialog-title"
+        maxWidth="sm"
+        fullWidth
       >
-        <Box sx={{ p: 2, maxWidth: 400 }}>
-          <LocalDataDetails />
-        </Box>
-      </Popover>
+        <DialogTitle
+          id="local-data-dialog-title"
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 1,
+            pb: 1,
+          }}
+        >
+          Your data stays local
+          <IconButton
+            size="small"
+            onClick={() => setLocalDataOpen(false)}
+            aria-label="Close"
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pb: 3 }}>
+          <Box sx={{ display: "grid", gap: 3 }}>
+            <LocalDataDetails />
+            <Box sx={{ display: "grid", gap: 1.5 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                The trace is just a file
+              </Typography>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ lineHeight: 1.7 }}
+              >
+                WizardFlow records agent runs as plain JSONL files. You can
+                send them to a teammate, attach them to a bug report, commit
+                them, diff them, and replay them locally or in this browser. No
+                account, trace server, or database is required.
+              </Typography>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ lineHeight: 1.7 }}
+              >
+                Observability platforms are designed for centralized
+                monitoring, team dashboards, and hosted evaluations.
+                WizardFlow focuses on portable traces and replaying individual
+                runs, making it ideal for prototyping agent flows.
+              </Typography>
+            </Box>
+          </Box>
+        </DialogContent>
+      </Dialog>
       {footerLinks.map((link) => (
         <Fragment key={link.href}>
           <Separator />
