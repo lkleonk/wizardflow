@@ -65,6 +65,7 @@ export default function WhyWizardFlowPage() {
             <li>send it to a teammate;</li>
             <li>commit or archive it;</li>
             <li>inspect or diff it with ordinary tools;</li>
+            <li>preserve representative runs as benchmarking artifacts;</li>
             <li>replay it without connecting to a trace backend.</li>
           </ul>
         </section>
