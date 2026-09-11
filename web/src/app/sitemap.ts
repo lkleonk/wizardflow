@@ -17,6 +17,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
   if (isHostedWizardFlow) {
     routes.push(
       {
+        url: `${siteUrl}/why-wizardflow`,
+        lastModified,
+        changeFrequency: "monthly",
+        priority: 0.8,
+      },
+      {
         url: `${siteUrl}/impressum`,
         lastModified,
         changeFrequency: "yearly",

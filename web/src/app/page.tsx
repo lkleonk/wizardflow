@@ -1262,7 +1262,7 @@ export default function Home() {
             goToStep(index);
           }}
         />
-        <FooterLinks onOpenTutorial={() => setTutorialOpen(true)} />
+        <FooterLinks />
       </Paper>
     </Box>
   );

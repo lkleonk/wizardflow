@@ -18,7 +18,7 @@ REPO_ROOT = SDK_ROOT.parents[1]
 WEB_DIR = REPO_ROOT / "web"
 WEB_OUT = WEB_DIR / "out"
 PACKAGE_UI_DIR = SDK_ROOT / "src" / "wizardflow" / "_ui"
-HOSTED_ONLY_ROUTE_STEMS = ("impressum", "datenschutz")
+HOSTED_ONLY_ROUTE_STEMS = ("impressum", "datenschutz", "why-wizardflow")
 
 
 def main() -> int:

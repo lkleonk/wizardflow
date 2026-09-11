@@ -18,13 +18,18 @@ import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
-import MoreVertIcon from "@mui/icons-material/MoreVert";
+import MenuIcon from "@mui/icons-material/Menu";
+import HelpCenterOutlinedIcon from "@mui/icons-material/HelpCenterOutlined";
+import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import CodeIcon from "@mui/icons-material/Code";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import SearchIcon from "@mui/icons-material/Search";
 import ViewSidebarOutlinedIcon from "@mui/icons-material/ViewSidebarOutlined";
 import TraceInfo from "@/components/TraceInfo";
 import TraceUploader, { useTraceFilePicker } from "@/components/TraceUploader";
+import LocalDataDialog from "@/components/LocalDataDialog";
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 
 // Controls that move into the overflow menu on phones.
 const wideOnly = { display: { xs: "none", sm: "inline-flex" } } as const;
@@ -188,6 +193,7 @@ export default function AppHeader({
   onInteract,
 }: AppHeaderProps) {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [localDataOpen, setLocalDataOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuAnchor(null), []);
   // The menu's Upload row drives its own file input, since the header's
   // TraceUploader button is display:none at the width the menu appears at.
@@ -206,10 +212,10 @@ export default function AppHeader({
       onClickCapture={onInteract}
       sx={{
         display: "flex",
-        flexDirection: { xs: "column", sm: "row" },
-        alignItems: { xs: "stretch", sm: "center" },
+        flexDirection: "row",
+        alignItems: "center",
         justifyContent: "space-between",
-        gap: 1,
+        gap: { xs: 0.5, sm: 1 },
         px: { xs: 1, sm: 2 },
         py: { xs: 1, sm: 1.25 },
         borderBottom: 1,
@@ -223,7 +229,7 @@ export default function AppHeader({
           justifyContent: { xs: "space-between", sm: "flex-start" },
           gap: 1,
           minWidth: 0,
-          width: { xs: "100%", sm: "auto" },
+          flex: 1,
         }}
       >
         <Box
@@ -300,10 +306,11 @@ export default function AppHeader({
         sx={{
           display: "flex",
           alignItems: "center",
-          justifyContent: { xs: "flex-end", sm: "flex-start" },
+          justifyContent: "flex-end",
           gap: 1,
           flexWrap: "wrap",
-          width: { xs: "100%", sm: "auto" },
+          width: "auto",
+          flexShrink: 0,
         }}
       >
         <Button
@@ -380,7 +387,7 @@ export default function AppHeader({
           aria-expanded={menuOpen}
           sx={{ display: { xs: "inline-flex", sm: "none" } }}
         >
-          <MoreVertIcon fontSize="small" />
+          <MenuIcon fontSize="small" />
         </IconButton>
         {traceFileInput}
         <Menu
@@ -426,6 +433,38 @@ export default function AppHeader({
             <ListItemText>Tutorial</ListItemText>
           </MenuItem>
           <Divider />
+          {isHostedWizardFlow && (
+            <MenuItem component="a" href="/why-wizardflow" onClick={closeMenu}>
+              <ListItemIcon>
+                <HelpCenterOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Why WizardFlow?</ListItemText>
+            </MenuItem>
+          )}
+          <MenuItem
+            onClick={() => {
+              closeMenu();
+              setLocalDataOpen(true);
+            }}
+          >
+            <ListItemIcon>
+              <LockOutlinedIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Data stays local</ListItemText>
+          </MenuItem>
+          <MenuItem
+            component="a"
+            href="https://github.com/lkleonk/wizardflow"
+            target="_blank"
+            rel="noreferrer"
+            onClick={closeMenu}
+          >
+            <ListItemIcon>
+              <CodeIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>GitHub</ListItemText>
+          </MenuItem>
+          <Divider />
           <MenuItem
             onClick={() => {
               closeMenu();
@@ -444,6 +483,10 @@ export default function AppHeader({
             </ListItemText>
           </MenuItem>
         </Menu>
+        <LocalDataDialog
+          open={localDataOpen}
+          onClose={() => setLocalDataOpen(false)}
+        />
       </Box>
     </Box>
   );
