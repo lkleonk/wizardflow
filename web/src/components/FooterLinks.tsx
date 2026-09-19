@@ -4,9 +4,13 @@ import LocalDataDialog from "@/components/LocalDataDialog";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 
 const footerLinks = [
+  {
+    href: isHostedWizardFlow ? "/why-wizardflow" : "/why-wizardflow.html",
+    label: "Why WizardFlow?",
+    external: false,
+  },
   ...(isHostedWizardFlow
     ? [
-        { href: "/why-wizardflow", label: "Why WizardFlow?", external: false },
         { href: "/impressum", label: "Impressum", external: false },
         { href: "/datenschutz", label: "Datenschutz", external: false },
       ]

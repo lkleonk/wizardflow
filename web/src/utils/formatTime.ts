@@ -9,6 +9,17 @@ export function formatClock(timestamp: string): string {
   return `${hh}:${mm}:${ss}.${ms}`;
 }
 
+/** Format the calendar date without adding it to the always-visible timing row. */
+export function formatDate(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(date);
+}
+
 /**
  * Format a duration in ms as a "+"-prefixed, human-readable offset:
  * 120 -> "+120ms", 680 -> "+0.68s", 4200 -> "+4.2s", 75000 -> "+1m15s".

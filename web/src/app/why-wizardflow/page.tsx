@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 import styles from "./whyWizardFlow.module.css";
 
 export const metadata: Metadata = {
@@ -28,8 +26,6 @@ const comparison = [
 ];
 
 export default function WhyWizardFlowPage() {
-  if (!isHostedWizardFlow) notFound();
-
   return (
     <main className={styles.page}>
       <article className={styles.shell}>

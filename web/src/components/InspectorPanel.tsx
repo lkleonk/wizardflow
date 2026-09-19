@@ -23,7 +23,7 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import OpenInFullOutlinedIcon from "@mui/icons-material/OpenInFullOutlined";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
-import { formatClock, formatDuration } from "@/utils/formatTime";
+import { formatClock, formatDate, formatDuration } from "@/utils/formatTime";
 import {
   getInspectorCompactView,
   getInspectorAlphabeticalTabs,
@@ -242,6 +242,9 @@ function ExecutionTiming({
         sx={{ fontWeight: 700, mb: 0.5 }}
       >
         Execution timing
+      </Typography>
+      <Typography variant="caption" component="div">
+        Date: {formatDate(visit.timestamp)}
       </Typography>
       <Typography variant="caption" component="div">
         Started: {formatClock(visit.timestamp)}
@@ -876,11 +879,6 @@ function NodeInfo({
             <Typography variant="caption" component="div" sx={{ fontWeight: 700 }}>
               Timing
             </Typography>
-            {hasVisit ? (
-              <Typography variant="caption" component="div" sx={{ mt: 0.25 }}>
-                Current visit: {currentModeLabel}
-              </Typography>
-            ) : null}
             <Button
               size="small"
               variant="text"
@@ -897,9 +895,17 @@ function NodeInfo({
               }
               sx={{ mt: 0.4, ml: -0.75, px: 0.75, textTransform: "none" }}
             >
-              {showTimingModes ? "Hide timing modes" : "Explain timing modes"}
+              {showTimingModes ? "Hide timing details" : "Inspect timing mode"}
             </Button>
             <Collapse in={showTimingModes}>
+              {hasVisit ? (
+                <Typography variant="caption" component="div" sx={{ mt: 0.25 }}>
+                  Current visit: {currentModeLabel}
+                </Typography>
+              ) : null}
+              <Typography variant="caption" component="div" sx={{ mt: 0.75 }}>
+                Timing modes
+              </Typography>
               <Box component="ul" sx={{ m: 0, mt: 0.25, pl: 2.25 }}>
                 {TIMING_MODE_INFO.map(([mode, label, explanation]) => (
                   <Typography

@@ -433,14 +433,16 @@ export default function AppHeader({
             <ListItemText>Tutorial</ListItemText>
           </MenuItem>
           <Divider />
-          {isHostedWizardFlow && (
-            <MenuItem component="a" href="/why-wizardflow" onClick={closeMenu}>
-              <ListItemIcon>
-                <HelpCenterOutlinedIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText>Why WizardFlow?</ListItemText>
-            </MenuItem>
-          )}
+          <MenuItem
+            component="a"
+            href={isHostedWizardFlow ? "/why-wizardflow" : "/why-wizardflow.html"}
+            onClick={closeMenu}
+          >
+            <ListItemIcon>
+              <HelpCenterOutlinedIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Why WizardFlow?</ListItemText>
+          </MenuItem>
           <MenuItem
             onClick={() => {
               closeMenu();
