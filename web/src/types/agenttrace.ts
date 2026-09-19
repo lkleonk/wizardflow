@@ -96,6 +96,8 @@ export type AgentTracePayload = {
   semanticType?: string;
   /** Explicit opt-out persisted for future offline OTel export. */
   exportToOtel?: false;
+  /** Optional exact application-owned attribute key used by OTel export. */
+  otelAttribute?: string;
 };
 
 // --- JSONL framing (what the Python SDK writes) ----------------------------

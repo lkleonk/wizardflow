@@ -31,6 +31,7 @@ from .otel_mapping import (
     DEFAULT_CONTENT_MAX_BYTES,
     NODE_KINDS,
     canonical_model_key,
+    custom_otel_attribute_error,
 )
 
 logger = logging.getLogger(Logging.LOGGER_NAME)
@@ -279,6 +280,7 @@ class _Message:
         timestamp: str,
         *,
         semantic_type: Optional[str] = None,
+        otel_attribute: Optional[str] = None,
         export_to_jsonl: bool = True,
         export_to_otel: bool = True,
     ) -> Tuple[Dict[str, Any], List[Tuple[str, str, Dict[str, Any]]], bool]:
@@ -316,6 +318,8 @@ class _Message:
             payload: Dict[str, Any] = {"label": label, "value": content}
             if semantic_type is not None:
                 payload["semanticType"] = semantic_type
+            if otel_attribute is not None:
+                payload["otelAttribute"] = otel_attribute
             if not export_to_jsonl:
                 payload["_exportToJsonl"] = False
             if not export_to_otel:
@@ -568,6 +572,7 @@ class Client:
         *,
         export_to_jsonl: bool = True,
         export_to_otel: bool = True,
+        otel_attribute: Optional[str] = None,
     ) -> None:
         """Record that ``node`` ran for message ``id``.
 
@@ -576,11 +581,23 @@ class Client:
         payloads. Nothing is written to disk here — :meth:`end_message` is what
         persists the trace.
         """
+        if otel_attribute is not None:
+            error = custom_otel_attribute_error(otel_attribute)
+            if error is not None:
+                self._fail(self.silent, WizardFlowError(error))
+                return
+            if label is None:
+                self._fail(
+                    self.silent,
+                    WizardFlowError("otel_attribute requires a payload label"),
+                )
+                return
         self._record(
             id,
             node,
             label,
             content,
+            otel_attribute=otel_attribute,
             export_to_jsonl=export_to_jsonl,
             export_to_otel=export_to_otel,
         )
@@ -593,6 +610,7 @@ class Client:
         content: Any,
         *,
         semantic_type: Optional[str] = None,
+        otel_attribute: Optional[str] = None,
         export_to_jsonl: bool = True,
         export_to_otel: bool = True,
     ) -> None:
@@ -621,6 +639,7 @@ class Client:
                     content,
                     _now_iso(),
                     semantic_type=semantic_type,
+                    otel_attribute=otel_attribute,
                     export_to_jsonl=export_to_jsonl,
                     export_to_otel=export_to_otel,
                 )
@@ -672,6 +691,7 @@ class Client:
         *,
         export_to_jsonl: bool = True,
         export_to_otel: bool = True,
+        otel_attribute: Optional[str] = None,
     ) -> None:
         self._record(
             id,
@@ -951,6 +971,7 @@ class Client:
     def _fail(silent: bool, exc: Exception) -> None:
         if not silent:
             raise exc
+        logger.warning("%s; ignored", exc)
 
     # --- output & rotation ------------------------------------------------
 
@@ -1101,12 +1122,14 @@ class NodeHandle:
         *,
         export_to_jsonl: bool = True,
         export_to_otel: bool = True,
+        otel_attribute: Optional[str] = None,
     ) -> None:
         self._client.log(
             self._message_id,
             self._node_id,
             label,
             value,
+            otel_attribute=otel_attribute,
             export_to_jsonl=export_to_jsonl,
             export_to_otel=export_to_otel,
         )

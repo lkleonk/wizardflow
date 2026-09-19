@@ -201,12 +201,14 @@ def log(
     *,
     export_to_jsonl: bool = True,
     export_to_otel: bool = True,
+    otel_attribute: Optional[str] = None,
 ) -> None:
     get_default().log(
         id,
         node,
         label,
         content,
+        otel_attribute=otel_attribute,
         export_to_jsonl=export_to_jsonl,
         export_to_otel=export_to_otel,
     )

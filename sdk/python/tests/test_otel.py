@@ -191,6 +191,71 @@ def test_generic_logs_preserve_scalars_duplicates_and_explicit_opt_out():
     assert "wizardflow.log.count" not in attrs
 
 
+def test_generic_log_can_use_an_exact_application_owned_attribute(caplog):
+    attrs = map_node_attributes(
+        message_id="m1",
+        node_id="a",
+        kind="generic",
+        payloads=[
+            {"label": "score", "value": 0.91, "otelAttribute": "app.main.score"},
+            {
+                "label": "old",
+                "value": {"large": "value"},
+                "otelAttribute": "app.replaced",
+            },
+            {"label": "new", "value": "final", "otelAttribute": "app.replaced"},
+            {
+                "label": "custom",
+                "value": "allowed",
+                "otelAttribute": "wizardflow.custom.value",
+            },
+        ],
+        include_content=True,
+    )
+    assert attrs["app.main.score"] == 0.91
+    assert attrs["app.replaced"] == "final"
+    assert attrs["wizardflow.custom.value"] == "allowed"
+    assert "app.replaced.encoding" not in attrs
+    assert "last value wins" in caplog.text
+
+
+def test_explicit_gen_ai_attribute_overrides_automatic_semantic_mapping():
+    attrs = map_node_attributes(
+        message_id="m1",
+        node_id="model",
+        kind="llm",
+        payloads=[
+            {
+                "label": "model_parameters",
+                "value": {"model": "automatic"},
+                "semanticType": "model_parameters",
+            },
+            {
+                "label": "provider_model",
+                "value": "explicit",
+                "otelAttribute": "gen_ai.request.model",
+            },
+        ],
+    )
+    assert attrs["gen_ai.request.model"] == "explicit"
+
+
+def test_custom_attribute_keeps_content_gating_and_rejects_reserved_file_input(caplog):
+    attrs = map_node_attributes(
+        message_id="m1",
+        node_id="a",
+        kind="generic",
+        payloads=[
+            {"label": "nested", "value": {"x": 1}, "otelAttribute": "app.nested"},
+            {"label": "attack", "value": "x", "otelAttribute": "wizardflow.node.id"},
+        ],
+        include_content=False,
+    )
+    assert "app.nested" not in attrs
+    assert attrs["wizardflow.node.id"] == "a"
+    assert "Ignoring invalid otelAttribute" in caplog.text
+
+
 def test_semantic_projection_is_last_write_wins():
     attrs = map_node_attributes(
         message_id="m1",
@@ -269,7 +334,10 @@ def test_bridge_creates_root_parent_context_graph_event_and_resolved_times():
         "a",
         "agent",
         "2026-09-15T10:00:02.000Z",
-        [{"label": "confidence", "value": 1}],
+        [
+            {"label": "confidence", "value": 1},
+            {"label": "score", "value": 0.9, "otelAttribute": "app.score"},
+        ],
         {"ok": True, "unsafe": {"x": 1}},
     )
     root, node = tracer.spans
@@ -277,6 +345,7 @@ def test_bridge_creates_root_parent_context_graph_event_and_resolved_times():
     assert tracer.calls[1][1]["context"] == ("parent", root)
     assert node.attributes["gen_ai.operation.name"] == "invoke_agent"
     assert node.attributes["wizardflow.log.confidence"] == 1
+    assert node.attributes["app.score"] == 0.9
     assert "wizardflow.message.meta.unsafe" not in node.attributes
     assert node.end_time > tracer.calls[1][1]["start_time"]
 

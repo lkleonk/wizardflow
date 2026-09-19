@@ -109,6 +109,13 @@ trace.end_message("msg-1")
 trace.close_otel()
 ```
 
+Generic logs can optionally choose an exact application-owned span attribute
+without changing their JSONL/UI label:
+
+```python
+node.log("quality", 0.92, otel_attribute="app.response.quality")
+```
+
 Content export is privacy-conscious and disabled by default. See the
 [OpenTelemetry guide](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/opentelemetry.md)
 for provider ownership, GenAI mappings, content controls, graph events, and

@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 
 DEFAULT_CONTENT_MAX_BYTES = 16_384
@@ -60,6 +61,16 @@ _MODEL_KEYS_BY_KIND = {
     "embedding": frozenset({"model"}),
 }
 _SCALAR_TYPES = (str, bool, int, float)
+_PROTECTED_ATTRIBUTE_KEYS = frozenset(
+    {
+        "wizardflow.message.id",
+        "wizardflow.node.id",
+        "wizardflow.node.kind",
+        "wizardflow.trace.name",
+    }
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _is_otel_sequence(value: Any) -> bool:
@@ -85,6 +96,21 @@ def canonical_json(value: Any) -> str:
 def normalize_attribute_component(value: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
     return normalized or "unnamed"
+
+
+def custom_otel_attribute_error(value: Any) -> Optional[str]:
+    """Return why an explicit application-owned OTel key is invalid, if at all."""
+    if not isinstance(value, str):
+        return "otel_attribute must be a string"
+    if not value:
+        return "otel_attribute must not be empty"
+    if value != value.strip():
+        return "otel_attribute must not have leading or trailing whitespace"
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        return "otel_attribute must not contain control characters"
+    if value.lower() in _PROTECTED_ATTRIBUTE_KEYS:
+        return "otel_attribute must not overwrite a protected WizardFlow identity attribute"
+    return None
 
 
 def _bounded_text(value: Any, max_bytes: int) -> Tuple[str, bool, int, bool]:
@@ -185,6 +211,8 @@ def map_node_attributes(
     semantic: Dict[str, Mapping[str, Any]] = {}
     parameters: Dict[str, Any] = {}
     generic_counts: Dict[str, int] = defaultdict(int)
+    explicit_keys: Set[str] = set()
+    explicit_attributes: Dict[str, Any] = {}
 
     for payload in payloads:
         if not _export_enabled(payload):
@@ -195,18 +223,38 @@ def map_node_attributes(
         elif semantic_type in {"input", "output", "usage"}:
             semantic[str(semantic_type)] = payload
         elif semantic_type is None:
-            label = normalize_attribute_component(str(payload.get("label", "")))
-            index = generic_counts[label]
-            generic_counts[label] += 1
-            name = f"wizardflow.log.{label}" + (f".{index}" if index else "")
+            explicit_name = payload.get("otelAttribute")
+            if explicit_name is not None:
+                error = custom_otel_attribute_error(explicit_name)
+                if error is not None:
+                    logger.warning(
+                        "Ignoring invalid otelAttribute %r: %s", explicit_name, error
+                    )
+                    continue
+                name = explicit_name
+                if name in explicit_keys:
+                    logger.warning(
+                        "Duplicate explicit OTel attribute %r; the last value wins", name
+                    )
+                explicit_keys.add(name)
+                # Remove bounded-content companions left by an earlier value for
+                # the same exact key before applying last-write-wins semantics.
+                for suffix in ("", ".encoding", ".truncated", ".original_size"):
+                    explicit_attributes.pop(name + suffix, None)
+            else:
+                label = normalize_attribute_component(str(payload.get("label", "")))
+                index = generic_counts[label]
+                generic_counts[label] += 1
+                name = f"wizardflow.log.{label}" + (f".{index}" if index else "")
             value = payload.get("value")
+            target = explicit_attributes if explicit_name is not None else attributes
             if isinstance(value, _SCALAR_TYPES):
                 if isinstance(value, str):
-                    _put_content(attributes, name, value, content_max_bytes)
+                    _put_content(target, name, value, content_max_bytes)
                 else:
-                    attributes[name] = value
+                    target[name] = value
             elif include_content:
-                _put_content(attributes, name, value, content_max_bytes)
+                _put_content(target, name, value, content_max_bytes)
 
     if parameters:
         for raw_key, value in parameters.items():
@@ -285,6 +333,9 @@ def map_node_attributes(
             attributes[
                 "wizardflow.message.meta." + normalize_attribute_component(str(name))
             ] = value
+    # Explicit application attributes are applied last so choosing an exact key
+    # can intentionally override an automatic semantic projection.
+    attributes.update(explicit_attributes)
     return attributes
 
 
@@ -324,6 +375,7 @@ __all__ = [
     "NODE_KINDS",
     "canonical_json",
     "canonical_model_key",
+    "custom_otel_attribute_error",
     "map_graph_event",
     "map_node_attributes",
     "normalize_attribute_component",

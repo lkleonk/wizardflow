@@ -379,6 +379,71 @@ def test_per_record_output_flags_are_explicit_and_independent(tmp_path):
     ]
 
 
+def test_custom_otel_attribute_is_persisted_by_all_generic_log_apis(tmp_path):
+    import wizardflow
+
+    trace = wizardflow.init(
+        output_dir=str(tmp_path), file_prefix="trace", nodes=["a"]
+    )
+    trace.log("m1", "a", "score", 0.9, otel_attribute="app.score")
+    with trace.node("m1", "a") as execution:
+        execution.log("region", "eu", otel_attribute="company.region")
+    wizardflow.log(
+        "m1", "a", "variant", "b", otel_attribute="experiment.variant"
+    )
+    trace.end_message("m1")
+
+    payloads = [
+        payload
+        for step in trace.to_dict()["messages"][0]["steps"]
+        for payload in step["payloads"]
+    ]
+    assert payloads == [
+        {"label": "score", "value": 0.9, "otelAttribute": "app.score"},
+        {"label": "region", "value": "eu", "otelAttribute": "company.region"},
+        {
+            "label": "variant",
+            "value": "b",
+            "otelAttribute": "experiment.variant",
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("", "must not be empty"),
+        (" app.score", "leading or trailing whitespace"),
+        ("app.score ", "leading or trailing whitespace"),
+        ("app.\nscore", "control characters"),
+        ("wizardflow.node.id", "protected"),
+        ("WIZARDFLOW.MESSAGE.ID", "protected"),
+        (123, "must be a string"),
+    ],
+)
+def test_custom_otel_attribute_validation(tmp_path, value, message):
+    trace = _new(tmp_path, nodes=["a"])
+    with pytest.raises(WizardFlowError, match=message):
+        trace.log("m1", "a", "value", 1, otel_attribute=value)
+
+
+def test_custom_otel_attribute_requires_a_payload(tmp_path):
+    trace = _new(tmp_path, nodes=["a"])
+    with pytest.raises(WizardFlowError, match="requires a payload label"):
+        trace.log("m1", "a", otel_attribute="app.visit")
+
+
+def test_silent_logs_suppressed_errors_as_warnings(tmp_path, caplog):
+    trace = _new(tmp_path, nodes=["a"], silent=True)
+    with caplog.at_level("WARNING", logger="wizardflow"):
+        trace.log("m1", "missing", "value", 1)
+        trace.end_message("missing-message")
+
+    assert "Unknown node 'missing'" in caplog.text
+    assert "end_message: unknown message 'missing-message'" in caplog.text
+    assert caplog.text.count("ignored") == 2
+
+
 def test_kind_validation_and_silent_fallback(tmp_path, caplog):
     c = _new(tmp_path, nodes=["a"])
     with pytest.raises(WizardFlowError, match="Unknown node kind"):

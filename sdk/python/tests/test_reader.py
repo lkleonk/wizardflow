@@ -130,6 +130,7 @@ def test_kind_semantic_type_and_future_values_pass_through(tmp_path):
                 "value": {"x": 1},
                 "semanticType": "future-semantic",
                 "exportToOtel": False,
+                "otelAttribute": "app.future",
             }
         ],
     }

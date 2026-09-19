@@ -48,6 +48,21 @@ wizardflow.end_message("msg-1")
 Do not mix module-level calls with several clients: module-level calls always
 target the most recently initialized client.
 
+### Strict and resilient error handling
+
+WizardFlow is strict by default: invalid recording calls raise a
+`WizardFlowError`. Applications that must never be interrupted by instrumentation
+can opt into warning-and-continue behavior:
+
+```python
+trace = wizardflow.init(silent=True)
+```
+
+With `silent=True`, suppressed WizardFlow recording errors are emitted through
+Python's `wizardflow` logger at warning level and the invalid operation is
+ignored. Exceptions raised by the application itself, including inside
+`with trace.node(...)`, are never swallowed.
+
 ## Messages and node executions
 
 A message is one unit of work, usually one user turn through the graph. Its ID
@@ -150,6 +165,28 @@ trace.log(message_id, "router", "decision", "research")
 
 Consecutive labeled logs to the same node fold into one inferred step. Use the
 context manager when exact execution boundaries matter.
+
+### Custom OpenTelemetry attribute key
+
+Generic logs normally export as `wizardflow.log.<normalized_label>`. When an
+application needs an exact, application-owned OTel key, keep the readable trace
+label and set the export key separately:
+
+```python
+node.log(
+    "retrieval_results",
+    documents,
+    otel_attribute="app.main.retrieval",
+)
+```
+
+The JSONL/UI label remains `retrieval_results`; live and later offline OTel
+export use `app.main.retrieval` exactly. The optional key is persisted in JSONL
+so both export paths agree. Explicit keys may extend or override `gen_ai.*` and
+WizardFlow mappings. Only the structural identity keys `wizardflow.node.id`,
+`wizardflow.node.kind`, `wizardflow.message.id`, and `wizardflow.trace.name` are
+protected. Prefer `log_input()`, `log_output()`, `log_usage()`, and
+`log_model_parameters()` whenever the data has one of those known meanings.
 
 ## Selecting outputs per record
 

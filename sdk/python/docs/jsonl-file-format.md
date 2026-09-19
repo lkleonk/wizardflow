@@ -110,12 +110,30 @@ When a record must remain in JSONL but never be projected to OTel, it contains:
 {"label":"debug","value":"...","exportToOtel":false}
 ```
 
+A generic payload may separately preserve an exact application-owned OTel
+attribute key:
+
+```json
+{
+  "label": "retrieval_results",
+  "value": [{"id": "doc-1"}],
+  "otelAttribute": "app.main.retrieval"
+}
+```
+
+The label remains the UI-facing name. `otelAttribute` affects only OTel
+projection and is retained so live and offline export produce the same key.
+Explicit keys may extend or override semantic mappings. The structural identity
+keys `wizardflow.node.id`, `wizardflow.node.kind`, `wizardflow.message.id`, and
+`wizardflow.trace.name` are protected.
+
 `exportToJsonl` is not stored: a record excluded from JSONL is absent.
 
 ## Source-of-truth rules
 
 - JSON-compatible complex values remain intact.
-- JSONL does not contain OTel attribute names.
+- JSONL is transport-neutral by default; `otelAttribute` is an optional explicit
+  projection hint for generic logs.
 - Exporters, rather than the writer, normalize values for their transport.
 - Content truncation for OTel never mutates the JSONL value.
 - Generic labels do not imply semantic meaning.
@@ -155,7 +173,7 @@ Both readers:
 - keep the last content for duplicate message IDs.
 
 Optional additions such as `kind`, `semanticType`, `endTimestamp`,
-`timingMode`, and `exportToOtel` do not require a schema-version bump while
+`timingMode`, `exportToOtel`, and `otelAttribute` do not require a schema-version bump while
 readers remain forward-tolerant.
 
 ## Related implementation files

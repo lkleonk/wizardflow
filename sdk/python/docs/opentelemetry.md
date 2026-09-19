@@ -208,6 +208,33 @@ wizardflow.log.retrieval.1
 wizardflow.log.retrieval.2
 ```
 
+For an exact application-owned attribute key, generic `log()` accepts
+`otel_attribute`:
+
+```python
+node.log(
+    "retrieval_results",
+    documents,
+    otel_attribute="app.main.retrieval",
+)
+```
+
+The developer-facing JSONL/UI label remains `retrieval_results`, while the span
+attribute is exactly `app.main.retrieval`. The override is persisted as
+`otelAttribute`, so live and offline export agree. Explicit keys are not
+normalized. They must be non-empty, contain no surrounding whitespace or
+control characters. Explicit values are applied after automatic mappings, so
+they may intentionally extend or override `gen_ai.*` and WizardFlow attributes.
+Only `wizardflow.node.id`, `wizardflow.node.kind`, `wizardflow.message.id`, and
+`wizardflow.trace.name` are protected because changing them would make the span
+contradict its recorded execution. If the same explicit key is logged more than
+once during one node execution, the last value wins and export emits a warning.
+
+This option does not bypass content controls or truncation. Prefer the semantic
+logging helpers for inputs, outputs, usage, model parameters, and compatible
+retrieval data; the custom key is an escape hatch for application-specific
+attributes.
+
 WizardFlow never guesses GenAI semantics from a generic label. A record with
 `export_to_otel=False` is never exported.
 
