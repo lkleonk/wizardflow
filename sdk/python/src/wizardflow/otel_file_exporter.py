@@ -19,7 +19,7 @@ from .reader import TraceChain
 class ExportOptions:
     endpoint: str
     trace_scope: str = "recording"
-    include_content: bool = False
+    include_content: bool = True
     content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES
     export_graph: bool = False
     graph_max_bytes: int = DEFAULT_GRAPH_MAX_BYTES

@@ -404,7 +404,7 @@ class Client:
         otel: bool = False,
         otel_endpoint: Optional[str] = None,
         otel_trace_scope: str = "recording",
-        otel_include_content: bool = False,
+        otel_include_content: bool = True,
         otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
         export_graph_to_otel: bool = False,
     ):
@@ -509,7 +509,7 @@ class Client:
         otel: bool = False,
         otel_endpoint: Optional[str] = None,
         otel_trace_scope: str = "recording",
-        otel_include_content: bool = False,
+        otel_include_content: bool = True,
         otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
         export_graph_to_otel: bool = False,
     ) -> "Client":

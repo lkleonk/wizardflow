@@ -116,7 +116,9 @@ without changing their JSONL/UI label:
 node.log("quality", 0.92, otel_attribute="app.response.quality")
 ```
 
-Content export is privacy-conscious and disabled by default. See the
+Content export is enabled by default when OTel export is enabled, with
+`otel_include_content=False` and CLI `--no-include-content` available when the
+receiver should only get metadata. See the
 [OpenTelemetry guide](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/opentelemetry.md)
 for provider ownership, GenAI mappings, content controls, graph events, and
 independent JSONL/OTel lifecycles. Existing artifacts can be exported later:

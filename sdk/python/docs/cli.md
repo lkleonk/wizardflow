@@ -97,7 +97,7 @@ creates one `wizardflow.message` trace per message.
 | --- | --- | --- |
 | `--endpoint` | OTel environment | OTLP/HTTP traces endpoint |
 | `--trace-scope` | `recording` | `recording` or `message` trace boundaries |
-| `--include-content` | off | Export bounded input, output, and structured log content |
+| `--include-content` / `--no-include-content` | on | Export or omit bounded input, output, and structured log content |
 | `--content-max-bytes` | `16_384` | Maximum bytes for each exported content value |
 | `--export-graph` | off | Add the WizardFlow graph event to each root |
 | `--graph-max-bytes` | `65_536` | Maximum full graph-event content size |

@@ -11,6 +11,7 @@ import pytest
 from wizardflow.cli import (
     TRACE_ROUTE,
     WizardFlowCliError,
+    _build_parser,
     _is_agent_trace_file,
     _load_trace,
     _make_handler,
@@ -23,6 +24,21 @@ from wizardflow.cli import (
     run_otel_export,
     run_ui,
 )
+
+
+def test_otel_export_cli_includes_content_by_default_with_opt_out():
+    parser = _build_parser()
+    default = parser.parse_args(["otel", "export", "trace.jsonl"])
+    opted_out = parser.parse_args(
+        ["otel", "export", "trace.jsonl", "--no-include-content"]
+    )
+    explicit = parser.parse_args(
+        ["otel", "export", "trace.jsonl", "--include-content"]
+    )
+
+    assert default.include_content is True
+    assert opted_out.include_content is False
+    assert explicit.include_content is True
 
 
 def test_otel_endpoint_resolution(monkeypatch):

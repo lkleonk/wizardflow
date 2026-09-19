@@ -38,10 +38,11 @@ rooted at `wizardflow.run`. `--trace-scope message` creates one new trace per
 message, rooted at `wizardflow.message`. Both modes preserve recorded node
 timestamps and use the same semantic mapper as live export.
 
-Content and graph export remain opt-in:
+Content export is enabled by default so the receiving UI shows useful inputs,
+outputs, and structured logs on the first export. Graph export remains opt-in:
 
 ```bash
-wizardflow otel export run.jsonl --include-content --export-graph
+wizardflow otel export run.jsonl --export-graph
 ```
 
 The endpoint may instead come from `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or
@@ -61,7 +62,7 @@ trace = wizardflow.init(
     otel=True,
     otel_endpoint="http://localhost:4318/v1/traces",
     otel_trace_scope="message",
-    otel_include_content=False,
+    otel_include_content=True,  # default; set False to omit recorded content
     otel_content_max_bytes=16_384,
     export_graph_to_otel=False,
 )
@@ -240,15 +241,19 @@ WizardFlow never guesses GenAI semantics from a generic label. A record with
 
 ## Content privacy and size bounds
 
-Content export is disabled by default. With `otel_include_content=False`:
+Content export is enabled by default once OTel export itself is enabled. This
+can include prompts, responses, retrieved documents, and tool results. Use
+`otel_include_content=False` for live export or `--no-include-content` for the
+CLI when the receiving system should only receive metadata. With content
+disabled:
 
 - semantic input/output is omitted;
 - structured generic logs are omitted;
 - scalar generic logs still export;
 - usage and compatible model parameters still export as metadata.
 
-Set `otel_include_content=True` only when the receiving system is appropriate
-for the data. Exported content is deterministically serialized and bounded by
+Only export content to a receiving system appropriate for the data. Exported
+content is deterministically serialized and bounded by
 `otel_content_max_bytes`, measured as UTF-8 bytes. JSONL always retains the
 original untruncated value.
 

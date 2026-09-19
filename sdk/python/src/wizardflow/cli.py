@@ -217,7 +217,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default="recording",
         help="Create one recording trace (default) or one trace per message.",
     )
-    otel_export.add_argument("--include-content", action="store_true")
+    otel_export.add_argument(
+        "--include-content",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Export bounded input, output, and structured log content (default: "
+            "enabled; use --no-include-content to omit it)."
+        ),
+    )
     otel_export.add_argument("--content-max-bytes", type=_positive_int, default=16_384)
     otel_export.add_argument("--export-graph", action="store_true")
     otel_export.add_argument("--graph-max-bytes", type=_positive_int, default=65_536)

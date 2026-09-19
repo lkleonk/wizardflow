@@ -188,7 +188,7 @@ def map_node_attributes(
     kind: str,
     payloads: Iterable[Mapping[str, Any]],
     message_meta: Optional[Mapping[str, Any]] = None,
-    include_content: bool = False,
+    include_content: bool = True,
     content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
 ) -> Dict[str, Any]:
     """Project one resolved node execution into span attributes."""
