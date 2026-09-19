@@ -1,4 +1,5 @@
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { decorateExampleTrace } from "@/data/exampleTraceMetadata";
 
 // Inspired by a real LangGraph trace from a German CS Master's degree-advising
 // bot (genericized: no institution name, course titles, addresses, or model
@@ -6,9 +7,9 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // message out to one of four branches — off-topic, a direct rule answer, a
 // course-offering lookup, or a full study-plan check — and two of those
 // branches (course lookup, plan check) run a deterministic tool node before
-// rejoining at the composer. Unlike the other bundled examples this reuses one
-// large system prompt verbatim on almost every LLM call, exactly as the source
-// trace did — a real, if wasteful, pattern worth seeing in the inspector.
+// rejoining at the composer. The detailed degree rules are kept in the answer
+// composer, while the scope classifier only receives the routing criteria it
+// needs.
 const RULES = `Degree checklist (CS Master's program, local Studien- und Pruefungsordnung).
 
 OVERALL STRUCTURE
@@ -54,8 +55,6 @@ DUPLICATE MODULES
   a prior Bachelor specialization can't be reused.`;
 
 const CLASSIFIER_SYSTEM = `Domain: CS Master's program under the local Studien- und Pruefungsordnung.
-
-${RULES}
 
 Classify the latest student message into exactly one message_type:
 
@@ -143,7 +142,7 @@ marked it as their chosen specialization area), bachelor_module (bool).
 
 Return valid JSON only: {"modules": [...]}`;
 
-export const degreeConsultantTrace: AgentTraceFile = {
+export const degreeConsultantTrace: AgentTraceFile = decorateExampleTrace({
   version: "0.1",
   name: "degree_consultant.jsonl",
   meta: {
@@ -157,8 +156,8 @@ export const degreeConsultantTrace: AgentTraceFile = {
       "check (a plan parser plus a deterministic rule checker). The lookup " +
       "and plan-check branches rejoin at a shared answer composer; off-topic " +
       "uses a fixed redirect response and replies on its own. Genericized from " +
-      "a real trace — the huge system " +
-      "prompt is resent almost verbatim on every LLM call, exactly as logged.",
+      "a real trace; detailed degree rules are provided to the answer composer " +
+      "while the classifier receives only its routing criteria.",
   },
   graph: {
     nodes: [
@@ -510,4 +509,4 @@ export const degreeConsultantTrace: AgentTraceFile = {
       ],
     },
   ],
-};
+});

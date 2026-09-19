@@ -6,9 +6,10 @@
 //
 //   node scripts/flow-card-meta.mjs
 //
-// Each flow file is a plain data literal, so it's evaluated directly rather
-// than type-checked: the TS import and the export annotation are stripped and
-// the rest is run as JS.
+// Each flow file is data-only, so it's evaluated directly rather than
+// type-checked: TS imports and the export annotation are stripped and the rest
+// is run as JS. `decorateExampleTrace` only adds presentation metadata and does
+// not change graph/message counts, so an identity stub is sufficient here.
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -35,10 +36,14 @@ for (const file of fs.readdirSync(flowsDir).sort()) {
   if (!file.endsWith(".ts")) continue;
   const source = fs
     .readFileSync(path.join(flowsDir, file), "utf8")
-    .replace(/^import[\s\S]*?;\s*$/m, "")
+    .replace(/^import[\s\S]*?;\s*$/gm, "")
     .replace(/export const \w+\s*:\s*[\w<>[\]]+\s*=/, "module.exports.trace =");
   const module_ = { exports: {} };
-  vm.runInNewContext(source, { module: module_, exports: module_.exports });
+  vm.runInNewContext(source, {
+    module: module_,
+    exports: module_.exports,
+    decorateExampleTrace: (trace) => trace,
+  });
   const trace = module_.exports.trace;
   console.log(
     `${file.replace(/\.ts$/, "").padEnd(22)} nodeCount: ${String(

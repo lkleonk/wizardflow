@@ -1,6 +1,7 @@
 import { createTheme } from "@mui/material/styles";
 
-// Default accent palette used to color nodes that don't specify their own color.
+// Fallback accent palette used when a node has neither a custom color nor a
+// recognized kind color.
 // No red/orange/green defaults — these read as "status" colors and would be misleading.
 // These mid-tones read acceptably on both light and dark surfaces.
 export const NODE_PALETTE = [
@@ -11,6 +12,25 @@ export const NODE_PALETTE = [
   "#F0ABFC", // pink
   "#818CF8", // indigo
 ] as const;
+
+// Recognized WizardFlow node kinds get a stable categorical accent. Keep this
+// palette in the cool range so kind identity is not confused with execution
+// status (red/orange/yellow/green are intentionally absent). Unknown or
+// omitted kinds continue to use NODE_PALETTE, preserving the existing default.
+export const NODE_KIND_COLORS: Readonly<Record<string, string>> = {
+  agent: "#A78BFA", // violet
+  llm: "#60A5FA", // blue
+  tool: "#818CF8", // indigo
+  retriever: "#0EA5E9", // sky blue
+  embedding: "#22D3EE", // cyan
+  reranker: "#E879F9", // magenta
+};
+
+/** Return the stable kind color, or undefined for generic/unknown kinds. */
+export function nodeColorForKind(kind?: string): string | undefined {
+  if (!kind) return undefined;
+  return NODE_KIND_COLORS[kind.trim().toLowerCase()];
+}
 
 /** Deterministically pick a palette color for a node by index. */
 export function nodeColorAt(index: number): string {

@@ -1,10 +1,11 @@
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { decorateExampleTrace } from "@/data/exampleTraceMetadata";
 
 // Linear RAG pipeline: embed the question, search a knowledge base, rerank the
 // hits, then let an LLM answer from the retrieved docs. Only the generator is an
 // LLM node (llm_input/llm_output); the retrieval nodes log their own domain data
 // (vectors, scored matches) instead.
-export const ragPipelineTrace: AgentTraceFile = {
+export const ragPipelineTrace: AgentTraceFile = decorateExampleTrace({
   version: "0.1",
   name: "rag_pipeline.jsonl",
   meta: {
@@ -143,12 +144,26 @@ export const ragPipelineTrace: AgentTraceFile = {
                 "What are the common side effects of ibuprofen?",
             },
             {
+              label: "Model parameters",
+              semanticType: "model_parameters",
+              value: {
+                model: "gpt-4.1-mini",
+                temperature: 0.2,
+                maxTokens: 300,
+              },
+            },
+            {
               label: "llm_output",
               value:
                 "Common side effects of ibuprofen include nausea, indigestion, " +
                 "stomach pain, headache, and dizziness. Prolonged use can raise the " +
                 "risk of gastrointestinal bleeding. This isn't medical advice — " +
                 "check with a pharmacist or doctor for your situation.",
+            },
+            {
+              label: "Token usage",
+              semanticType: "usage",
+              value: { inputTokens: 254, outputTokens: 61 },
             },
           ],
         },
@@ -360,12 +375,26 @@ export const ragPipelineTrace: AgentTraceFile = {
                 "What's the maximum safe daily dose of acetaminophen?",
             },
             {
+              label: "Model parameters",
+              semanticType: "model_parameters",
+              value: {
+                model: "gpt-4.1-mini",
+                temperature: 0.2,
+                maxTokens: 300,
+              },
+            },
+            {
               label: "llm_output",
               value:
                 "For most adults the maximum is 4,000 mg of acetaminophen per day, " +
                 "though many guidelines suggest staying at or under 3,000 mg to be " +
                 "easier on the liver. Don't combine it with other products that " +
                 "also contain acetaminophen. This isn't medical advice.",
+            },
+            {
+              label: "Token usage",
+              semanticType: "usage",
+              value: { inputTokens: 286, outputTokens: 74 },
             },
           ],
         },
@@ -603,4 +632,4 @@ export const ragPipelineTrace: AgentTraceFile = {
       ],
     },
   ],
-};
+});

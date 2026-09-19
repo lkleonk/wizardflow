@@ -7,8 +7,28 @@ import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
+import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
+import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import CloseIcon from "@mui/icons-material/Close";
+import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
+import LanOutlinedIcon from "@mui/icons-material/LanOutlined";
+import LocalHospitalOutlinedIcon from "@mui/icons-material/LocalHospitalOutlined";
+import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
+import SchoolOutlinedIcon from "@mui/icons-material/SchoolOutlined";
+import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
+import SupportAgentOutlinedIcon from "@mui/icons-material/SupportAgentOutlined";
 import { exampleFlows, type ExampleFlow } from "@/data";
+
+const exampleIcons: Record<string, typeof AccountTreeOutlinedIcon> = {
+  "doctor-consultation": LocalHospitalOutlinedIcon,
+  rag: ManageSearchOutlinedIcon,
+  crew: GroupsOutlinedIcon,
+  "degree-consultant": SchoolOutlinedIcon,
+  "text-to-sql": StorageOutlinedIcon,
+  "support-handoff": SupportAgentOutlinedIcon,
+  "it-helpdesk-router": LanOutlinedIcon,
+  "loan-application": AttachMoneyIcon,
+};
 
 type ExampleGalleryProps = {
   open: boolean;
@@ -62,6 +82,7 @@ export default function ExampleGallery({
         >
           {exampleFlows.map((flow) => {
             const isCurrent = flow.id === currentExampleId;
+            const FlowIcon = exampleIcons[flow.id] ?? AccountTreeOutlinedIcon;
             return (
               <ButtonBase
                 key={flow.id}
@@ -71,7 +92,9 @@ export default function ExampleGallery({
                 }}
                 aria-current={isCurrent || undefined}
                 sx={{
-                  display: "block",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "stretch",
                   textAlign: "left",
                   borderRadius: 2,
                   p: 1.5,
@@ -86,22 +109,35 @@ export default function ExampleGallery({
                   },
                 }}
               >
-                <Typography
-                  variant="subtitle2"
-                  sx={{ fontWeight: 600, mb: 0.25 }}
-                >
-                  {flow.title}
-                  {isCurrent && (
-                    <Typography
-                      component="span"
-                      variant="caption"
-                      color="primary"
-                      sx={{ ml: 0.75, fontWeight: 600 }}
-                    >
-                      • current
-                    </Typography>
-                  )}
-                </Typography>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                  <Box
+                    sx={{
+                      display: "grid",
+                      placeItems: "center",
+                      flex: "0 0 auto",
+                      width: 28,
+                      height: 28,
+                      borderRadius: 1.25,
+                      color: isCurrent ? "primary.main" : "text.secondary",
+                      bgcolor: isCurrent ? "action.selected" : "action.hover",
+                    }}
+                  >
+                    <FlowIcon sx={{ fontSize: 18 }} />
+                  </Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                    {flow.title}
+                    {isCurrent && (
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        color="primary"
+                        sx={{ ml: 0.75, fontWeight: 600 }}
+                      >
+                        • current
+                      </Typography>
+                    )}
+                  </Typography>
+                </Box>
                 <Typography
                   variant="body2"
                   color="text.secondary"
@@ -112,7 +148,7 @@ export default function ExampleGallery({
                 <Typography
                   variant="caption"
                   color="text.disabled"
-                  sx={{ fontVariantNumeric: "tabular-nums" }}
+                  sx={{ mt: "auto", fontVariantNumeric: "tabular-nums" }}
                 >
                   {flow.pattern} · {flow.messageCount} msg · {flow.nodeCount} nodes
                 </Typography>

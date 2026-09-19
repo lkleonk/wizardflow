@@ -1,4 +1,5 @@
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { decorateExampleTrace } from "@/data/exampleTraceMetadata";
 
 const TRIAGE_PROMPT =
   "System:\n" +
@@ -23,7 +24,7 @@ const RESPONDER_PROMPT =
 // Four messages cover all lanes: an FAQ answer, a refund that loops once
 // through a revision, an out-of-policy refund handed to a human, and an angry
 // churn-risk ticket routed straight to a person.
-export const supportHandoffTrace: AgentTraceFile = {
+export const supportHandoffTrace: AgentTraceFile = decorateExampleTrace({
   version: "0.1",
   name: "support_handoff.jsonl",
   meta: {
@@ -676,4 +677,4 @@ export const supportHandoffTrace: AgentTraceFile = {
       ],
     },
   ],
-};
+});

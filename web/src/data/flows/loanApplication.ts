@@ -1,4 +1,5 @@
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { decorateExampleTrace } from "@/data/exampleTraceMetadata";
 
 // Multi-exit example (mirrors a real LangGraph run): an application intake and
 // risk assessment feed a decision router that ends in one of three distinct
@@ -6,7 +7,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // re-converging to a single final node. The graph also carries LangGraph's
 // virtual __start__/__end__ nodes; they never log a step, so the canvas hides
 // them, leaving the three terminal nodes as the visible exits.
-export const loanApplicationTrace: AgentTraceFile = {
+export const loanApplicationTrace: AgentTraceFile = decorateExampleTrace({
   version: "0.1",
   name: "loan_application.jsonl",
   meta: {
@@ -308,4 +309,4 @@ export const loanApplicationTrace: AgentTraceFile = {
       ],
     },
   ],
-};
+});

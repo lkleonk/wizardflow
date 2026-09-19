@@ -88,6 +88,323 @@ def test_step_ids_and_timestamp_present(tmp_path):
     assert step["id"] == "m1-s1"
     assert step["nodeId"] == "a"
     assert isinstance(step["timestamp"], str) and step["timestamp"].endswith("Z")
+    assert isinstance(step["endTimestamp"], str) and step["endTimestamp"].endswith("Z")
+    assert step["timingMode"] == "inferred"
+
+
+def test_explicit_node_start_and_end_set_execution_timestamps(tmp_path, monkeypatch):
+    timestamps = iter([
+        "2026-09-15T10:00:00.000Z",
+        "2026-09-15T10:00:01.000Z",
+        "2026-09-15T10:00:02.000Z",
+    ])
+    monkeypatch.setattr("wizardflow.client._now_iso", lambda: next(timestamps))
+    c = _new(tmp_path, nodes=["a"])
+    c.start_node("m1", "a")
+    c.log("m1", "a", "L", 1)
+    c.end_node("m1", "a")
+    c.end_message("m1")
+
+    step = c.to_dict()["messages"][0]["steps"][0]
+    assert step["timestamp"] == "2026-09-15T10:00:00.000Z"
+    assert step["endTimestamp"] == "2026-09-15T10:00:02.000Z"
+    assert step["timingMode"] == "explicit"
+
+
+def test_end_message_closes_nodes_using_last_log_or_start(tmp_path, monkeypatch):
+    timestamps = iter([
+        "2026-09-15T10:00:00.000Z",
+        "2026-09-15T10:00:01.000Z",
+        "2026-09-15T10:00:02.000Z",
+    ])
+    monkeypatch.setattr("wizardflow.client._now_iso", lambda: next(timestamps))
+    c = _new(tmp_path, nodes=["logged", "empty"])
+    c.start_node("m1", "logged")
+    c.log("m1", "logged", "L", 1)
+    c.start_node("m1", "empty")
+    c.end_message("m1")
+
+    logged, empty = c.to_dict()["messages"][0]["steps"]
+    assert logged["endTimestamp"] == "2026-09-15T10:00:01.000Z"
+    assert empty["endTimestamp"] == empty["timestamp"]
+    assert logged["timingMode"] == "auto_closed"
+    assert empty["timingMode"] == "auto_closed"
+
+
+def test_inferred_node_timing_uses_first_and_last_log(tmp_path, monkeypatch):
+    timestamps = iter([
+        "2026-09-15T10:00:00.000Z",
+        "2026-09-15T10:00:02.000Z",
+    ])
+    monkeypatch.setattr("wizardflow.client._now_iso", lambda: next(timestamps))
+    c = _new(tmp_path, nodes=["a"])
+    c.log("m1", "a", "one", 1)
+    c.log("m1", "a", "two", 2)
+    c.end_message("m1")
+
+    step = c.to_dict()["messages"][0]["steps"][0]
+    assert step["timestamp"] == "2026-09-15T10:00:00.000Z"
+    assert step["endTimestamp"] == "2026-09-15T10:00:02.000Z"
+    assert step["timingMode"] == "inferred"
+
+
+def test_duplicate_start_and_unmatched_end_warn_and_are_ignored(
+    tmp_path, caplog
+):
+    c = _new(tmp_path, nodes=["a"])
+    with caplog.at_level("WARNING", logger="wizardflow"):
+        c.start_node("m1", "a")
+        c.start_node("m1", "a")
+        c.end_node("m1", "a")
+        c.end_node("m1", "a")
+    assert "already active" in caplog.text
+    assert "is not active" in caplog.text
+    assert len(c._messages["m1"].steps) == 1
+
+
+def test_module_node_lifecycle_delegates_to_default(tmp_path):
+    import wizardflow
+
+    wizardflow.init(output_dir=str(tmp_path), file_prefix="trace", nodes=["a"])
+    wizardflow.start_node("m1", "a")
+    wizardflow.log("m1", "a", "L", 1)
+    wizardflow.end_node("m1", "a")
+    wizardflow.end_message("m1")
+    assert wizardflow.to_dict()["messages"][0]["steps"][0]["endTimestamp"]
+
+
+def test_end_without_start_uses_log_timing(tmp_path, monkeypatch):
+    timestamps = iter([
+        "2026-09-15T10:00:00.000Z",
+        "2026-09-15T10:00:02.000Z",
+    ])
+    monkeypatch.setattr("wizardflow.client._now_iso", lambda: next(timestamps))
+    c = _new(tmp_path, nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    c.end_node("m1", "a")
+    c.end_message("m1")
+    step = c.to_dict()["messages"][0]["steps"][0]
+    assert step["timestamp"] == "2026-09-15T10:00:00.000Z"
+    assert step["endTimestamp"] == "2026-09-15T10:00:02.000Z"
+    assert step["timingMode"] == "inferred"
+
+
+def test_one_log_resolves_to_zero_duration(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "wizardflow.client._now_iso", lambda: "2026-09-15T10:00:00.000Z"
+    )
+    c = _new(tmp_path, nodes=["a"])
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+    step = c.to_dict()["messages"][0]["steps"][0]
+    assert step["timestamp"] == step["endTimestamp"]
+    assert step["timingMode"] == "inferred"
+
+
+def test_jsonl_false_records_in_memory_without_creating_a_file(tmp_path):
+    c = _new(tmp_path, nodes=["a"], jsonl=False)
+    c.log("m1", "a", "L", 1)
+    path = c.end_message("m1")
+    assert not os.path.exists(path)
+    assert c.to_dict()["messages"][0]["id"] == "m1"
+
+
+class _FakeOTelBridge:
+    def __init__(self):
+        self.calls = []
+
+    def start_run(self, timestamp, trace_name, nodes, edges):
+        self.calls.append(("start_run", timestamp, trace_name, nodes, edges))
+
+    def start_node(self, message_id, node, kind, timestamp, trace_name):
+        self.calls.append(("start", message_id, node, kind, timestamp, trace_name))
+
+    def end_node(
+        self, message_id, node, kind, timestamp, payloads, message_meta=None
+    ):
+        self.calls.append(
+            ("end", message_id, node, kind, timestamp, payloads, message_meta)
+        )
+
+    def end_message(self, message_id, timestamp, title=None, meta=None):
+        self.calls.append(("end_message", message_id, timestamp, title, meta))
+
+    def reinit_run(self, end_timestamp, start_timestamp, trace_name, nodes, edges):
+        self.calls.append(
+            ("reinit_run", end_timestamp, start_timestamp, trace_name, nodes, edges)
+        )
+
+    def close(self, timestamp):
+        self.calls.append(("close", timestamp))
+
+
+@pytest.mark.parametrize("jsonl", [False, True])
+def test_otel_output_works_with_or_without_jsonl(tmp_path, monkeypatch, jsonl):
+    bridge = _FakeOTelBridge()
+    monkeypatch.setattr(
+        "wizardflow.client.create_otel_bridge", lambda *args, **kwargs: bridge
+    )
+    c = _new(tmp_path, nodes=["a"], jsonl=jsonl, otel=True)
+    c.start_node("m1", "a")
+    c.log("m1", "a", "secret", {"must": "not be exported"})
+    c.end_message("m1", meta={"outcome": "ok"})
+    assert [call[0] for call in bridge.calls] == ["start_run", "start", "end"]
+    assert os.path.exists(c.current_path) is jsonl
+
+
+def test_otel_disabled_does_not_load_bridge(tmp_path, monkeypatch):
+    def unexpected(endpoint):
+        raise AssertionError("OTel bridge loaded while disabled")
+
+    monkeypatch.setattr("wizardflow.client.create_otel_bridge", unexpected)
+    c = _new(tmp_path, nodes=["a"], otel=False)
+    c.log("m1", "a", "L", 1)
+    c.end_message("m1")
+
+
+def test_message_trace_scope_ends_each_message_root(tmp_path, monkeypatch):
+    bridge = _FakeOTelBridge()
+    received = {}
+
+    def create(*args, **kwargs):
+        received.update(kwargs)
+        return bridge
+
+    monkeypatch.setattr("wizardflow.client.create_otel_bridge", create)
+    c = _new(
+        tmp_path,
+        nodes=["a"],
+        otel=True,
+        otel_trace_scope="message",
+        name="project",
+    )
+    c.log("m1", "a", "answer", "one")
+    c.end_message("m1", title="First", meta={"outcome": "ok"})
+    c.log("m2", "a", "answer", "two")
+    c.end_message("m2", title="Second")
+
+    assert received["trace_scope"] == "message"
+    assert received["project_name"] == "project"
+    assert [call[1] for call in bridge.calls if call[0] == "end_message"] == [
+        "m1",
+        "m2",
+    ]
+
+
+def test_invalid_otel_trace_scope_is_rejected(tmp_path):
+    with pytest.raises(WizardFlowError, match="otel_trace_scope"):
+        _new(tmp_path, otel_trace_scope="request")
+
+
+def test_context_manager_logs_and_closes_on_exception(tmp_path):
+    import wizardflow
+
+    wizardflow.init(output_dir=str(tmp_path), file_prefix="trace", nodes=["a"])
+    with pytest.raises(ValueError):
+        with wizardflow.node("m1", "a") as execution:
+            execution.log("input", "value")
+            raise ValueError("boom")
+    wizardflow.end_message("m1")
+    step = wizardflow.to_dict()["messages"][0]["steps"][0]
+    assert step["payloads"] == [{"label": "input", "value": "value"}]
+    assert step["endTimestamp"] >= step["timestamp"]
+    assert step["timingMode"] == "explicit"
+
+
+def test_client_node_context_manager_supports_instance_style(tmp_path):
+    trace = _new(tmp_path, nodes=["a"])
+    with trace.node("m1", "a") as execution:
+        execution.log_input("question")
+        execution.log_output("answer")
+    trace.end_message("m1")
+
+    step = trace.to_dict()["messages"][0]["steps"][0]
+    assert step["payloads"] == [
+        {"label": "input", "value": "question", "semanticType": "input"},
+        {"label": "output", "value": "answer", "semanticType": "output"},
+    ]
+    assert step["endTimestamp"] >= step["timestamp"]
+    assert step["timingMode"] == "explicit"
+
+
+def test_semantic_node_api_preserves_transport_neutral_jsonl(tmp_path):
+    import wizardflow
+
+    wizardflow.init(output_dir=str(tmp_path), file_prefix="trace", nodes=["model"])
+    with wizardflow.node("m1", "model", kind="llm") as execution:
+        execution.log_input({"messages": ["hello"]})
+        execution.log_model_parameters(
+            model="gpt-5", max_tokens=500, reasoning_effort="high"
+        )
+        execution.log_output(["answer"])
+        execution.log_usage(input_tokens=120, output_tokens=30)
+    wizardflow.end_message("m1")
+
+    step = wizardflow.to_dict()["messages"][0]["steps"][0]
+    assert step["kind"] == "llm"
+    assert step["payloads"] == [
+        {
+            "label": "input",
+            "value": {"messages": ["hello"]},
+            "semanticType": "input",
+        },
+        {
+            "label": "model_parameters",
+            "value": {
+                "model": "gpt-5",
+                "maxTokens": 500,
+                "reasoning_effort": "high",
+            },
+            "semanticType": "model_parameters",
+        },
+        {"label": "output", "value": ["answer"], "semanticType": "output"},
+        {
+            "label": "usage",
+            "value": {"inputTokens": 120, "outputTokens": 30},
+            "semanticType": "usage",
+        },
+    ]
+
+
+def test_per_record_output_flags_are_explicit_and_independent(tmp_path):
+    c = _new(tmp_path, nodes=["a"])
+    c.log("m1", "a", "jsonl-only", 1, export_to_otel=False)
+    c.log("m1", "a", "otel-only", 2, export_to_jsonl=False)
+    c.log("m1", "a", "both", 3)
+    c.end_message("m1")
+    payloads = c.to_dict()["messages"][0]["steps"][0]["payloads"]
+    assert payloads == [
+        {"label": "jsonl-only", "value": 1, "exportToOtel": False},
+        {"label": "both", "value": 3},
+    ]
+
+
+def test_kind_validation_and_silent_fallback(tmp_path, caplog):
+    c = _new(tmp_path, nodes=["a"])
+    with pytest.raises(WizardFlowError, match="Unknown node kind"):
+        c.start_node("m1", "a", kind="unknown")
+
+    quiet = _new(tmp_path / "silent", nodes=["a"], silent=True)
+    with caplog.at_level("WARNING", logger="wizardflow"):
+        quiet.start_node("m1", "a", kind="future-kind")
+    quiet.end_message("m1")
+    assert "using 'generic'" in caplog.text
+    assert "kind" not in quiet.to_dict()["messages"][0]["steps"][0]
+
+
+def test_usage_rejects_invalid_counts(tmp_path):
+    c = _new(tmp_path, nodes=["a"])
+    with pytest.raises(WizardFlowError, match="non-negative integer"):
+        c.log_usage("m1", "a", input_tokens=-1)
+    with pytest.raises(WizardFlowError, match="at least one"):
+        c.log_usage("m1", "a")
+
+
+def test_plain_package_keeps_zero_runtime_dependencies():
+    pyproject = os.path.join(os.path.dirname(__file__), "..", "pyproject.toml")
+    with open(pyproject, encoding="utf-8") as fh:
+        project_text = fh.read().split("[project.scripts]", 1)[0]
+    assert "dependencies = []" in project_text
 
 
 # --- folding & visits -----------------------------------------------------
@@ -116,6 +433,16 @@ def test_bare_log_is_a_visit_with_no_payloads(tmp_path):
     c.end_message("m1")
     step = c.to_dict()["messages"][0]["steps"][0]
     assert step["nodeId"] == "tool" and step["payloads"] == []
+
+
+def test_repeated_bare_logs_remain_separate_visits(tmp_path):
+    c = _new(tmp_path, nodes=["tool"])
+    c.log("m1", "tool")
+    c.log("m1", "tool")
+    c.end_message("m1")
+    assert [step["nodeId"] for step in c.to_dict()["messages"][0]["steps"]] == [
+        "tool", "tool"
+    ]
 
 
 # --- message targeting ----------------------------------------------------
@@ -493,6 +820,49 @@ def test_module_reinit_delegates_to_default(tmp_path):
     assert new_path != first
     wizardflow.log("m1", "a", "L", 2)
     assert wizardflow.end_message("m1") == new_path
+
+
+def test_reinit_controls_jsonl_and_otel_independently(tmp_path, monkeypatch):
+    bridge = _FakeOTelBridge()
+    monkeypatch.setattr(
+        "wizardflow.client.create_otel_bridge", lambda *args, **kwargs: bridge
+    )
+    c = _new(tmp_path, nodes=["a"], name="original", otel=True)
+    original_path = c.current_path
+
+    c.reinit(name="otel-only", jsonl=False, otel=True)
+    assert c.current_path == original_path
+    assert c.name == "original"
+    assert bridge.calls[-1][3] == "otel-only"
+    assert [call[0] for call in bridge.calls].count("reinit_run") == 1
+
+    c.reinit(name="jsonl-only", jsonl=True, otel=False)
+    assert c.current_path != original_path
+    assert c.name == "jsonl-only"
+    assert c._otel_name == "otel-only"
+    assert [call[0] for call in bridge.calls].count("reinit_run") == 1
+
+
+def test_close_otel_does_not_affect_jsonl_and_reinit_reopens_it(
+    tmp_path, monkeypatch
+):
+    bridges = [_FakeOTelBridge(), _FakeOTelBridge()]
+    monkeypatch.setattr(
+        "wizardflow.client.create_otel_bridge",
+        lambda *args, **kwargs: bridges.pop(0),
+    )
+    c = _new(tmp_path, nodes=["a"], otel=True)
+    first = c._otel
+    c.close_otel()
+    c.close_otel()
+    assert [call[0] for call in first.calls].count("close") == 1
+
+    c.log("m1", "a", "still-jsonl", True)
+    assert os.path.exists(c.end_message("m1"))
+
+    c.reinit(jsonl=False, otel=True)
+    assert c._otel is not None
+    assert c._otel is not first
 
 
 # --- validation & silencing ----------------------------------------------

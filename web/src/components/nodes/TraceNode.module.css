@@ -83,6 +83,30 @@
   flex-shrink: 0;
 }
 
+.tooltipContent {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tooltipName {
+  font-weight: 600;
+}
+
+.tooltipKind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--mui-palette-text-secondary);
+}
+
+.tooltipSwatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .handle {
   width: 6px;
   height: 6px;

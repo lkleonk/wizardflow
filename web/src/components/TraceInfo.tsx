@@ -27,6 +27,7 @@ export default function TraceInfo({ trace }: TraceInfoProps) {
   const messageCount = trace.messages.length;
   const nodeCount = graph.nodes.length;
   const edgeCount = graph.edges.length;
+  const traceDescription = trace.meta?.description;
 
   return (
     <>
@@ -47,15 +48,31 @@ export default function TraceInfo({ trace }: TraceInfoProps) {
         anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
       >
         <Box sx={{ p: 1.5, maxWidth: 360, maxHeight: "60vh", overflow: "auto" }}>
+          {traceDescription !== undefined ? (
+            <Box sx={{ mb: 1.25, pb: 1.25, borderBottom: 1, borderColor: "divider" }}>
+              <Typography variant="caption" component="div" sx={{ fontWeight: 700 }}>
+                Trace description (provided by trace author)
+              </Typography>
+              <Typography
+                variant="caption"
+                component="div"
+                sx={{ mt: 0.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+              >
+                {String(traceDescription)}
+              </Typography>
+            </Box>
+          ) : null}
           <InfoRow label="Schema" value={`v${trace.version}`} />
           <InfoRow
             label="Graph"
             value={`${messageCount} messages · ${nodeCount} nodes · ${edgeCount} edges`}
           />
           {trace.meta &&
-            Object.entries(trace.meta).map(([key, value]) => (
+            Object.entries(trace.meta)
+              .filter(([key]) => key !== "description")
+              .map(([key, value]) => (
               <InfoRow key={key} label={key} value={String(value)} />
-            ))}
+              ))}
         </Box>
       </Popover>
     </>

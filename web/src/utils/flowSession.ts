@@ -257,6 +257,19 @@ export const getServerInspectorCompactView = inspectorCompactViewSetting.getServ
 export const setInspectorCompactView = inspectorCompactViewSetting.set;
 export const subscribeInspectorCompactView = inspectorCompactViewSetting.subscribe;
 
+// Logging order carries meaning, so alphabetical payload tabs are an optional
+// view preference rather than the default.
+const inspectorAlphabeticalTabsSetting = createPersistedBooleanSetting(
+  "wizardflow:inspector-alphabetical-tabs",
+  false
+);
+export const getInspectorAlphabeticalTabs = inspectorAlphabeticalTabsSetting.get;
+export const getServerInspectorAlphabeticalTabs =
+  inspectorAlphabeticalTabsSetting.getServer;
+export const setInspectorAlphabeticalTabs = inspectorAlphabeticalTabsSetting.set;
+export const subscribeInspectorAlphabeticalTabs =
+  inspectorAlphabeticalTabsSetting.subscribe;
+
 // Whether search results show a content snippet under each hit (detailed) or
 // just the hit's location line (compact). Detailed by default — compact is
 // the opt-in scan mode for users who know the trace and only need locations.

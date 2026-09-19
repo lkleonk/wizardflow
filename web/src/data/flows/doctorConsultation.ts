@@ -1,4 +1,5 @@
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { decorateExampleTrace } from "@/data/exampleTraceMetadata";
 
 const ANAMNESIS_PROMPT = `You are the interview step of a simulated primary-care consultation.
 You get the patient's message, their record, and any pending lab orders.
@@ -33,7 +34,7 @@ Return valid JSON only.`;
 // strain trips the same gate on a blood-thinner drug interaction, and Jonas's
 // unclear fatigue orders a blood test whose results arrive a day later
 // (a real overnight gap between the two message timestamps).
-export const doctorConsultationTrace: AgentTraceFile = {
+export const doctorConsultationTrace: AgentTraceFile = decorateExampleTrace({
   version: "0.1",
   name: "doctor_consultation.jsonl",
   meta: {
@@ -1009,4 +1010,4 @@ export const doctorConsultationTrace: AgentTraceFile = {
       ],
     },
   ],
-};
+});

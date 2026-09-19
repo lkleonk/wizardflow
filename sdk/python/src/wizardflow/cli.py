@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.metadata
 import json
+import os
 import sys
 import webbrowser
 from http import HTTPStatus
@@ -15,7 +16,7 @@ from urllib.parse import unquote, urlencode, urlsplit
 
 from .html import render_html
 from .markdown import render_markdown
-from .reader import TraceFormatError, load_trace_file
+from .reader import TraceFormatError, load_trace_chain, load_trace_file
 
 # The bundled static UI fetches the assembled trace as plain JSON; the CLI does
 # the JSONL assembly server-side, so the UI build never needs to know about
@@ -63,8 +64,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 latest=args.latest,
                 output=args.output,
             )
+        if args.command == "otel" and args.otel_command == "export":
+            return run_otel_export(
+                trace=args.trace,
+                endpoint=args.endpoint,
+                trace_scope=args.trace_scope,
+                include_content=args.include_content,
+                content_max_bytes=args.content_max_bytes,
+                export_graph=args.export_graph,
+                graph_max_bytes=args.graph_max_bytes,
+                current_part_only=args.current_part_only,
+            )
     except WizardFlowCliError as exc:
-        parser.exit(2, f"wizardflow: error: {exc}\n")
+        parser.exit(1 if args.command == "otel" else 2, f"wizardflow: error: {exc}\n")
 
     parser.print_help()
     return 0
@@ -189,7 +201,101 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="output",
         help="Write JSON to this file instead of stdout.",
     )
+
+    otel = subparsers.add_parser(
+        "otel", help="Export an existing WizardFlow artifact to OpenTelemetry."
+    )
+    otel_commands = otel.add_subparsers(dest="otel_command", required=True)
+    otel_export = otel_commands.add_parser(
+        "export", help="Project a JSONL run or part-chain to fresh OTLP traces."
+    )
+    otel_export.add_argument("trace", help="WizardFlow JSONL or JSON trace file.")
+    otel_export.add_argument("--endpoint", help="OTLP/HTTP traces endpoint.")
+    otel_export.add_argument(
+        "--trace-scope",
+        choices=("recording", "message"),
+        default="recording",
+        help="Create one recording trace (default) or one trace per message.",
+    )
+    otel_export.add_argument("--include-content", action="store_true")
+    otel_export.add_argument("--content-max-bytes", type=_positive_int, default=16_384)
+    otel_export.add_argument("--export-graph", action="store_true")
+    otel_export.add_argument("--graph-max-bytes", type=_positive_int, default=65_536)
+    otel_export.add_argument(
+        "--current-part-only",
+        action="store_true",
+        help="Export only the named part instead of discovering its rotation chain.",
+    )
     return parser
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def run_otel_export(
+    *,
+    trace: str,
+    endpoint: Optional[str],
+    trace_scope: str,
+    include_content: bool,
+    content_max_bytes: int,
+    export_graph: bool,
+    graph_max_bytes: int,
+    current_part_only: bool,
+) -> int:
+    """Export a durable WizardFlow artifact through a private OTLP provider."""
+    trace_path = _resolve_trace_path(trace=trace, path=None)
+    resolved_endpoint = _resolve_otel_endpoint(endpoint)
+    try:
+        unit = load_trace_chain(trace_path, current_part_only=current_part_only)
+        from .otel_file_exporter import ExportOptions, export_trace_chain
+
+        summary = export_trace_chain(
+            unit,
+            ExportOptions(
+                endpoint=resolved_endpoint,
+                trace_scope=trace_scope,
+                include_content=include_content,
+                content_max_bytes=content_max_bytes,
+                export_graph=export_graph,
+                graph_max_bytes=graph_max_bytes,
+            ),
+        )
+    except (OSError, TraceFormatError, RuntimeError, ValueError) as exc:
+        raise WizardFlowCliError(str(exc)) from exc
+
+    snapshot = " (unsealed snapshot)" if not summary.sealed else ""
+    print(
+        f"Exported {_count(summary.parts, 'part')}, "
+        f"{_count(summary.messages, 'message')}, and "
+        f"{_count(summary.node_spans, 'node span')} as "
+        f"{_count(summary.traces, 'new OTel trace')}{snapshot}.",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _resolve_otel_endpoint(explicit: Optional[str]) -> str:
+    if explicit:
+        return explicit
+    traces = os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+    if traces:
+        return traces
+    base = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if base:
+        return base.rstrip("/") + "/v1/traces"
+    raise WizardFlowCliError(
+        "missing OTLP endpoint: pass --endpoint or set "
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+    )
+
+
+def _count(value: int, noun: str) -> str:
+    return f"{value} {noun if value == 1 else noun + 's'}"
 
 
 def run_ui(

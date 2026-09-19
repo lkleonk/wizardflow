@@ -5,7 +5,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // `trace.meta.description`. `pattern` is a tiny tag for the card's meta row.
 //
 // The trace itself is loaded on demand rather than imported: a static import
-// would merge all twelve traces (~200 KB of literal data) into the entry chunk,
+// would merge all eight traces (~200 KB of literal data) into the entry chunk,
 // so every visitor downloaded and parsed all of them to watch at most one.
 // `loadTrace` is a dynamic import, which makes each flow its own chunk, fetched
 // when the user actually picks it.
@@ -40,18 +40,10 @@ export const exampleFlows: ExampleFlow[] = [
       import("./flows/doctorConsultation").then((m) => m.doctorConsultationTrace),
   },
   {
-    id: "router",
-    title: "Router agent",
-    summary: "Routes each request to a planner or retriever branch.",
-    pattern: "branching",
-    nodeCount: 7,
-    messageCount: 3,
-    loadTrace: () => import("./flows/routerAgent").then((m) => m.routerAgentTrace),
-  },
-  {
     id: "rag",
     title: "RAG pipeline",
-    summary: "Embeds a medical question, retrieves docs, and answers from them.",
+    summary:
+      "Answers five medical questions by embedding each query, searching a drug-information knowledge base, reranking the matches, and grounding one LLM response in the best evidence.",
     pattern: "linear",
     nodeCount: 6,
     messageCount: 5,
@@ -66,25 +58,6 @@ export const exampleFlows: ExampleFlow[] = [
     messageCount: 2,
     loadTrace: () =>
       import("./flows/multiAgentCrew").then((m) => m.multiAgentCrewTrace),
-  },
-  {
-    id: "plan-execute",
-    title: "Plan & execute",
-    summary: "Plans a trip, runs each step with tools, and replans in a loop.",
-    pattern: "loop",
-    nodeCount: 5,
-    messageCount: 2,
-    loadTrace: () => import("./flows/planExecute").then((m) => m.planExecuteTrace),
-  },
-  {
-    id: "self-correcting-code",
-    title: "Self-correcting code",
-    summary: "Writes code, runs tests, and patches itself until they pass.",
-    pattern: "test loop",
-    nodeCount: 4,
-    messageCount: 2,
-    loadTrace: () =>
-      import("./flows/selfCorrectingCode").then((m) => m.selfCorrectingCodeTrace),
   },
   {
     id: "degree-consultant",
@@ -117,16 +90,6 @@ export const exampleFlows: ExampleFlow[] = [
     messageCount: 4,
     loadTrace: () =>
       import("./flows/supportHandoff").then((m) => m.supportHandoffTrace),
-  },
-  {
-    id: "deep-research",
-    title: "Deep research agent",
-    summary:
-      "Searches, loops back to gather more, then revises through a writer/critic loop.",
-    pattern: "loops",
-    nodeCount: 8,
-    messageCount: 1,
-    loadTrace: () => import("./flows/deepResearch").then((m) => m.deepResearchTrace),
   },
   {
     id: "it-helpdesk-router",

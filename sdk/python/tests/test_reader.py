@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from wizardflow.reader import TraceFormatError, load_trace_file
+from wizardflow.reader import TraceFormatError, load_trace_chain, load_trace_file
 
 
 def _lines(*records):
@@ -24,6 +24,51 @@ HEADER = {
 
 def _msg(mid, **extra):
     return {"type": "message", "id": mid, "steps": [], **extra}
+
+
+def test_load_trace_chain_discovers_parts_from_middle(tmp_path):
+    first = tmp_path / "run.jsonl"
+    second = tmp_path / "run__part2.jsonl"
+    first.write_text(
+        _lines(HEADER, _msg("m1"), {"type": "seal", "nextPart": second.name}),
+        encoding="utf-8",
+    )
+    second_header = {
+        **HEADER,
+        "meta": {**HEADER["meta"], "part": 2, "prevPart": first.name},
+    }
+    second.write_text(_lines(second_header, _msg("m2")), encoding="utf-8")
+
+    chain = load_trace_chain(second)
+    assert chain.parts == (first.resolve(), second.resolve())
+    assert [message["id"] for message in chain.trace["messages"]] == ["m1", "m2"]
+    assert chain.sealed is False
+
+
+def test_load_trace_chain_rejects_link_that_does_not_point_back(tmp_path):
+    first = tmp_path / "run.jsonl"
+    second = tmp_path / "run__part2.jsonl"
+    first.write_text(
+        _lines(HEADER, {"type": "seal", "nextPart": second.name}),
+        encoding="utf-8",
+    )
+    second.write_text(
+        _lines({**HEADER, "meta": {**HEADER["meta"], "part": 2}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(TraceFormatError, match="does not point back"):
+        load_trace_chain(first)
+
+
+def test_load_trace_chain_detects_single_document_by_content(tmp_path):
+    path = tmp_path / "legacy.jsonl"
+    path.write_text(
+        json.dumps({**{k: v for k, v in HEADER.items() if k != "type"}, "messages": []}),
+        encoding="utf-8",
+    )
+    chain = load_trace_chain(path)
+    assert chain.source_format == "json"
+    assert chain.sealed is True
 
 
 def test_assembles_header_and_messages_in_file_order(tmp_path):
@@ -47,6 +92,51 @@ def test_message_meta_passes_through(tmp_path):
     )
     trace = load_trace_file(p)
     assert trace["messages"][0]["meta"] == {"outcome": "ok", "latency_ms": 320}
+
+
+def test_node_timing_passes_through_and_old_steps_remain_compatible(tmp_path):
+    old_step = {
+        "id": "m1-s1", "nodeId": "a",
+        "timestamp": "2026-09-15T10:00:00.000Z", "payloads": [],
+    }
+    timed_step = {
+        **old_step,
+        "id": "m2-s1",
+        "endTimestamp": "2026-09-15T10:00:02.000Z",
+        "timingMode": "explicit",
+    }
+    p = tmp_path / "t.jsonl"
+    p.write_text(
+        _lines(HEADER, _msg("m1", steps=[old_step]), _msg("m2", steps=[timed_step])),
+        encoding="utf-8",
+    )
+
+    messages = load_trace_file(p)["messages"]
+    assert "endTimestamp" not in messages[0]["steps"][0]
+    assert "timingMode" not in messages[0]["steps"][0]
+    assert messages[1]["steps"][0]["endTimestamp"] == timed_step["endTimestamp"]
+    assert messages[1]["steps"][0]["timingMode"] == "explicit"
+
+
+def test_kind_semantic_type_and_future_values_pass_through(tmp_path):
+    step = {
+        "id": "m1-s1",
+        "nodeId": "a",
+        "kind": "future-kind",
+        "timestamp": "2026-09-15T10:00:00.000Z",
+        "payloads": [
+            {
+                "label": "future",
+                "value": {"x": 1},
+                "semanticType": "future-semantic",
+                "exportToOtel": False,
+            }
+        ],
+    }
+    p = tmp_path / "t.jsonl"
+    p.write_text(_lines(HEADER, _msg("m1", steps=[step])), encoding="utf-8")
+    loaded = load_trace_file(p)["messages"][0]["steps"][0]
+    assert loaded == step
 
 
 def test_header_only_part_is_a_valid_empty_trace(tmp_path):

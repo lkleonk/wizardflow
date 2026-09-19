@@ -1,4 +1,5 @@
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { decorateExampleTrace } from "@/data/exampleTraceMetadata";
 
 // Text-to-SQL agent with an on-error repair loop: look up the schema, generate
 // SQL, and run it. If the database rejects the query, sql_repair rewrites it
@@ -7,7 +8,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 // schema_lookup and db_executor log their own data (table metadata, the SQL run,
 // and either an error or a result table). The db_executor -> sql_repair ->
 // db_executor back-edge makes the repair loop visible.
-export const textToSqlTrace: AgentTraceFile = {
+export const textToSqlTrace: AgentTraceFile = decorateExampleTrace({
   version: "0.1",
   name: "text_to_sql.jsonl",
   meta: {
@@ -332,4 +333,4 @@ export const textToSqlTrace: AgentTraceFile = {
       ],
     },
   ],
-};
+});

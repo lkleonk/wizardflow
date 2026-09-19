@@ -23,10 +23,10 @@ WizardFlow has two halves that share one file format (`AgentTrace` JSONL):
 - **Anyone can replay it.** Drop the file into
   [getwizardflow.com](https://getwizardflow.com) — no Python, no install; the
   viewer is fully client-side, so nothing is uploaded.
-- **Three calls, zero dependencies.** The whole SDK API is `init`, `log`,
-  `end_message` — pure Python that pulls nothing into your environment.
-- **Explicit by design.** You place every log call, so a trace contains exactly
-  what you chose to record — nothing more.
+- **Small, zero-dependency API.** Scope a node execution, record the values you
+  care about, and end the message when its run through the graph is complete.
+- **Explicit by design.** You place every recording call, so a trace contains
+  exactly what you chose to record — nothing more.
 
 ## Quickstart
 
@@ -35,14 +35,25 @@ Record a run with the SDK, then open the trace in the viewer:
 ```python
 import wizardflow
 
-wiz = wizardflow.init(file_prefix="run", nodes=[...], edges=[...])
+trace = wizardflow.init(
+    file_prefix="run",
+    nodes=["generator"],
+)
 
-# log(message_id, node, payload_label, payload_value)
-wizardflow.log("msg-1", "router", "llm_output", output)
+with trace.node("msg-1", "generator") as node:
+    node.log_input(prompt)
+    node.log_output(response)
 
-wizardflow.end_message("msg-1")   # -> appends to the trace (the only call that writes)
-print(wiz.current_path)           # run__<timestamp>.jsonl
+trace_path = trace.end_message("msg-1")  # appends to the trace
+print(trace_path)                       # run__<timestamp>.jsonl
 ```
+
+OpenTelemetry export is optional: WizardFlow can project the same node
+executions to OTLP-compatible observability platforms while retaining JSONL as
+the portable source of truth. The base SDK remains dependency-free.
+
+For generic `log()` records, lower-level lifecycle control, and detailed
+OpenTelemetry configuration, see the [Python SDK guide](sdk/python/README.md).
 
 Drop the `.jsonl` file into [getwizardflow.com](https://getwizardflow.com) (or
 your local build) to replay it.
@@ -52,6 +63,7 @@ your local build) to replay it.
 | Path | What |
 |------|------|
 | `web/` | Next.js viewer (static export) |
-| `sdk/python/` | `wizardflow` Python SDK |
+| [`sdk/python/`](sdk/python/) | `wizardflow` Python SDK and full usage documentation |
 
-See each subfolder's README for details.
+See the [Python SDK guide](sdk/python/README.md) for semantic logging,
+OpenTelemetry configuration, privacy controls, trace rotation, and CLI usage.

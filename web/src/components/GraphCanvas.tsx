@@ -18,7 +18,7 @@ import { useColorScheme } from "@mui/material/styles";
 import OpenWithIcon from "@mui/icons-material/OpenWith";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import type { AgentTraceNode, AgentTraceEdge } from "@/types/agenttrace";
-import { nodeColorAt } from "@/theme/muiTheme";
+import { nodeColorAt, nodeColorForKind } from "@/theme/muiTheme";
 import { layoutGraph, type NodePosition } from "@/utils/graphLayout";
 import TraceNode, { type TraceNodeData } from "@/components/nodes/TraceNode";
 import BiDirectionalEdge, {
@@ -55,6 +55,8 @@ type GraphCanvasProps = {
   isPlaying: boolean;
   arrangeMode: boolean;
   onArrangeModeChange: (enabled: boolean) => void;
+  /** First observed execution kind for each node, used for graph styling. */
+  nodeKinds?: ReadonlyMap<string, string>;
 };
 
 type BuildArgs = {
@@ -66,6 +68,7 @@ type BuildArgs = {
   draggable: boolean;
   /** Positions a node currently sits at (e.g. dragged), preferred over layout. */
   livePositions: Map<string, NodePosition>;
+  nodeKinds?: ReadonlyMap<string, string>;
 };
 
 type EdgeHandleSide = "left" | "right" | "top" | "bottom";
@@ -106,9 +109,12 @@ function buildNodes({
   recencyRank,
   draggable,
   livePositions,
+  nodeKinds,
 }: BuildArgs): Node<TraceNodeData>[] {
   return nodes.map((node, index) => {
-    const accent = node.color ?? nodeColorAt(index);
+    const kind = nodeKinds?.get(node.id);
+    const kindColor = nodeColorForKind(kind);
+    const displayedAccent = node.color ?? kindColor ?? nodeColorAt(index);
     const state =
       node.id === activeNodeId
         ? "active"
@@ -123,7 +129,8 @@ function buildNodes({
       position,
       data: {
         label: node.label ?? node.id,
-        accent,
+        accent: displayedAccent,
+        kind,
         state,
         recencyRank: recencyRank.get(node.id) ?? 0,
         selected: node.id === selectedNodeId,
@@ -147,6 +154,7 @@ export default function GraphCanvas({
   isPlaying,
   arrangeMode,
   onArrangeModeChange,
+  nodeKinds,
 }: GraphCanvasProps) {
   const { mode, systemMode } = useColorScheme();
   const isDark = (mode === "system" ? systemMode : mode) !== "light";
@@ -187,6 +195,7 @@ export default function GraphCanvas({
         recencyRank,
         draggable: false,
         livePositions: new Map(),
+        nodeKinds,
       }),
     // Mount only — see the sync effect for subsequent updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -220,6 +229,7 @@ export default function GraphCanvas({
         recencyRank,
         draggable: arranging,
         livePositions,
+        nodeKinds,
       });
     });
   }, [
@@ -230,6 +240,7 @@ export default function GraphCanvas({
     selectedNodeId,
     recencyRank,
     arranging,
+    nodeKinds,
     setRfNodes,
   ]);
 

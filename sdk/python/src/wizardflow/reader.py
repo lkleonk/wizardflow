@@ -31,15 +31,26 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
 
 from .client import WizardFlowError
 from .constants import Logging, Records
 
 logger = logging.getLogger(Logging.LOGGER_NAME)
 
-__all__ = ["TraceFormatError", "load_trace_file"]
+__all__ = ["TraceChain", "TraceFormatError", "load_trace_chain", "load_trace_file"]
+
+
+@dataclass(frozen=True)
+class TraceChain:
+    """One transport-neutral run assembled from one or more JSONL parts."""
+
+    trace: Dict[str, Any]
+    parts: Tuple[Path, ...]
+    sealed: bool
+    source_format: str = "jsonl"
 
 
 class TraceFormatError(WizardFlowError):
@@ -69,6 +80,133 @@ def load_trace_file(path: "Path | str") -> Dict[str, Any]:
         f"{path}: not an AgentTrace JSONL part (no header line) nor a "
         "single-document AgentTrace JSON"
     )
+
+
+def load_trace_chain(
+    path: "Path | str", *, current_part_only: bool = False
+) -> TraceChain:
+    """Load a complete, safely linked JSONL rotation chain.
+
+    Single-document traces and ``current_part_only`` inputs are returned as a
+    one-file unit. Links are restricted to plain sibling filenames.
+    """
+    requested = Path(path).resolve()
+    first_trace = _stable_load(requested)
+    is_jsonl = _is_jsonl_framing(requested)
+    if current_part_only or not is_jsonl:
+        return TraceChain(
+            first_trace,
+            (requested,),
+            _is_sealed(requested) if is_jsonl else True,
+            "jsonl" if is_jsonl else "json",
+        )
+
+    current = requested
+    seen = set()
+    while True:
+        if current in seen:
+            raise TraceFormatError(f"{requested}: cycle in prevPart links")
+        seen.add(current)
+        trace = _stable_load(current)
+        previous = trace.get("meta", {}).get("prevPart")
+        if previous is None:
+            break
+        current = _safe_sibling(current, previous, "prevPart")
+
+    parts: List[Path] = []
+    traces: List[Dict[str, Any]] = []
+    seen.clear()
+    while True:
+        if current in seen:
+            raise TraceFormatError(f"{requested}: cycle in nextPart links")
+        seen.add(current)
+        trace = _stable_load(current)
+        parts.append(current)
+        traces.append(trace)
+        next_name = trace.get("meta", {}).get("nextPart")
+        if next_name is None:
+            break
+        following = _safe_sibling(current, next_name, "nextPart")
+        following_trace = _stable_load(following)
+        if following_trace.get("meta", {}).get("prevPart") != current.name:
+            raise TraceFormatError(
+                f"{following}: prevPart does not point back to {current.name}"
+            )
+        current = following
+
+    _validate_chain(parts, traces)
+    assembled = dict(traces[0])
+    assembled["messages"] = [
+        message for trace in traces for message in trace.get("messages", [])
+    ]
+    meta = dict(assembled.get("meta", {}))
+    for key in ("part", "prevPart", "nextPart"):
+        meta.pop(key, None)
+    assembled["meta"] = meta
+    return TraceChain(assembled, tuple(parts), _is_sealed(parts[-1]))
+
+
+def _stable_load(path: Path) -> Dict[str, Any]:
+    for attempt in range(2):
+        before = path.stat()
+        trace = load_trace_file(path)
+        after = path.stat()
+        if (before.st_mtime_ns, before.st_size) == (after.st_mtime_ns, after.st_size):
+            return trace
+        if attempt == 0:
+            continue
+    raise TraceFormatError(f"{path}: changed while being read; retry from a snapshot")
+
+
+def _safe_sibling(path: Path, value: Any, field: str) -> Path:
+    if not isinstance(value, str) or not value or Path(value).name != value:
+        raise TraceFormatError(f"{path}: unsafe {field} value {value!r}")
+    candidate = path.parent / value
+    if not candidate.is_file() or candidate.resolve().parent != path.parent.resolve():
+        raise TraceFormatError(f"{path}: referenced {field} file is unavailable: {value}")
+    return candidate.resolve()
+
+
+def _is_sealed(path: Path) -> bool:
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    record = _parse_record(lines[-1]) if lines else None
+    return bool(record and record.get(Records.TYPE_KEY) == Records.SEAL)
+
+
+def _is_jsonl_framing(path: Path) -> bool:
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            record = _parse_record(line)
+            return bool(record and record.get(Records.TYPE_KEY) == Records.HEADER)
+    return False
+
+
+def _validate_chain(parts: List[Path], traces: List[Dict[str, Any]]) -> None:
+    baseline = traces[0]
+    base_meta = {
+        key: value
+        for key, value in baseline.get("meta", {}).items()
+        if key not in {"part", "prevPart", "nextPart"}
+    }
+    for index, (path, trace) in enumerate(zip(parts, traces), start=1):
+        if trace.get("version") != baseline.get("version"):
+            raise TraceFormatError(f"{path}: schema version differs from first part")
+        if trace.get("name") != baseline.get("name"):
+            raise TraceFormatError(f"{path}: trace name differs from first part")
+        if trace.get("graph") != baseline.get("graph"):
+            raise TraceFormatError(f"{path}: graph differs from first part")
+        meta = {
+            key: value
+            for key, value in trace.get("meta", {}).items()
+            if key not in {"part", "prevPart", "nextPart"}
+        }
+        if meta != base_meta:
+            raise TraceFormatError(f"{path}: run metadata differs from first part")
+        part_number = trace.get("meta", {}).get("part", 1)
+        if part_number != index:
+            raise TraceFormatError(
+                f"{path}: expected part number {index}, found {part_number!r}"
+            )
 
 
 def _assemble_jsonl(

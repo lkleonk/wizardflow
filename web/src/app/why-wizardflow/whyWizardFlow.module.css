@@ -20,8 +20,16 @@
 }
 
 .backLink:hover,
+.inlineLink:hover,
 .secondaryAction:hover {
   text-decoration: underline;
+}
+
+.inlineLink {
+  color: var(--mui-palette-primary-main);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
 }
 
 .eyebrow {
@@ -36,7 +44,7 @@
 .title {
   max-width: 720px;
   margin: 0 0 16px;
-  font-size: clamp(32px, 5vw, 48px);
+  font-size: clamp(26px, 3.8vw, 38px);
   line-height: 1.08;
   letter-spacing: -0.025em;
 }
@@ -47,6 +55,52 @@
   color: var(--mui-palette-text-secondary);
   font-size: clamp(17px, 2.5vw, 20px);
   line-height: 1.6;
+}
+
+.featureOverview {
+  padding: 4px 0 36px;
+}
+
+.featureOverview > h2 {
+  margin: 0 0 16px;
+  font-size: 23px;
+  letter-spacing: -0.02em;
+}
+
+.featureGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.featureCard {
+  padding: 20px;
+  border: 1px solid var(--mui-palette-divider);
+  border-radius: 10px;
+  background: var(--mui-palette-background-paper);
+}
+
+.featureCard h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  letter-spacing: -0.015em;
+}
+
+.featureCard p {
+  margin: 0;
+  color: var(--mui-palette-text-secondary);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.featureCard .featureKicker {
+  margin-bottom: 7px;
+  color: var(--mui-palette-primary-main);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 1.3;
+  text-transform: uppercase;
 }
 
 .section {
@@ -102,10 +156,35 @@
   font-size: 14px;
 }
 
-.compactList {
+.playerSketch {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 32px;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid var(--mui-palette-divider);
+  border-radius: 8px;
+  background: var(--mui-palette-background-paper);
+  color: var(--mui-palette-text-primary);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 14px;
+  text-align: center;
+}
+
+.playerControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: var(--mui-palette-text-secondary);
+}
+
+.playerControls span:last-child {
+  margin-left: 4px;
+  color: var(--mui-palette-primary-main);
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .tableWrap {
@@ -186,8 +265,8 @@
     margin-bottom: 32px;
   }
 
-  .replayGrid,
-  .compactList {
+  .featureGrid,
+  .replayGrid {
     grid-template-columns: 1fr;
   }
 

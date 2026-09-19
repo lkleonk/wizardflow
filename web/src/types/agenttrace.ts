@@ -66,6 +66,8 @@ export type AgentTraceStep = {
   id: string;
   /** Id of the graph node that was active during this step. */
   nodeId: string;
+  /** Transport-neutral meaning of this execution; omitted means generic. */
+  kind?: string;
   /**
    * ISO 8601 timestamp — the single source of truth for ordering. Steps are
    * replayed sorted ascending by this value; the UI derives the elapsed delta
@@ -74,12 +76,26 @@ export type AgentTraceStep = {
    * be placed in the sequence.
    */
   timestamp: string;
+  /**
+   * ISO 8601 timestamp at which this node execution ended. Optional so traces
+   * written before node lifecycle timing was introduced remain valid.
+   */
+  endTimestamp?: string;
+  /**
+   * How the execution boundaries were obtained. Missing on older traces means
+   * unknown; readers must not assume an exact runtime in that case.
+   */
+  timingMode?: "explicit" | "inferred" | "auto_closed";
   payloads: AgentTracePayload[];
 };
 
 export type AgentTracePayload = {
   label: string;
   value: unknown;
+  /** Stable WizardFlow meaning used by optional output projections. */
+  semanticType?: string;
+  /** Explicit opt-out persisted for future offline OTel export. */
+  exportToOtel?: false;
 };
 
 // --- JSONL framing (what the Python SDK writes) ----------------------------

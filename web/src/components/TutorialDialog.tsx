@@ -15,20 +15,34 @@ import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 
 const connectGraphExample = `import wizardflow
 
-wizardflow.init_from_langgraph(
+trace = wizardflow.init_from_langgraph(
     app,
     output_dir="traces",
     file_prefix="run",
 )`;
 
-const logValuesExample = `# These values already exist in your agent.
-wizardflow.log(message_id, "router", "input", prompt)
-wizardflow.log(message_id, "router", "route", route)
-wizardflow.log(message_id, "tool_node")
-wizardflow.log(message_id, "final_response", "output", response)
+const logValuesExample = `with trace.node(message_id, "generator") as node:
+    node.log_input(prompt)
+    response = ...
+    node.log_output(response)
 
 # Finalize the message, write it to disk, and return the trace file path.
-trace_path = wizardflow.end_message(message_id)`;
+trace_path = trace.end_message(message_id)`;
+
+const otelInstallExample = `pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http`;
+
+const otelExample = `trace = wizardflow.init_from_langgraph(
+    app,
+    name="my-agent",
+    output_dir="traces",
+    file_prefix="run",
+    otel=True,
+    otel_endpoint="http://localhost:4318/v1/traces",
+    otel_trace_scope="message",
+)
+
+# Record messages as above, then flush WizardFlow-owned OTel resources.
+trace.close_otel()`;
 
 type TutorialDialogProps = {
   open: boolean;
@@ -70,18 +84,22 @@ export function LocalDataDetails() {
         server-side processing.
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
-        For extra assurance, you can cut the tab&apos;s connection after opening
-        WizardFlow and it keeps working. In Chrome: open DevTools
-        (Ctrl&nbsp;+&nbsp;Shift&nbsp;+&nbsp;I), go to the{" "}
-        <Box component="strong" sx={{ fontWeight: 600 }}>
-          Network
-        </Box>{" "}
-        tab, and set the throttling dropdown to{" "}
-        <Box component="strong" sx={{ fontWeight: 600 }}>
-          Offline
+        The viewer source is public in the{" "}
+        <Box
+          component="a"
+          href="https://github.com/lkleonk/wizardflow"
+          target="_blank"
+          rel="noreferrer"
+          sx={{ color: "primary.main" }}
+        >
+          WizardFlow GitHub repository
         </Box>
-        . While DevTools stays open the tab is offline, yet importing and
-        replaying still work.
+        . The hosted app is built and deployed from that repository to Vercel
+        through continuous deployment, so you can inspect the code that handles
+        imported files.
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
+        WizardFlow continues working offline after the static app has loaded.
       </Typography>
     </Box>
   );
@@ -93,9 +111,11 @@ export default function TutorialDialog({
   onWatchDemo,
 }: TutorialDialogProps) {
   const [cliExpanded, setCliExpanded] = useState(false);
+  const [otelExpanded, setOtelExpanded] = useState(false);
 
   const handleClose = () => {
     setCliExpanded(false);
+    setOtelExpanded(false);
     onClose();
   };
 
@@ -129,8 +149,8 @@ export default function TutorialDialog({
             color="text.secondary"
             sx={{ lineHeight: 1.7 }}
           >
-            WizardFlow records values your agent already has and writes them to
-            a local trace file.
+            WizardFlow records your graph one message at a time and writes a
+            replayable JSONL file. OpenTelemetry export is also available.
           </Typography>
           {onWatchDemo && (
             <Button
@@ -139,6 +159,7 @@ export default function TutorialDialog({
               startIcon={<PlayArrowRoundedIcon />}
               onClick={() => {
                 setCliExpanded(false);
+                setOtelExpanded(false);
                 onWatchDemo();
               }}
               sx={{ justifySelf: "start", textTransform: "none" }}
@@ -175,9 +196,23 @@ export default function TutorialDialog({
           </Box>
           <Box sx={{ display: "grid", gap: 0.75 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              3. Log existing values
+              3. Record a message
             </Typography>
             <CodeBlock>{logValuesExample}</CodeBlock>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ lineHeight: 1.7 }}
+            >
+              The node context manager records reliable start and end timing.
+              Semantic methods preserve input and output meaning; use{" "}
+              <Box component="code">node.log()</Box> for your own labels.
+            </Typography>
+          </Box>
+          <Box sx={{ display: "grid", gap: 0.75 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              4. Replay the JSONL
+            </Typography>
             <Typography
               variant="body2"
               color="text.secondary"
@@ -262,6 +297,103 @@ export default function TutorialDialog({
                   sx={{ lineHeight: 1.7 }}
                 >
                   All commands also accept an existing .json trace.
+                </Typography>
+              </Box>
+            </Collapse>
+          </Box>
+          <Box sx={{ display: "grid", gap: 0.75 }}>
+            <Box
+              component="button"
+              type="button"
+              onClick={() => setOtelExpanded((expanded) => !expanded)}
+              aria-expanded={otelExpanded}
+              aria-controls="tutorial-otel-details"
+              sx={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifySelf: "start",
+                gap: 0.5,
+                p: 0,
+                border: 0,
+                bgcolor: "transparent",
+                color: "text.secondary",
+                font: "inherit",
+                cursor: "pointer",
+                "&:hover": { color: "primary.main" },
+                "&:focus-visible": {
+                  outline: "2px solid",
+                  outlineColor: "primary.main",
+                  outlineOffset: 2,
+                  borderRadius: 0.5,
+                },
+              }}
+            >
+              <ExpandMoreIcon
+                fontSize="small"
+                sx={{
+                  transform: otelExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: (theme) =>
+                    theme.transitions.create("transform", {
+                      duration: theme.transitions.duration.shortest,
+                    }),
+                }}
+              />
+              <Typography component="span" variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Optional: export to OpenTelemetry
+              </Typography>
+            </Box>
+            <Collapse in={otelExpanded}>
+              <Box
+                id="tutorial-otel-details"
+                sx={{ display: "grid", gap: 1.25, pt: 0.75 }}
+              >
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ lineHeight: 1.7 }}
+                >
+                  OpenTelemetry is the common interoperability layer between
+                  instrumented applications and many observability systems,
+                  including AI observability platforms. WizardFlow can send
+                  OTLP traces to any compatible endpoint, so the same SDK works
+                  with Phoenix, Langfuse, and other tools that accept
+                  OpenTelemetry. The JSONL artifact remains available, and
+                  content export stays off by default.
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Install the optional OpenTelemetry packages
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ lineHeight: 1.7 }}
+                >
+                  WizardFlow loads these packages only when OTel export is
+                  enabled; the base JSONL recorder remains dependency-free.
+                </Typography>
+                <CodeBlock>{otelInstallExample}</CodeBlock>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Enable OTLP export when initializing WizardFlow
+                </Typography>
+                <CodeBlock>{otelExample}</CodeBlock>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ lineHeight: 1.7 }}
+                >
+                  <Box component="code">name</Box> becomes the project name for
+                  a private OTLP provider. Use{" "}
+                  <Box component="code">otel_trace_scope=&quot;message&quot;</Box>{" "}
+                  for one isolated trace per message, or omit it to keep the
+                  backward-compatible recording-wide trace.
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ lineHeight: 1.7 }}
+                >
+                  Importing existing OpenTelemetry traces into WizardFlow is
+                  planned for a future release.
                 </Typography>
               </Box>
             </Collapse>

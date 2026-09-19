@@ -15,12 +15,50 @@ from wizardflow.cli import (
     _load_trace,
     _make_handler,
     _resolve_trace_path,
+    _resolve_otel_endpoint,
     _sibling_part,
     _viewer_url,
     main,
     run_json,
+    run_otel_export,
     run_ui,
 )
+
+
+def test_otel_endpoint_resolution(monkeypatch):
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318/")
+    assert _resolve_otel_endpoint(None) == "http://collector:4318/v1/traces"
+    assert _resolve_otel_endpoint("http://explicit/v1/traces") == "http://explicit/v1/traces"
+
+
+def test_otel_export_cli_passes_scope_and_reports_summary(tmp_path, monkeypatch, capsys):
+    trace = tmp_path / "trace.jsonl"
+    _write_trace(trace)
+    captured = {}
+
+    def fake_export(unit, options):
+        from wizardflow.otel_file_exporter import ExportSummary
+
+        captured["unit"] = unit
+        captured["options"] = options
+        return ExportSummary(1, 1, 0, 1, False)
+
+    monkeypatch.setattr("wizardflow.otel_file_exporter.export_trace_chain", fake_export)
+    result = run_otel_export(
+        trace=str(trace),
+        endpoint="http://collector/v1/traces",
+        trace_scope="message",
+        include_content=True,
+        content_max_bytes=100,
+        export_graph=True,
+        graph_max_bytes=200,
+        current_part_only=False,
+    )
+    assert result == 0
+    assert captured["options"].trace_scope == "message"
+    assert captured["options"].include_content is True
+    assert "1 new OTel trace (unsealed snapshot)" in capsys.readouterr().err
 
 
 def _write_trace(path, *, message_id="m1", part=None, next_part=None):

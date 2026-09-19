@@ -22,7 +22,9 @@ import EmptyCanvas from "@/components/EmptyCanvas";
 import ExampleGallery from "@/components/ExampleGallery";
 import FooterLinks from "@/components/FooterLinks";
 import GraphCanvas from "@/components/GraphCanvas";
-import InspectorPanel from "@/components/InspectorPanel";
+import InspectorPanel, {
+  type InspectorVisit,
+} from "@/components/InspectorPanel";
 import LoadNotices from "@/components/LoadNotices";
 import MessageTimeline from "@/components/MessageTimeline";
 import PlaybackControls, {
@@ -104,6 +106,21 @@ export default function Home() {
   // virtual __start__/__end__) that never log anything. Everything else still
   // reads the full `trace` — only the canvas hides these.
   const graph = useMemo(() => visibleGraph(trace), [trace]);
+
+  // Kinds are recorded on execution steps. For stable graph styling, use the
+  // first observed kind for each node. Generic/omitted executions do not
+  // create a kind entry.
+  const nodeKinds = useMemo(() => {
+    const kinds = new Map<string, string>();
+    for (const message of trace.messages) {
+      for (const step of message.steps) {
+        if (step.kind && !kinds.has(step.nodeId)) {
+          kinds.set(step.nodeId, step.kind);
+        }
+      }
+    }
+    return kinds;
+  }, [trace.messages]);
 
   const [selectedMessageId, setSelectedMessageId] = useState(
     trace.messages[0]?.id
@@ -973,6 +990,26 @@ export default function Home() {
     return steps.find((s) => s.nodeId === selectedNodeId)?.id;
   }, [steps, currentStepIndex, selectedNodeId]);
 
+  // Timing belongs to a node execution, not to one of its payload tabs. Pass
+  // every visit explicitly so the inspector can describe empty executions and
+  // can switch timing context when an earlier visit's payload is selected.
+  const selectedNodeVisits = useMemo<InspectorVisit[]>(() => {
+    if (!selectedNodeId) return [];
+    const visits: InspectorVisit[] = [];
+    steps.forEach((step, index) => {
+      if (step.nodeId !== selectedNodeId) return;
+      visits.push({
+        stepId: step.id,
+        timestamp: step.timestamp,
+        endTimestamp: step.endTimestamp,
+        timingMode: step.timingMode,
+        deltaMs: deltaMsAtStep(steps, index),
+        elapsedMs: elapsedMsAtStep(steps, index),
+      });
+    });
+    return visits;
+  }, [steps, selectedNodeId]);
+
   // A selection carried over from another message may name a node this one
   // never runs. The inspector says which kind of empty that is.
   const selectedNodeVisited =
@@ -1137,6 +1174,7 @@ export default function Home() {
               isPlaying={isPlaying}
               arrangeMode={graphArrangeMode}
               onArrangeModeChange={setGraphArrangeMode}
+              nodeKinds={nodeKinds}
             />
           ) : (
             <EmptyCanvas
@@ -1179,6 +1217,7 @@ export default function Home() {
                   selectedNodeLabel={selectedNodeLabel}
                   selectedNodeDescription={selectedNode?.description}
                   payloads={payloads}
+                  visits={selectedNodeVisits}
                   currentVisitStepId={currentVisitStepId}
                   visitedInMessage={selectedNodeVisited}
                   maximized={false}
@@ -1199,6 +1238,7 @@ export default function Home() {
                 selectedNodeLabel={selectedNodeLabel}
                 selectedNodeDescription={selectedNode?.description}
                 payloads={payloads}
+                visits={selectedNodeVisits}
                 currentVisitStepId={currentVisitStepId}
                 visitedInMessage={selectedNodeVisited}
                 maximized

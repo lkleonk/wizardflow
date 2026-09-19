@@ -1,5 +1,6 @@
 import { Fragment, memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import Tooltip from "@mui/material/Tooltip";
 import styles from "./TraceNode.module.css";
 
 export type TraceNodeState = "active" | "recent" | "normal";
@@ -7,6 +8,7 @@ export type TraceNodeState = "active" | "recent" | "normal";
 export type TraceNodeData = {
   label: string;
   accent: string;
+  kind?: string;
   state: TraceNodeState;
   /** 0 = most recent. Higher = further in the past → fainter glow. */
   recencyRank: number;
@@ -51,7 +53,7 @@ function withAlpha(hex: string, alpha: number): string {
 }
 
 function TraceNode({ data }: NodeProps) {
-  const { label, accent, state, recencyRank, selected } =
+  const { label, accent, kind, state, recencyRank, selected } =
     data as unknown as TraceNodeData;
 
   const wrapperClass = [styles.wrapper, styles[state]]
@@ -94,13 +96,32 @@ function TraceNode({ data }: NodeProps) {
           />
         </Fragment>
       ))}
-      <div className={styles.surface}>
-        <span className={styles.dot} style={{ background: accent }} />
-        {/* title carries the full label so it stays reachable when clamped. */}
-        <span className={styles.label} title={label}>
-          {labelWithBreaks(label)}
-        </span>
-      </div>
+      <Tooltip
+        title={
+          <span className={styles.tooltipContent}>
+            <span className={styles.tooltipName}>{label}</span>
+            {kind ? (
+              <span className={styles.tooltipKind}>
+                <span
+                  className={styles.tooltipSwatch}
+                  style={{ background: accent }}
+                  aria-hidden="true"
+                />
+                {kind}
+              </span>
+            ) : null}
+          </span>
+        }
+        placement="top"
+        arrow
+        enterDelay={500}
+        enterNextDelay={500}
+      >
+        <div className={styles.surface}>
+          <span className={styles.dot} style={{ background: accent }} />
+          <span className={styles.label}>{labelWithBreaks(label)}</span>
+        </div>
+      </Tooltip>
     </div>
   );
 }

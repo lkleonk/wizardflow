@@ -28,11 +28,14 @@ from .client import (
     Client,
     EdgeSpec,
     LangGraphExtractionError,
+    NodeHandle,
     NodeSpec,
     UnknownNodeError,
     WizardFlowError,
 )
 from .constants import Defaults, Logging, Output, Rotation
+from .otel import OTelConfigurationError
+from .otel_mapping import DEFAULT_CONTENT_MAX_BYTES
 
 # Library convention: attach a NullHandler so we emit nothing unless the host
 # app configures logging. Notices (e.g. part rotation) go to the "wizardflow"
@@ -43,15 +46,21 @@ __all__ = [
     "init",
     "init_from_langgraph",
     "reinit",
+    "close_otel",
     "log",
+    "start_node",
+    "end_node",
+    "node",
     "end_message",
     "to_dict",
     "to_json",
     "get_default",
     "Client",
+    "NodeHandle",
     "WizardFlowError",
     "UnknownNodeError",
     "LangGraphExtractionError",
+    "OTelConfigurationError",
 ]
 
 _default: Optional[Client] = None
@@ -71,6 +80,13 @@ def init(
     silent: bool = False,
     max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
     max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
+    jsonl: bool = True,
+    otel: bool = False,
+    otel_endpoint: Optional[str] = None,
+    otel_trace_scope: str = "recording",
+    otel_include_content: bool = False,
+    otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
+    export_graph_to_otel: bool = False,
 ) -> Client:
     """Create a recording client and set it as the module default."""
     global _default
@@ -88,6 +104,13 @@ def init(
         silent=silent,
         max_bytes=max_bytes,
         max_messages=max_messages,
+        jsonl=jsonl,
+        otel=otel,
+        otel_endpoint=otel_endpoint,
+        otel_trace_scope=otel_trace_scope,
+        otel_include_content=otel_include_content,
+        otel_content_max_bytes=otel_content_max_bytes,
+        export_graph_to_otel=export_graph_to_otel,
     )
     return _default
 
@@ -105,6 +128,13 @@ def init_from_langgraph(
     silent: bool = False,
     max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
     max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
+    jsonl: bool = True,
+    otel: bool = False,
+    otel_endpoint: Optional[str] = None,
+    otel_trace_scope: str = "recording",
+    otel_include_content: bool = False,
+    otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
+    export_graph_to_otel: bool = False,
 ) -> Client:
     """Create a client from a compiled LangGraph ``app`` and set it as default.
 
@@ -125,6 +155,13 @@ def init_from_langgraph(
         silent=silent,
         max_bytes=max_bytes,
         max_messages=max_messages,
+        jsonl=jsonl,
+        otel=otel,
+        otel_endpoint=otel_endpoint,
+        otel_trace_scope=otel_trace_scope,
+        otel_include_content=otel_include_content,
+        otel_content_max_bytes=otel_content_max_bytes,
+        export_graph_to_otel=export_graph_to_otel,
     )
     return _default
 
@@ -141,9 +178,19 @@ def reinit(
     name: Optional[str] = None,
     description: Optional[str] = None,
     meta: Optional[Dict[str, Any]] = None,
+    *,
+    jsonl: bool = True,
+    otel: bool = True,
 ) -> str:
-    """Start a new trace file on the default client (see :meth:`Client.reinit`)."""
-    return get_default().reinit(name=name, description=description, meta=meta)
+    """Independently start a new JSONL run and/or OTel trace."""
+    return get_default().reinit(
+        name=name, description=description, meta=meta, jsonl=jsonl, otel=otel
+    )
+
+
+def close_otel() -> None:
+    """End and flush WizardFlow OTel output without affecting JSONL."""
+    get_default().close_otel()
 
 
 def log(
@@ -151,8 +198,33 @@ def log(
     node: str,
     label: Optional[str] = None,
     content: Any = None,
+    *,
+    export_to_jsonl: bool = True,
+    export_to_otel: bool = True,
 ) -> None:
-    get_default().log(id, node, label, content)
+    get_default().log(
+        id,
+        node,
+        label,
+        content,
+        export_to_jsonl=export_to_jsonl,
+        export_to_otel=export_to_otel,
+    )
+
+
+def start_node(id: str, node: str, kind: Optional[str] = None) -> None:
+    get_default().start_node(id, node, kind=kind)
+
+
+def end_node(id: str, node: str) -> None:
+    get_default().end_node(id, node)
+
+
+def node(
+    message_id: str, node_id: str, kind: Optional[str] = None
+) -> NodeHandle:
+    """Scope a node execution and close it even when the body raises."""
+    return get_default().node(message_id, node_id, kind=kind)
 
 
 def end_message(

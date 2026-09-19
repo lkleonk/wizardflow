@@ -1,8 +1,9 @@
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { decorateExampleTrace } from "@/data/exampleTraceMetadata";
 
 // Understandable multi-branch example: an IT helpdesk agent classifies employee
 // tickets into specialist branches, then rejoins for urgency and resolution.
-export const itHelpdeskRouterTrace: AgentTraceFile = {
+export const itHelpdeskRouterTrace: AgentTraceFile = decorateExampleTrace({
   version: "0.1",
   name: "it_helpdesk_router.jsonl",
   meta: {
@@ -655,4 +656,4 @@ export const itHelpdeskRouterTrace: AgentTraceFile = {
       ],
     },
   ],
-};
+});

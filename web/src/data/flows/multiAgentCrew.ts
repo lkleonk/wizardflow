@@ -1,10 +1,11 @@
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { decorateExampleTrace } from "@/data/exampleTraceMetadata";
 
 // Fan-out multi-agent crew: an orchestrator delegates to three specialists with
 // distinct roles (researcher, coder, critic), then a synthesizer merges their
 // work. Every node here is an LLM node, so each logs llm_input/llm_output. The
 // wide graph (one source fanning to three, then converging) stresses the layout.
-export const multiAgentCrewTrace: AgentTraceFile = {
+export const multiAgentCrewTrace: AgentTraceFile = decorateExampleTrace({
   version: "0.1",
   name: "multi_agent_crew.jsonl",
   meta: {
@@ -363,4 +364,4 @@ export const multiAgentCrewTrace: AgentTraceFile = {
       ],
     },
   ],
-};
+});
