@@ -65,7 +65,31 @@ ignored. Exceptions raised by the application itself, including inside
 
 ## Messages and node executions
 
-A message is one unit of work, usually one user turn through the graph. Its ID
+A message is one unit of work, usually one user turn through the graph — one
+workflow execution. The simplest way to record one is the workflow context
+manager, which generates the message ID and ends the message when the block
+exits:
+
+```python
+with trace.workflow() as run:
+    run.set_info(title="Degree consultation", meta={"language": "de"})
+
+    with run.node("classifier") as node:
+        node.log_input(question)
+        node.log_output("degree_question")
+
+    with run.node("advisor") as node:
+        node.log_output(answer)
+```
+
+`run.message_id` exposes the generated ID for correlation. `set_info()` may be
+called any number of times inside the block: a `title` replaces the previous
+one, `meta` and `otel_attributes` merge. Leaving the block is the completion
+signal — also when the body raises, in which case the message is still written
+and the exception propagates. Workflows cannot be nested in the same execution
+context; separate threads and asyncio tasks each run their own.
+
+When your integration already owns an execution ID, pass it yourself. The ID
 must be unique until `end_message()` completes it. A fresh UUID is a good
 default; do not use a long-lived session or user ID as the message ID.
 
@@ -168,7 +192,7 @@ context manager when exact execution boundaries matter.
 
 ### Custom OpenTelemetry attribute key
 
-Generic logs normally export as `wizardflow.log.<normalized_label>`. When an
+Generic payloads normally export as `wizardflow.payload.<normalized_label>`. When an
 application needs an exact, application-owned OTel key, keep the readable trace
 label and set the export key separately:
 
@@ -187,6 +211,14 @@ WizardFlow mappings. Only the structural identity keys `wizardflow.node.id`,
 `wizardflow.node.kind`, `wizardflow.message.id`, and `wizardflow.trace.name` are
 protected. Prefer `log_input()`, `log_output()`, `log_usage()`, and
 `log_model_parameters()` whenever the data has one of those known meanings.
+
+`log_input()` and `log_output()` also accept `otel_attribute`. For them it is
+additive — the value keeps its automatic `gen_ai.*` mapping and is additionally
+exported under your key, without a second JSONL payload:
+
+```python
+node.log_output(answer, otel_attribute="output.value")
+```
 
 ## Selecting outputs per record
 
@@ -219,7 +251,12 @@ trace.end_message(
 ```
 
 Keep message metadata flat and scalar. Large or structured values belong in
-node payloads.
+node payloads. Inside `trace.workflow()`, supply the same values with
+`run.set_info(title=..., meta=...)`.
+
+Both forms also accept `otel_attributes` — exact OTel keys for the workflow's
+root span, such as `session.id` or `user.id`. They are OTel-only and never
+written to JSONL; see [opentelemetry.md](opentelemetry.md#application-attributes-on-the-workflow-root).
 
 ## LangGraph topology
 

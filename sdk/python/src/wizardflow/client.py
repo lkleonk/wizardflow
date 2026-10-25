@@ -18,27 +18,43 @@ record's ``nextPart`` and backward via ``meta.prevPart``.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import logging
 import os
 import threading
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 
 from .constants import Defaults, Ids, Logging, Output, Records, Rotation, Schema
-from .otel import OTEL_TRACE_SCOPES, OTelBridge, create_otel_bridge
+from .otel import (
+    DEFAULT_OTEL_TRACE_SCOPE,
+    OTEL_TRACE_SCOPES,
+    OTelBridge,
+    create_otel_bridge,
+)
 from .otel_mapping import (
     DEFAULT_CONTENT_MAX_BYTES,
     NODE_KINDS,
     canonical_model_key,
     custom_otel_attribute_error,
+    split_otel_attributes,
 )
 
 logger = logging.getLogger(Logging.LOGGER_NAME)
 
+# The workflow active in the current execution context. A ContextVar (not a
+# thread-local or global) so threads and asyncio tasks each see their own.
+_ACTIVE_WORKFLOW: "contextvars.ContextVar[Optional[WorkflowRun]]" = (
+    contextvars.ContextVar("wizardflow_active_workflow", default=None)
+)
+
 __all__ = [
     "Client",
     "NodeHandle",
+    "WorkflowRun",
     "WizardFlowError",
     "UnknownNodeError",
     "LangGraphExtractionError",
@@ -228,6 +244,8 @@ class _Message:
         self.id = message_id
         self.label = label
         self.meta: Optional[Dict[str, Any]] = None
+        # Exact OTel keys for this workflow's root span; never serialized.
+        self.otel_attributes: Dict[str, Any] = {}
         self.silent = silent
         self.completed = False
         self.steps: List[Dict[str, Any]] = []
@@ -403,7 +421,9 @@ class Client:
         jsonl: bool = True,
         otel: bool = False,
         otel_endpoint: Optional[str] = None,
-        otel_trace_scope: str = "recording",
+        otel_trace_scope: str = DEFAULT_OTEL_TRACE_SCOPE,
+        otel_workflow_name: Optional[str] = None,
+        otel_attributes: Optional[Mapping[str, Any]] = None,
         otel_include_content: bool = True,
         otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
         export_graph_to_otel: bool = False,
@@ -415,11 +435,22 @@ class Client:
             raise WizardFlowError("otel_content_max_bytes must be greater than zero")
         if otel_trace_scope not in OTEL_TRACE_SCOPES:
             raise WizardFlowError(
-                "otel_trace_scope must be 'recording' or 'message'"
+                "otel_trace_scope must be 'workflow' or 'recording'"
+            )
+        if otel_workflow_name is not None and (
+            not isinstance(otel_workflow_name, str)
+            or not otel_workflow_name.strip()
+            or otel_workflow_name != otel_workflow_name.strip()
+        ):
+            raise WizardFlowError(
+                "otel_workflow_name must be a non-empty string without "
+                "leading or trailing whitespace"
             )
         self._otel_configured = otel
         self._otel_endpoint = otel_endpoint
         self._otel_trace_scope = otel_trace_scope
+        self._otel_workflow_name = otel_workflow_name
+        self._otel_root_attributes = self._valid_otel_attributes(otel_attributes)
         self._otel_name = name
         self._otel_include_content = otel_include_content
         self._otel_content_max_bytes = otel_content_max_bytes
@@ -508,7 +539,9 @@ class Client:
         jsonl: bool = True,
         otel: bool = False,
         otel_endpoint: Optional[str] = None,
-        otel_trace_scope: str = "recording",
+        otel_trace_scope: str = DEFAULT_OTEL_TRACE_SCOPE,
+        otel_workflow_name: Optional[str] = None,
+        otel_attributes: Optional[Mapping[str, Any]] = None,
         otel_include_content: bool = True,
         otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
         export_graph_to_otel: bool = False,
@@ -538,6 +571,8 @@ class Client:
             otel=otel,
             otel_endpoint=otel_endpoint,
             otel_trace_scope=otel_trace_scope,
+            otel_workflow_name=otel_workflow_name,
+            otel_attributes=otel_attributes,
             otel_include_content=otel_include_content,
             otel_content_max_bytes=otel_content_max_bytes,
             export_graph_to_otel=export_graph_to_otel,
@@ -548,10 +583,23 @@ class Client:
             self._otel_endpoint,
             project_name=self._otel_name,
             trace_scope=self._otel_trace_scope,
+            workflow_name=self._otel_workflow_name,
             include_content=self._otel_include_content,
             content_max_bytes=self._otel_content_max_bytes,
             export_graph=self._export_graph_to_otel,
+            root_attributes=self._otel_root_attributes,
         )
+
+    def _valid_otel_attributes(
+        self, attributes: Optional[Mapping[str, Any]]
+    ) -> Dict[str, Any]:
+        """Validate ``otel_attributes``; invalid entries raise or are dropped."""
+        if attributes is None:
+            return {}
+        valid, errors = split_otel_attributes(attributes)
+        for error in errors:
+            self._fail(self.silent, WizardFlowError(error))
+        return valid
 
     # --- recording --------------------------------------------------------
 
@@ -582,9 +630,7 @@ class Client:
         persists the trace.
         """
         if otel_attribute is not None:
-            error = custom_otel_attribute_error(otel_attribute)
-            if error is not None:
-                self._fail(self.silent, WizardFlowError(error))
+            if not self._otel_attribute_ok(otel_attribute):
                 return
             if label is None:
                 self._fail(
@@ -601,6 +647,14 @@ class Client:
             export_to_jsonl=export_to_jsonl,
             export_to_otel=export_to_otel,
         )
+
+    def _otel_attribute_ok(self, otel_attribute: Any) -> bool:
+        """Validate an exact per-record OTel key; raise or warn per ``silent``."""
+        error = custom_otel_attribute_error(otel_attribute)
+        if error is not None:
+            self._fail(self.silent, WizardFlowError(error))
+            return False
+        return True
 
     def _record(
         self,
@@ -672,15 +726,18 @@ class Client:
         *,
         export_to_jsonl: bool = True,
         export_to_otel: bool = True,
+        otel_attribute: Optional[str] = None,
     ) -> None:
-        self._record(
-            id,
-            node,
-            "input",
-            value,
-            semantic_type="input",
+        """Record the node's input.
+
+        ``otel_attribute`` additionally exports the value under that exact
+        span attribute; the automatic ``gen_ai.*`` projection is kept.
+        """
+        self._record_semantic_content(
+            id, node, "input", value,
             export_to_jsonl=export_to_jsonl,
             export_to_otel=export_to_otel,
+            otel_attribute=otel_attribute,
         )
 
     def log_output(
@@ -693,12 +750,38 @@ class Client:
         export_to_otel: bool = True,
         otel_attribute: Optional[str] = None,
     ) -> None:
+        """Record the node's output.
+
+        ``otel_attribute`` additionally exports the value under that exact
+        span attribute; the automatic ``gen_ai.*`` projection is kept.
+        """
+        self._record_semantic_content(
+            id, node, "output", value,
+            export_to_jsonl=export_to_jsonl,
+            export_to_otel=export_to_otel,
+            otel_attribute=otel_attribute,
+        )
+
+    def _record_semantic_content(
+        self,
+        id: str,
+        node: str,
+        semantic_type: str,
+        value: Any,
+        *,
+        export_to_jsonl: bool,
+        export_to_otel: bool,
+        otel_attribute: Optional[str],
+    ) -> None:
+        if otel_attribute is not None and not self._otel_attribute_ok(otel_attribute):
+            return
         self._record(
             id,
             node,
-            "output",
+            semantic_type,
             value,
-            semantic_type="output",
+            semantic_type=semantic_type,
+            otel_attribute=otel_attribute,
             export_to_jsonl=export_to_jsonl,
             export_to_otel=export_to_otel,
         )
@@ -809,8 +892,52 @@ class Client:
         """Scope one node execution and close it even when the body raises."""
         return NodeHandle(self, message_id, node_id, kind)
 
+    def workflow(self) -> "WorkflowRun":
+        """Scope one workflow execution; leaving the block ends its message.
+
+        The message id is generated for you (``run.message_id``). In
+        ``otel_trace_scope="workflow"`` the block is exactly one OTel trace
+        rooted at an ``invoke_workflow`` span. Nested workflows in the same
+        execution context are rejected; threads and asyncio tasks each get
+        their own.
+        """
+        return WorkflowRun(self)
+
+    def _begin_workflow(self) -> str:
+        with self._lock:
+            while True:
+                message_id = Ids.WORKFLOW_ID_FORMAT.format(
+                    hex=uuid.uuid4().hex[: Ids.WORKFLOW_ID_HEX_CHARS]
+                )
+                if message_id not in self._messages:
+                    break
+            self._get_or_create(message_id)
+            if self._otel is not None:
+                try:
+                    self._otel.start_workflow(message_id, _now_iso())
+                except Exception:  # noqa: BLE001 - OTel is optional
+                    logger.warning(
+                        "OTel export failed while starting workflow %r",
+                        message_id,
+                        exc_info=True,
+                    )
+            return message_id
+
+    def _use_workflow(self, message_id: str) -> Any:
+        bridge = self._otel
+        if bridge is None:
+            return contextlib.nullcontext()
+        try:
+            return bridge.use_workflow(message_id)
+        except Exception:  # noqa: BLE001 - OTel is optional
+            logger.warning("OTel context activation failed", exc_info=True)
+            return contextlib.nullcontext()
+
     def end_node(self, id: str, node: str) -> None:
         """Mark the explicit end of ``node`` execution for message ``id``."""
+        self._end_node(id, node, None)
+
+    def _end_node(self, id: str, node: str, error: Optional[BaseException]) -> None:
         with self._lock:
             msg = self._messages.get(id)
             timestamp = _now_iso()
@@ -833,6 +960,7 @@ class Client:
                     timestamp,
                     step["payloads"],
                     msg.meta,
+                    error=error,
                 )
 
     def end_message(
@@ -840,6 +968,8 @@ class Client:
         id: str,
         title: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
+        *,
+        otel_attributes: Optional[Mapping[str, Any]] = None,
     ) -> str:
         """Finalize message ``id`` and append it to the active part. Returns its path.
 
@@ -848,12 +978,26 @@ class Client:
         optional ``meta`` attaches flat metadata about the message as a whole
         (outcome, latency, user id, …) — keep values short scalars, like the
         trace-level ``meta``; large structured data belongs in :meth:`log`
-        payloads. Exactly one line is appended per ended message — O(1) however
-        large the part already is. If the active part would exceed ``max_bytes``
-        (or holds ``max_messages`` already), it is sealed and the message starts
-        a fresh part (rotation happens only at message boundaries). Idempotent:
-        a second end on the same id won't append twice.
+        payloads. ``otel_attributes`` sets exact OTel keys (e.g. ``session.id``,
+        ``user.id``) on this workflow's root span; they are OTel-only and never
+        written to JSONL. Exactly one line is appended per ended message — O(1)
+        however large the part already is. If the active part would exceed
+        ``max_bytes`` (or holds ``max_messages`` already), it is sealed and the
+        message starts a fresh part (rotation happens only at message
+        boundaries). Idempotent: a second end on the same id won't append twice.
         """
+        attributes = self._valid_otel_attributes(otel_attributes)
+        return self._finish_message(id, title, meta, attributes, None)
+
+    def _finish_message(
+        self,
+        id: str,
+        title: Optional[str],
+        meta: Optional[Mapping[str, Any]],
+        otel_attributes: Mapping[str, Any],
+        error: Optional[BaseException],
+    ) -> str:
+        """The one finalization path shared by end_message() and workflow()."""
         with self._lock:
             msg = self._messages.get(id)
             if msg is None:
@@ -866,20 +1010,35 @@ class Client:
                     msg.label = title
                 if meta is not None:
                     msg.meta = dict(meta)
+                msg.otel_attributes.update(otel_attributes)
                 closed = msg.close_open_nodes()
                 if self._otel is not None:
-                    for node, end_timestamp, step in closed:
-                        self._otel.end_node(
+                    # OTel is an optional projection: a failure there must
+                    # never prevent the durable JSONL record below.
+                    try:
+                        for node, end_timestamp, step in closed:
+                            self._otel.end_node(
+                                id,
+                                node,
+                                step.get("kind", "generic"),
+                                end_timestamp,
+                                step["payloads"],
+                                msg.meta,
+                            )
+                        self._otel.end_workflow(
                             id,
-                            node,
-                            step.get("kind", "generic"),
-                            end_timestamp,
-                            step["payloads"],
-                            msg.meta,
+                            _now_iso(),
+                            title=msg.label,
+                            meta=msg.meta,
+                            attributes=msg.otel_attributes,
+                            error=error,
                         )
-                    if self._otel_trace_scope == "message":
-                        self._otel.end_message(
-                            id, _now_iso(), title=msg.label, meta=msg.meta
+                    except Exception:  # noqa: BLE001 - keep JSONL durable
+                        logger.warning(
+                            "OTel export failed while ending message %r; "
+                            "JSONL is unaffected",
+                            id,
+                            exc_info=True,
                         )
                 msg.completed = True
                 if self.jsonl:
@@ -900,8 +1059,13 @@ class Client:
         *,
         jsonl: bool = True,
         otel: bool = True,
+        otel_attributes: Optional[Mapping[str, Any]] = None,
     ) -> str:
         """Independently start a new JSONL run and/or OTel trace.
+
+        ``otel_attributes``, when given with ``otel=True``, replaces the
+        init-level root attributes for workflows (or the recording root)
+        started afterwards.
 
         For natural boundaries in a long-lived process (a new user session, a
         new day): the next ended message opens a fresh timestamped entry file.
@@ -942,6 +1106,12 @@ class Client:
             if otel and self._otel_configured:
                 if name is not None:
                     self._otel_name = name
+                if otel_attributes is not None:
+                    self._otel_root_attributes = self._valid_otel_attributes(
+                        otel_attributes
+                    )
+                    if self._otel is not None:
+                        self._otel.set_root_attributes(self._otel_root_attributes)
                 timestamp = _now_iso()
                 if self._otel is None:
                     self._otel = self._create_otel_bridge()
@@ -1093,6 +1263,102 @@ class Client:
             fh.write(line + "\n")
 
 
+class WorkflowRun:
+    """One workflow execution, yielded by :meth:`Client.workflow`.
+
+    Owns a generated message id. Record nodes with :meth:`node`, supply the
+    final title/meta/OTel attributes with :meth:`set_info`, and leave the
+    ``with`` block to end the message — there is no separate end call.
+    """
+
+    def __init__(self, client: Client):
+        self._client = client
+        self._message_id: Optional[str] = None
+        self._title: Optional[str] = None
+        self._meta: Optional[Dict[str, Any]] = None
+        self._otel_attributes: Dict[str, Any] = {}
+        self._token: Optional[contextvars.Token] = None
+        self._otel_scope: Any = None
+        self._state = "new"  # new -> active -> ended
+
+    @property
+    def message_id(self) -> str:
+        """The generated message id, for correlation with your own logs."""
+        if self._message_id is None:
+            raise WizardFlowError("workflow has not started; use it in a with block")
+        return self._message_id
+
+    def __enter__(self) -> "WorkflowRun":
+        if self._state != "new":
+            raise WizardFlowError("a WorkflowRun can only be entered once")
+        if _ACTIVE_WORKFLOW.get() is not None:
+            raise WizardFlowError(
+                "nested trace.workflow() blocks are not supported; a workflow "
+                "is already active in this context"
+            )
+        self._message_id = self._client._begin_workflow()
+        self._token = _ACTIVE_WORKFLOW.set(self)
+        self._state = "active"
+        scope = self._client._use_workflow(self._message_id)
+        try:
+            scope.__enter__()
+            self._otel_scope = scope
+        except Exception:  # noqa: BLE001 - OTel is optional
+            logger.warning("OTel context activation failed", exc_info=True)
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        self._state = "ended"
+        try:
+            self._client._finish_message(
+                self.message_id,
+                self._title,
+                self._meta,
+                self._otel_attributes,
+                exc if isinstance(exc, BaseException) else None,
+            )
+        finally:
+            scope, self._otel_scope = self._otel_scope, None
+            if scope is not None:
+                try:
+                    scope.__exit__(None, None, None)
+                except Exception:  # noqa: BLE001 - OTel is optional
+                    logger.warning("OTel context deactivation failed", exc_info=True)
+            if self._token is not None:
+                _ACTIVE_WORKFLOW.reset(self._token)
+                self._token = None
+        # Never swallow the body's exception.
+
+    def node(self, node_id: str, kind: Optional[str] = None) -> "NodeHandle":
+        """Scope one node execution within this workflow."""
+        return self._client.node(self.message_id, node_id, kind=kind)
+
+    def set_info(
+        self,
+        *,
+        title: Optional[str] = None,
+        meta: Optional[Mapping[str, Any]] = None,
+        otel_attributes: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        """Store the final title, ``meta`` and root ``otel_attributes``.
+
+        May be called any number of times inside the block: a title replaces
+        the previous one, ``meta`` and ``otel_attributes`` merge shallowly.
+        Nothing is written or ended here; leaving the block does that.
+        """
+        if self._state != "active":
+            self._client._fail(
+                self._client.silent,
+                WizardFlowError("set_info() called outside an active workflow block"),
+            )
+            return
+        if title is not None:
+            self._title = title
+        if meta is not None:
+            self._meta = {**(self._meta or {}), **dict(meta)}
+        self._otel_attributes.update(self._client._valid_otel_attributes(otel_attributes))
+
+
 class NodeHandle:
     """Logging handle yielded by :meth:`Client.node`."""
 
@@ -1113,7 +1379,12 @@ class NodeHandle:
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
-        self._client.end_node(self._message_id, self._node_id)
+        # The exception still propagates; the span just records where it hit.
+        self._client._end_node(
+            self._message_id,
+            self._node_id,
+            exc if isinstance(exc, BaseException) else None,
+        )
 
     def log(
         self,
@@ -1140,6 +1411,7 @@ class NodeHandle:
         *,
         export_to_jsonl: bool = True,
         export_to_otel: bool = True,
+        otel_attribute: Optional[str] = None,
     ) -> None:
         self._client.log_input(
             self._message_id,
@@ -1147,6 +1419,7 @@ class NodeHandle:
             value,
             export_to_jsonl=export_to_jsonl,
             export_to_otel=export_to_otel,
+            otel_attribute=otel_attribute,
         )
 
     def log_output(
@@ -1155,6 +1428,7 @@ class NodeHandle:
         *,
         export_to_jsonl: bool = True,
         export_to_otel: bool = True,
+        otel_attribute: Optional[str] = None,
     ) -> None:
         self._client.log_output(
             self._message_id,
@@ -1162,6 +1436,7 @@ class NodeHandle:
             value,
             export_to_jsonl=export_to_jsonl,
             export_to_otel=export_to_otel,
+            otel_attribute=otel_attribute,
         )
 
     def log_usage(

@@ -64,15 +64,17 @@ def test_otel_export_cli_passes_scope_and_reports_summary(tmp_path, monkeypatch,
     result = run_otel_export(
         trace=str(trace),
         endpoint="http://collector/v1/traces",
-        trace_scope="message",
+        trace_scope="recording",
         include_content=True,
         content_max_bytes=100,
         export_graph=True,
         graph_max_bytes=200,
         current_part_only=False,
+        workflow_name="consultation",
     )
     assert result == 0
-    assert captured["options"].trace_scope == "message"
+    assert captured["options"].trace_scope == "recording"
+    assert captured["options"].workflow_name == "consultation"
     assert captured["options"].include_content is True
     assert "1 new OTel trace (unsealed snapshot)" in capsys.readouterr().err
 

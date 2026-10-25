@@ -98,16 +98,21 @@ trace = wizardflow.init(
     name="my-agent",
     otel=True,
     otel_endpoint="http://localhost:4318/v1/traces",
-    otel_trace_scope="message",
+    otel_workflow_name="answer",
 )
 
-with trace.node("msg-1", "generator", kind="llm") as node:
-    node.log_input(input_value)
-    node.log_output(output_value)
+with trace.workflow() as run:               # one workflow = one OTel trace
+    run.set_info(otel_attributes={"session.id": chat_id})
+    with run.node("generator", kind="llm") as node:
+        node.log_input(input_value)
+        node.log_output(output_value)
 
-trace.end_message("msg-1")
 trace.close_otel()
 ```
+
+`otel_attributes` sets exact keys on the workflow's root span — e.g.
+`session.id` groups traces into Phoenix sessions, `langfuse.session.id` into
+Langfuse sessions.
 
 Generic logs can optionally choose an exact application-owned span attribute
 without changing their JSONL/UI label:

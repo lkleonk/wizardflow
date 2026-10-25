@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Optional
 
-from .otel import OTEL_TRACE_SCOPES, create_otel_bridge
+from .otel import DEFAULT_OTEL_TRACE_SCOPE, OTEL_TRACE_SCOPES, create_otel_bridge
 from .otel_mapping import (
     DEFAULT_CONTENT_MAX_BYTES,
     DEFAULT_GRAPH_MAX_BYTES,
@@ -18,7 +18,8 @@ from .reader import TraceChain
 @dataclass(frozen=True)
 class ExportOptions:
     endpoint: str
-    trace_scope: str = "recording"
+    trace_scope: str = DEFAULT_OTEL_TRACE_SCOPE
+    workflow_name: Optional[str] = None
     include_content: bool = True
     content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES
     export_graph: bool = False
@@ -51,6 +52,7 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
         options.endpoint,
         project_name=trace.get("name"),
         trace_scope=options.trace_scope,
+        workflow_name=options.workflow_name,
         include_content=options.include_content,
         content_max_bytes=options.content_max_bytes,
         export_graph=options.export_graph,
@@ -79,7 +81,7 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
             steps = message.get("steps", [])
             message_start = steps[0].get("timestamp", start) if steps else start
             message_end = message_start
-            bridge.start_message(message_id, message_start)
+            bridge.start_workflow(message_id, message_start)
             for step in steps:
                 node_id = str(step.get("nodeId", ""))
                 step_start = step.get("timestamp") or start
@@ -111,15 +113,17 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
                     message.get("meta"),
                 )
                 span_count += 1
-            bridge.end_message(
+            # The persisted message title lives in ``label``. otel_attributes
+            # are OTel-only and not persisted, so offline roots lack them.
+            bridge.end_workflow(
                 message_id,
                 message_end,
-                title=message.get("title"),
+                title=message.get("label"),
                 meta=message.get("meta"),
             )
     finally:
         bridge.close(end)
-    trace_count = len(messages) if options.trace_scope == "message" else 1
+    trace_count = len(messages) if options.trace_scope == "workflow" else 1
     return ExportSummary(
         len(unit.parts), len(messages), span_count, trace_count, unit.sealed
     )

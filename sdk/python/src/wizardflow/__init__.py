@@ -32,9 +32,10 @@ from .client import (
     NodeSpec,
     UnknownNodeError,
     WizardFlowError,
+    WorkflowRun,
 )
 from .constants import Defaults, Logging, Output, Rotation
-from .otel import OTelConfigurationError
+from .otel import DEFAULT_OTEL_TRACE_SCOPE, OTelConfigurationError
 from .otel_mapping import DEFAULT_CONTENT_MAX_BYTES
 
 # Library convention: attach a NullHandler so we emit nothing unless the host
@@ -51,12 +52,14 @@ __all__ = [
     "start_node",
     "end_node",
     "node",
+    "workflow",
     "end_message",
     "to_dict",
     "to_json",
     "get_default",
     "Client",
     "NodeHandle",
+    "WorkflowRun",
     "WizardFlowError",
     "UnknownNodeError",
     "LangGraphExtractionError",
@@ -83,7 +86,9 @@ def init(
     jsonl: bool = True,
     otel: bool = False,
     otel_endpoint: Optional[str] = None,
-    otel_trace_scope: str = "recording",
+    otel_trace_scope: str = DEFAULT_OTEL_TRACE_SCOPE,
+    otel_workflow_name: Optional[str] = None,
+    otel_attributes: Optional[Mapping[str, Any]] = None,
     otel_include_content: bool = True,
     otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
     export_graph_to_otel: bool = False,
@@ -108,6 +113,8 @@ def init(
         otel=otel,
         otel_endpoint=otel_endpoint,
         otel_trace_scope=otel_trace_scope,
+        otel_workflow_name=otel_workflow_name,
+        otel_attributes=otel_attributes,
         otel_include_content=otel_include_content,
         otel_content_max_bytes=otel_content_max_bytes,
         export_graph_to_otel=export_graph_to_otel,
@@ -131,7 +138,9 @@ def init_from_langgraph(
     jsonl: bool = True,
     otel: bool = False,
     otel_endpoint: Optional[str] = None,
-    otel_trace_scope: str = "recording",
+    otel_trace_scope: str = DEFAULT_OTEL_TRACE_SCOPE,
+    otel_workflow_name: Optional[str] = None,
+    otel_attributes: Optional[Mapping[str, Any]] = None,
     otel_include_content: bool = True,
     otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
     export_graph_to_otel: bool = False,
@@ -159,6 +168,8 @@ def init_from_langgraph(
         otel=otel,
         otel_endpoint=otel_endpoint,
         otel_trace_scope=otel_trace_scope,
+        otel_workflow_name=otel_workflow_name,
+        otel_attributes=otel_attributes,
         otel_include_content=otel_include_content,
         otel_content_max_bytes=otel_content_max_bytes,
         export_graph_to_otel=export_graph_to_otel,
@@ -181,10 +192,16 @@ def reinit(
     *,
     jsonl: bool = True,
     otel: bool = True,
+    otel_attributes: Optional[Mapping[str, Any]] = None,
 ) -> str:
     """Independently start a new JSONL run and/or OTel trace."""
     return get_default().reinit(
-        name=name, description=description, meta=meta, jsonl=jsonl, otel=otel
+        name=name,
+        description=description,
+        meta=meta,
+        jsonl=jsonl,
+        otel=otel,
+        otel_attributes=otel_attributes,
     )
 
 
@@ -229,12 +246,21 @@ def node(
     return get_default().node(message_id, node_id, kind=kind)
 
 
+def workflow() -> WorkflowRun:
+    """Scope one workflow execution; leaving the block ends its message."""
+    return get_default().workflow()
+
+
 def end_message(
     id: str,
     title: Optional[str] = None,
     meta: Optional[Dict[str, Any]] = None,
+    *,
+    otel_attributes: Optional[Mapping[str, Any]] = None,
 ) -> str:
-    return get_default().end_message(id, title=title, meta=meta)
+    return get_default().end_message(
+        id, title=title, meta=meta, otel_attributes=otel_attributes
+    )
 
 
 def to_dict() -> Dict[str, Any]:

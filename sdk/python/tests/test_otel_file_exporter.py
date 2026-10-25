@@ -9,10 +9,10 @@ class Bridge:
         self.calls = []
 
     def start_run(self, *args): self.calls.append(("run", args))
-    def start_message(self, *args): self.calls.append(("message", args))
+    def start_workflow(self, *args): self.calls.append(("workflow", args))
     def start_node(self, *args): self.calls.append(("start", args))
     def end_node(self, *args): self.calls.append(("end", args))
-    def end_message(self, *args, **kwargs): self.calls.append(("end_message", args, kwargs))
+    def end_workflow(self, *args, **kwargs): self.calls.append(("end_workflow", args, kwargs))
     def close(self, *args): self.calls.append(("close", args))
 
 
@@ -31,7 +31,8 @@ def test_offline_export_replays_resolved_timestamps_through_shared_bridge(monkey
         "graph": {"nodes": [{"id": "model"}], "edges": []},
         "messages": [{
             "id": "m1",
-            "title": "Hello",
+            "label": "Hello",
+            "meta": {"outcome": "ok"},
             "steps": [{
                 "nodeId": "model",
                 "kind": "llm",
@@ -43,9 +44,18 @@ def test_offline_export_replays_resolved_timestamps_through_shared_bridge(monkey
     }
     summary = export_trace_chain(
         TraceChain(trace, (tmp_path / "run.jsonl",), False),
-        ExportOptions(endpoint="http://collector", trace_scope="message"),
+        ExportOptions(endpoint="http://collector", workflow_name="consultation"),
     )
     assert summary.node_spans == 1 and summary.traces == 1
+    assert created["trace_scope"] == "workflow"
+    assert created["workflow_name"] == "consultation"
+    assert ("workflow", ("m1", "2026-09-17T10:00:00Z")) in bridge.calls
+    # The persisted title lives in the message's ``label``.
+    assert (
+        "end_workflow",
+        ("m1", "2026-09-17T10:00:02Z"),
+        {"title": "Hello", "meta": {"outcome": "ok"}},
+    ) in bridge.calls
     assert created["root_attributes"]["wizardflow.export.mode"] == "offline"
     assert created["root_attributes"]["wizardflow.export.node_span_count"] == 1
     assert ("start", ("m1", "model", "llm", "2026-09-17T10:00:00Z", "demo")) in bridge.calls

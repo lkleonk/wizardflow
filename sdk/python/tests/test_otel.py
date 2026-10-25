@@ -184,11 +184,11 @@ def test_generic_logs_preserve_scalars_duplicates_and_explicit_opt_out():
         ],
         include_content=False,
     )
-    assert attrs["wizardflow.log.confidence"] == 0.91
-    assert attrs["wizardflow.log.confidence.1"] == 0.92
-    assert "wizardflow.log.nested" not in attrs
-    assert "wizardflow.log.private" not in attrs
-    assert "wizardflow.log.count" not in attrs
+    assert attrs["wizardflow.payload.confidence"] == 0.91
+    assert attrs["wizardflow.payload.confidence.1"] == 0.92
+    assert "wizardflow.payload.nested" not in attrs
+    assert "wizardflow.payload.private" not in attrs
+    assert "wizardflow.payload.count" not in attrs
 
 
 def test_generic_log_can_use_an_exact_application_owned_attribute(caplog):
@@ -238,6 +238,70 @@ def test_explicit_gen_ai_attribute_overrides_automatic_semantic_mapping():
         ],
     )
     assert attrs["gen_ai.request.model"] == "explicit"
+
+
+def test_semantic_content_otel_attribute_is_additive():
+    attrs = map_node_attributes(
+        message_id="m1",
+        node_id="model",
+        kind="llm",
+        payloads=[
+            {"label": "input", "value": "question", "semanticType": "input",
+             "otelAttribute": "input.value"},
+            {"label": "output", "value": {"answer": 42}, "semanticType": "output",
+             "otelAttribute": "output.value"},
+        ],
+        include_content=True,
+    )
+    # The automatic GenAI projection is kept...
+    assert json.loads(attrs["gen_ai.input.messages"])[0]["parts"][0]["content"] == "question"
+    assert "gen_ai.output.messages" in attrs
+    # ...and the value is additionally exported under the exact key.
+    assert attrs["input.value"] == "question"
+    assert attrs["output.value"] == '{"answer":42}'
+    assert attrs["output.value.encoding"] == "json"
+
+
+def test_semantic_content_otel_attribute_follows_content_switch_and_bounds():
+    payloads = [
+        {"label": "input", "value": "a long question", "semanticType": "input",
+         "otelAttribute": "input.value"},
+    ]
+    disabled = map_node_attributes(
+        message_id="m1", node_id="model", kind="llm",
+        payloads=payloads, include_content=False,
+    )
+    assert "input.value" not in disabled
+    bounded = map_node_attributes(
+        message_id="m1", node_id="model", kind="llm",
+        payloads=payloads, include_content=True, content_max_bytes=6,
+    )
+    assert bounded["input.value"] == "a long"
+    assert bounded["input.value.truncated"] is True
+
+
+def test_semantic_content_otel_attribute_last_write_wins_and_rejects_protected(caplog):
+    attrs = map_node_attributes(
+        message_id="m1",
+        node_id="a",
+        kind="generic",
+        payloads=[
+            {"label": "output", "value": "first", "semanticType": "output",
+             "otelAttribute": "app.answer"},
+            {"label": "output", "value": "second", "semanticType": "output",
+             "otelAttribute": "app.answer"},
+            {"label": "input", "value": "x", "semanticType": "input",
+             "otelAttribute": "wizardflow.node.id"},
+            {"label": "input", "value": "hidden", "semanticType": "input",
+             "otelAttribute": "app.hidden", "exportToOtel": False},
+        ],
+        include_content=True,
+    )
+    assert attrs["app.answer"] == "second"
+    assert attrs["wizardflow.node.id"] == "a"
+    assert "app.hidden" not in attrs
+    assert "last value wins" in caplog.text
+    assert "Ignoring invalid otelAttribute" in caplog.text
 
 
 def test_custom_attribute_keeps_content_gating_and_rejects_reserved_file_input(caplog):
@@ -302,10 +366,10 @@ def test_content_is_deterministic_and_utf8_bounded():
         include_content=True,
         content_max_bytes=10,
     )
-    value = attrs["wizardflow.log.data"]
+    value = attrs["wizardflow.payload.data"]
     assert len(value.encode("utf-8")) <= 10
-    assert attrs["wizardflow.log.data.truncated"] is True
-    assert attrs["wizardflow.log.data.encoding"] == "json"
+    assert attrs["wizardflow.payload.data.truncated"] is True
+    assert attrs["wizardflow.payload.data.encoding"] == "json"
 
 
 def test_graph_event_is_canonical_and_oversize_is_summarized():
@@ -344,16 +408,16 @@ def test_bridge_creates_root_parent_context_graph_event_and_resolved_times():
     assert root.events[0][0] == "wizardflow.graph"
     assert tracer.calls[1][1]["context"] == ("parent", root)
     assert node.attributes["gen_ai.operation.name"] == "invoke_agent"
-    assert node.attributes["wizardflow.log.confidence"] == 1
+    assert node.attributes["wizardflow.payload.confidence"] == 1
     assert node.attributes["app.score"] == 0.9
     assert "wizardflow.message.meta.unsafe" not in node.attributes
     assert node.end_time > tracer.calls[1][1]["start_time"]
 
 
-def test_message_scope_creates_independent_roots_for_overlapping_messages():
+def test_workflow_scope_creates_independent_roots_for_overlapping_messages():
     tracer = Tracer()
     trace_api = SimpleNamespace(set_span_in_context=lambda span: ("parent", span))
-    bridge = OTelBridge(tracer, trace_api=trace_api, trace_scope="message")
+    bridge = OTelBridge(tracer, trace_api=trace_api)
     bridge.start_run(
         "2026-09-15T10:00:00.000Z", "agent", [{"id": "a"}], []
     )
@@ -365,24 +429,28 @@ def test_message_scope_creates_independent_roots_for_overlapping_messages():
         "m2", "a", "agent", "2026-09-15T10:00:02.000Z", "agent"
     )
     root1, node1, root2, node2 = tracer.spans
-    assert root1.name == root2.name == "wizardflow.message"
+    assert root1.name == root2.name == "invoke_workflow"
+    assert root1.attributes["gen_ai.operation.name"] == "invoke_workflow"
+    assert "gen_ai.workflow.name" not in root1.attributes
     assert tracer.calls[1][1]["context"] == ("parent", root1)
     assert tracer.calls[3][1]["context"] == ("parent", root2)
 
     bridge.end_node(
         "m2", "a", "agent", "2026-09-15T10:00:03.000Z", []
     )
-    bridge.end_message(
+    bridge.end_workflow(
         "m2",
         "2026-09-15T10:00:04.000Z",
         title="Second",
-        meta={"outcome": "ok", "nested": {"ignored": True}},
+        meta={"outcome": "ok", "nested": {"kept": True}},
     )
     assert node2.end_time is not None
     assert root2.end_time is not None
     assert root2.attributes["wizardflow.message.title"] == "Second"
-    assert root2.attributes["wizardflow.message.meta.outcome"] == "ok"
-    assert "wizardflow.message.meta.nested" not in root2.attributes
+    assert json.loads(root2.attributes["wizardflow.message.metadata"]) == {
+        "nested": {"kept": True},
+        "outcome": "ok",
+    }
     assert root1.end_time is None
     assert node1.end_time is None
 
@@ -394,7 +462,7 @@ def test_close_flushes_private_provider_only_and_is_idempotent():
         shutdown=lambda: calls.append("shutdown"),
     )
     tracer = Tracer()
-    bridge = OTelBridge(tracer, provider=provider)
+    bridge = OTelBridge(tracer, provider=provider, trace_scope="recording")
     bridge.start_run("2026-09-15T10:00:00.000Z", None, [], [])
     bridge.close("2026-09-15T10:00:01.000Z")
     bridge.close("2026-09-15T10:00:02.000Z")

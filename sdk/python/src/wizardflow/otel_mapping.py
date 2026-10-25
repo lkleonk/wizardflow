@@ -69,6 +69,17 @@ _PROTECTED_ATTRIBUTE_KEYS = frozenset(
         "wizardflow.trace.name",
     }
 )
+# Keys WizardFlow owns on a workflow root span. Application ``otel_attributes``
+# may not overwrite them, or the root would contradict its recorded execution.
+_ROOT_PROTECTED_ATTRIBUTE_KEYS = _PROTECTED_ATTRIBUTE_KEYS | frozenset(
+    {
+        "gen_ai.operation.name",
+        "gen_ai.workflow.name",
+        "wizardflow.message.title",
+        "wizardflow.message.metadata",
+    }
+)
+WORKFLOW_OPERATION = "invoke_workflow"
 
 logger = logging.getLogger(__name__)
 
@@ -98,19 +109,96 @@ def normalize_attribute_component(value: str) -> str:
     return normalized or "unnamed"
 
 
-def custom_otel_attribute_error(value: Any) -> Optional[str]:
+def custom_otel_attribute_error(
+    value: Any,
+    *,
+    name: str = "otel_attribute",
+    protected: frozenset = _PROTECTED_ATTRIBUTE_KEYS,
+) -> Optional[str]:
     """Return why an explicit application-owned OTel key is invalid, if at all."""
     if not isinstance(value, str):
-        return "otel_attribute must be a string"
+        return f"{name} must be a string"
     if not value:
-        return "otel_attribute must not be empty"
+        return f"{name} must not be empty"
     if value != value.strip():
-        return "otel_attribute must not have leading or trailing whitespace"
+        return f"{name} must not have leading or trailing whitespace"
     if any(ord(character) < 32 or ord(character) == 127 for character in value):
-        return "otel_attribute must not contain control characters"
-    if value.lower() in _PROTECTED_ATTRIBUTE_KEYS:
-        return "otel_attribute must not overwrite a protected WizardFlow identity attribute"
+        return f"{name} must not contain control characters"
+    if value.lower() in protected:
+        return f"{name} must not overwrite a protected WizardFlow identity attribute"
     return None
+
+
+def split_otel_attributes(attributes: Any) -> Tuple[Dict[str, Any], List[str]]:
+    """Validate application ``otel_attributes`` for a workflow root span.
+
+    Returns the valid entries (sequences normalized to tuples) and one error
+    message per rejected entry, so callers can apply their silent/raise policy
+    per entry instead of dropping the whole mapping.
+    """
+    if not isinstance(attributes, Mapping):
+        return {}, ["otel_attributes must be a mapping of attribute key to value"]
+    valid: Dict[str, Any] = {}
+    errors: List[str] = []
+    for key, value in attributes.items():
+        error = custom_otel_attribute_error(
+            key, name=f"otel_attributes key {key!r}", protected=_ROOT_PROTECTED_ATTRIBUTE_KEYS
+        )
+        if error is not None:
+            errors.append(error)
+        elif isinstance(value, _SCALAR_TYPES):
+            valid[key] = value
+        elif _is_otel_sequence(value):
+            valid[key] = tuple(value)
+        else:
+            errors.append(
+                f"otel_attributes value for {key!r} must be a str, bool, int, "
+                "float, or a non-empty list of one of those types"
+            )
+    return valid, errors
+
+
+def workflow_span_name(workflow_name: Optional[str]) -> str:
+    """``invoke_workflow {gen_ai.workflow.name}``, or the bare operation."""
+    return f"{WORKFLOW_OPERATION} {workflow_name}" if workflow_name else WORKFLOW_OPERATION
+
+
+def map_workflow_attributes(
+    *,
+    message_id: str,
+    workflow_name: Optional[str],
+    trace_name: Optional[str],
+) -> Dict[str, Any]:
+    """Identity attributes a workflow root carries from the moment it starts."""
+    attributes: Dict[str, Any] = {
+        "gen_ai.operation.name": WORKFLOW_OPERATION,
+        "wizardflow.message.id": message_id,
+    }
+    if workflow_name:
+        attributes["gen_ai.workflow.name"] = workflow_name
+    if trace_name is not None:
+        attributes["wizardflow.trace.name"] = trace_name
+    return attributes
+
+
+def map_workflow_result_attributes(
+    *,
+    title: Optional[str],
+    meta: Optional[Mapping[str, Any]],
+    include_content: bool = True,
+    content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
+) -> Dict[str, Any]:
+    """Execution details applied to a workflow root just before it ends.
+
+    The title is a scalar string and exports like a scalar generic log; the
+    ``meta`` mapping is structured content and follows the content switch.
+    """
+    attributes: Dict[str, Any] = {}
+    if title is not None:
+        _put_content(attributes, "wizardflow.message.title", str(title), content_max_bytes)
+    if meta and include_content:
+        _put_content(attributes, "wizardflow.message.metadata", dict(meta), content_max_bytes)
+    return attributes
 
 
 def _bounded_text(value: Any, max_bytes: int) -> Tuple[str, bool, int, bool]:
@@ -214,6 +302,23 @@ def map_node_attributes(
     explicit_keys: Set[str] = set()
     explicit_attributes: Dict[str, Any] = {}
 
+    def claim_explicit(name: Any) -> Optional[str]:
+        """Validate an exact key and clear any earlier value for it."""
+        error = custom_otel_attribute_error(name)
+        if error is not None:
+            logger.warning("Ignoring invalid otelAttribute %r: %s", name, error)
+            return None
+        if name in explicit_keys:
+            logger.warning(
+                "Duplicate explicit OTel attribute %r; the last value wins", name
+            )
+        explicit_keys.add(name)
+        # Remove bounded-content companions left by an earlier value for the
+        # same exact key before applying last-write-wins semantics.
+        for suffix in ("", ".encoding", ".truncated", ".original_size"):
+            explicit_attributes.pop(name + suffix, None)
+        return name
+
     for payload in payloads:
         if not _export_enabled(payload):
             continue
@@ -222,30 +327,27 @@ def map_node_attributes(
             parameters.update(payload["value"])
         elif semantic_type in {"input", "output", "usage"}:
             semantic[str(semantic_type)] = payload
+            # An exact key on an input/output is exported *in addition to* the
+            # automatic projection below, never instead of it. It is content,
+            # so it follows the content switch even for plain strings.
+            explicit_name = payload.get("otelAttribute")
+            if explicit_name is not None and semantic_type in {"input", "output"}:
+                name = claim_explicit(explicit_name)
+                if name is not None and include_content:
+                    _put_content(
+                        explicit_attributes, name, payload.get("value"), content_max_bytes
+                    )
         elif semantic_type is None:
             explicit_name = payload.get("otelAttribute")
             if explicit_name is not None:
-                error = custom_otel_attribute_error(explicit_name)
-                if error is not None:
-                    logger.warning(
-                        "Ignoring invalid otelAttribute %r: %s", explicit_name, error
-                    )
+                name = claim_explicit(explicit_name)
+                if name is None:
                     continue
-                name = explicit_name
-                if name in explicit_keys:
-                    logger.warning(
-                        "Duplicate explicit OTel attribute %r; the last value wins", name
-                    )
-                explicit_keys.add(name)
-                # Remove bounded-content companions left by an earlier value for
-                # the same exact key before applying last-write-wins semantics.
-                for suffix in ("", ".encoding", ".truncated", ".original_size"):
-                    explicit_attributes.pop(name + suffix, None)
             else:
                 label = normalize_attribute_component(str(payload.get("label", "")))
                 index = generic_counts[label]
                 generic_counts[label] += 1
-                name = f"wizardflow.log.{label}" + (f".{index}" if index else "")
+                name = f"wizardflow.payload.{label}" + (f".{index}" if index else "")
             value = payload.get("value")
             target = explicit_attributes if explicit_name is not None else attributes
             if isinstance(value, _SCALAR_TYPES):
@@ -373,10 +475,15 @@ __all__ = [
     "DEFAULT_CONTENT_MAX_BYTES",
     "DEFAULT_GRAPH_MAX_BYTES",
     "NODE_KINDS",
+    "WORKFLOW_OPERATION",
     "canonical_json",
     "canonical_model_key",
     "custom_otel_attribute_error",
     "map_graph_event",
     "map_node_attributes",
+    "map_workflow_attributes",
+    "map_workflow_result_attributes",
     "normalize_attribute_component",
+    "split_otel_attributes",
+    "workflow_span_name",
 ]

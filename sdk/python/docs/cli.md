@@ -84,19 +84,23 @@ does not combine an entire rotation chain.
 
 ```bash
 wizardflow otel export run.jsonl --endpoint http://localhost:4318/v1/traces
-wizardflow otel export run.jsonl --trace-scope message
+wizardflow otel export run.jsonl --workflow-name consultation
+wizardflow otel export run.jsonl --trace-scope recording
 ```
 
 This projects an existing artifact through OTLP/HTTP using the same semantic
 mapping as live export. It creates fresh OTel trace IDs and never modifies the
 source file. By default it discovers and exports the complete rotated
-part-chain and creates one `wizardflow.run` trace; `--trace-scope message`
-creates one `wizardflow.message` trace per message.
+part-chain and creates one trace per message, rooted at an `invoke_workflow`
+span; `--trace-scope recording` creates one `wizardflow.run` trace for the
+whole chain. Live `otel_attributes` are not stored in JSONL, so exported roots
+do not carry them.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--endpoint` | OTel environment | OTLP/HTTP traces endpoint |
-| `--trace-scope` | `recording` | `recording` or `message` trace boundaries |
+| `--trace-scope` | `workflow` | `workflow` (one trace per message) or `recording` trace boundaries |
+| `--workflow-name` | none | Stable `gen_ai.workflow.name` for workflow roots; match the live `otel_workflow_name` |
 | `--include-content` / `--no-include-content` | on | Export or omit bounded input, output, and structured log content |
 | `--content-max-bytes` | `16_384` | Maximum bytes for each exported content value |
 | `--export-graph` | off | Add the WizardFlow graph event to each root |

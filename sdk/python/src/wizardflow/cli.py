@@ -69,6 +69,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 trace=args.trace,
                 endpoint=args.endpoint,
                 trace_scope=args.trace_scope,
+                workflow_name=args.workflow_name,
                 include_content=args.include_content,
                 content_max_bytes=args.content_max_bytes,
                 export_graph=args.export_graph,
@@ -213,9 +214,19 @@ def _build_parser() -> argparse.ArgumentParser:
     otel_export.add_argument("--endpoint", help="OTLP/HTTP traces endpoint.")
     otel_export.add_argument(
         "--trace-scope",
-        choices=("recording", "message"),
-        default="recording",
-        help="Create one recording trace (default) or one trace per message.",
+        choices=("workflow", "recording"),
+        default="workflow",
+        help=(
+            "Create one trace per workflow execution (default; one per "
+            "message) or one trace for the whole recording."
+        ),
+    )
+    otel_export.add_argument(
+        "--workflow-name",
+        help=(
+            "Stable workflow type name for workflow roots "
+            "(gen_ai.workflow.name); match the live otel_workflow_name."
+        ),
     )
     otel_export.add_argument(
         "--include-content",
@@ -254,6 +265,7 @@ def run_otel_export(
     export_graph: bool,
     graph_max_bytes: int,
     current_part_only: bool,
+    workflow_name: Optional[str] = None,
 ) -> int:
     """Export a durable WizardFlow artifact through a private OTLP provider."""
     trace_path = _resolve_trace_path(trace=trace, path=None)
@@ -267,6 +279,7 @@ def run_otel_export(
             ExportOptions(
                 endpoint=resolved_endpoint,
                 trace_scope=trace_scope,
+                workflow_name=workflow_name,
                 include_content=include_content,
                 content_max_bytes=content_max_bytes,
                 export_graph=export_graph,

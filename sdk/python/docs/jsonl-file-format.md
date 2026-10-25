@@ -127,13 +127,16 @@ Explicit keys may extend or override semantic mappings. The structural identity
 keys `wizardflow.node.id`, `wizardflow.node.kind`, `wizardflow.message.id`, and
 `wizardflow.trace.name` are protected.
 
+On an `input` or `output` semantic payload, `otelAttribute` is additive: the
+semantic projection is kept and the value is also exported under that key.
+
 `exportToJsonl` is not stored: a record excluded from JSONL is absent.
 
 ## Source-of-truth rules
 
 - JSON-compatible complex values remain intact.
 - JSONL is transport-neutral by default; `otelAttribute` is an optional explicit
-  projection hint for generic logs.
+  projection hint for generic logs and for input/output payloads.
 - Exporters, rather than the writer, normalize values for their transport.
 - Content truncation for OTel never mutates the JSONL value.
 - Generic labels do not imply semantic meaning.
