@@ -581,7 +581,7 @@ export default function InspectorPanel({
         <CenteredHint>
           {visitedInMessage
             ? "Node ran, but no payload was logged."
-            : "No payloads logged for this node."}
+            : "Node didn't run in this workflow execution."}
         </CenteredHint>
       </Box>
     );
