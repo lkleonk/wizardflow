@@ -61,6 +61,12 @@ print(trace_path)
 `end_message()` appends the completed message to JSONL. There is no separate
 `save()` call.
 
+Recording mistakes such as an unknown node id are logged as warnings rather
+than raised into your app; pass `on_error="raise"` to make them raise (handy in
+tests). Pass `enabled=False`, or set `WIZARDFLOW_ENABLED=false`, to turn tracing
+off while keeping the same API. See
+[docs/recording.md](docs/recording.md#error-handling-on_error).
+
 Drop `trace_path` into [getwizardflow.com](https://getwizardflow.com), or open
 it locally:
 

@@ -25,10 +25,21 @@ import logging
 import os
 import threading
 import uuid
+import warnings
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional, Tuple, Union
 
-from .constants import Defaults, Ids, Logging, Output, Records, Rotation, Schema
+from .constants import (
+    Defaults,
+    Env,
+    Errors,
+    Ids,
+    Logging,
+    Output,
+    Records,
+    Rotation,
+    Schema,
+)
 from .otel import (
     DEFAULT_OTEL_TRACE_SCOPE,
     OTEL_TRACE_SCOPES,
@@ -62,7 +73,11 @@ __all__ = [
 
 
 class WizardFlowError(Exception):
-    """Base class for SDK usage errors (raised only when not silenced)."""
+    """Base class for SDK usage errors.
+
+    Startup config errors always raise; runtime ones raise only with
+    ``on_error="raise"`` and are otherwise logged as a warning.
+    """
 
 
 class UnknownNodeError(WizardFlowError):
@@ -80,6 +95,7 @@ EdgeSpec = Union[Tuple[str, str], Dict[str, str]]
 NodeColorMap = Mapping[str, str]
 NodeDescriptionMap = Mapping[str, str]
 NodeLabelMap = Mapping[str, str]
+OnError = Literal["raise", "warn"]
 
 
 def _now_iso() -> str:
@@ -103,6 +119,46 @@ def _run_timestamp() -> str:
 def _resolve_output(output_dir: Optional[str], file_prefix: str) -> Tuple[str, str, str]:
     """Resolve output options into (directory, prefix, suffix) for part naming."""
     return output_dir or "", file_prefix or Defaults.PREFIX, Defaults.SUFFIX
+
+
+def _resolve_enabled(enabled: Optional[bool]) -> bool:
+    """The ``enabled`` argument wins; otherwise ``WIZARDFLOW_ENABLED``; else on."""
+    if enabled is not None:
+        return bool(enabled)
+    raw = os.environ.get(Env.ENABLED, "").strip().lower()
+    if not raw:
+        return True
+    if raw in Env.TRUE_VALUES:
+        return True
+    if raw in Env.FALSE_VALUES:
+        return False
+    # A typo here must not silently pick a side: "disabled" read as on would
+    # write traces where the user meant to turn them off.
+    raise WizardFlowError(
+        f"{Env.ENABLED}={os.environ[Env.ENABLED]!r} is not a boolean; "
+        f"use one of {Env.TRUE_VALUES + Env.FALSE_VALUES}"
+    )
+
+
+def _resolve_on_error(on_error: Optional[str], silent: Optional[bool]) -> str:
+    """Resolve ``on_error``, accepting the deprecated ``silent`` alias."""
+    if silent is not None:
+        if on_error is not None:
+            raise WizardFlowError("pass on_error or silent, not both")
+        warnings.warn(
+            "silent is deprecated; use on_error='warn' (the default) or "
+            "on_error='raise'",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return Errors.WARN if silent else Errors.RAISE
+    if on_error is None:
+        return Errors.DEFAULT
+    if on_error not in Errors.MODES:
+        raise WizardFlowError(
+            f"on_error must be one of {Errors.MODES} (got {on_error!r})"
+        )
+    return on_error
 
 
 def _normalize_node(node: NodeSpec) -> Dict[str, Any]:
@@ -157,21 +213,21 @@ def _apply_node_field(
     *,
     field: str,
     option_name: str,
-    silent: bool,
+    on_error: str,
 ) -> List[Dict[str, Any]]:
     """Attach per-node values (colors, descriptions) keyed by node id.
 
     Validation runs at init() time, before anything is written — a trace on
-    disk is never affected. Unknown ids fail fast so typos surface immediately;
-    with ``silent=True`` they are logged as a warning on the ``wizardflow``
-    logger and skipped instead. When a mapping targets a node whose dict spec
-    already carries the field, the mapping wins.
+    disk is never affected. Unknown ids are logged as a warning on the
+    ``wizardflow`` logger and skipped; with ``on_error="raise"`` they fail fast
+    instead. When a mapping targets a node whose dict spec already carries the
+    field, the mapping wins.
     """
     if not values:
         return nodes
     if not nodes:
         problem = f"{option_name} was given but no nodes are declared"
-        if not silent:
+        if on_error == Errors.RAISE:
             raise WizardFlowError(f"{problem} (nothing to attach to)")
         logger.warning("%s; ignored", problem)
         return nodes
@@ -179,7 +235,7 @@ def _apply_node_field(
     known = {n["id"] for n in nodes}
     unknown = sorted(node_id for node_id in values if node_id not in known)
     if unknown:
-        if not silent:
+        if on_error == Errors.RAISE:
             raise WizardFlowError(
                 f"{option_name} contains unknown node id(s): "
                 f"{unknown}. Declared nodes: {sorted(known)}"
@@ -240,13 +296,12 @@ def _topology_from_langgraph(app: Any) -> Tuple[List[Dict[str, Any]], List[Dict[
 class _Message:
     """Accumulates steps for a single message, keyed by id on the client."""
 
-    def __init__(self, message_id: str, label: Optional[str], silent: bool):
+    def __init__(self, message_id: str, label: Optional[str]):
         self.id = message_id
         self.label = label
         self.meta: Optional[Dict[str, Any]] = None
         # Exact OTel keys for this workflow's root span; never serialized.
         self.otel_attributes: Dict[str, Any] = {}
-        self.silent = silent
         self.completed = False
         self.steps: List[Dict[str, Any]] = []
         self._step_seq = 0
@@ -415,7 +470,7 @@ class Client:
         node_colors: Optional[NodeColorMap] = None,
         node_descriptions: Optional[NodeDescriptionMap] = None,
         meta: Optional[Dict[str, Any]] = None,
-        silent: bool = False,
+        silent: Optional[bool] = None,
         max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
         max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
         jsonl: bool = True,
@@ -427,9 +482,21 @@ class Client:
         otel_include_content: bool = True,
         otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
         export_graph_to_otel: bool = False,
+        on_error: Optional[OnError] = None,
+        enabled: Optional[bool] = None,
     ):
+        """``on_error`` decides what a runtime usage error does: ``"warn"``
+        (default) logs it once on the ``wizardflow`` logger and drops the bad
+        call, ``"raise"`` raises it. ``silent`` is its deprecated alias.
+
+        ``enabled=False`` turns recording off: config is still validated, but
+        no file, directory or OTel exporter is created and every recording
+        call is a no-op. Unset, it reads ``WIZARDFLOW_ENABLED``.
+        """
         self.name = name
-        self.silent = silent
+        self.on_error = _resolve_on_error(on_error, silent)
+        self._enabled = _resolve_enabled(enabled)
+        self._warned: set = set()
         self.jsonl = jsonl
         if otel_content_max_bytes <= 0:
             raise WizardFlowError("otel_content_max_bytes must be greater than zero")
@@ -475,15 +542,16 @@ class Client:
         self._nodes: List[Dict[str, Any]] = [_normalize_node(n) for n in (nodes or [])]
         self._nodes = _apply_node_field(
             self._nodes, node_labels,
-            field="label", option_name="node_labels", silent=silent,
+            field="label", option_name="node_labels", on_error=self.on_error,
         )
         self._nodes = _apply_node_field(
             self._nodes, node_colors,
-            field="color", option_name="node_colors", silent=silent,
+            field="color", option_name="node_colors", on_error=self.on_error,
         )
         self._nodes = _apply_node_field(
             self._nodes, node_descriptions,
-            field="description", option_name="node_descriptions", silent=silent,
+            field="description", option_name="node_descriptions",
+            on_error=self.on_error,
         )
         self._edges: List[Dict[str, str]] = _dedupe_edges(
             [_normalize_edge(e) for e in (edges or [])]
@@ -514,7 +582,9 @@ class Client:
         self._active_part_bytes = 0     # bytes appended so far (header included)
         self._part_started = False      # header line written for the active part?
 
-        if self._otel_configured:
+        # Disabled: everything above is validated, but no exporter is built (so
+        # missing OTel packages don't matter either).
+        if self._otel_configured and self._enabled:
             self._otel = self._create_otel_bridge()
             self._otel.start_run(
                 _now_iso(), self._otel_name, self._nodes, self._edges
@@ -533,7 +603,7 @@ class Client:
         node_labels: Optional[NodeLabelMap] = None,
         node_colors: Optional[NodeColorMap] = None,
         node_descriptions: Optional[NodeDescriptionMap] = None,
-        silent: bool = False,
+        silent: Optional[bool] = None,
         max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
         max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
         jsonl: bool = True,
@@ -545,14 +615,25 @@ class Client:
         otel_include_content: bool = True,
         otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
         export_graph_to_otel: bool = False,
+        on_error: Optional[OnError] = None,
+        enabled: Optional[bool] = None,
     ) -> "Client":
         """Build a client whose graph is read from a compiled LangGraph ``app``.
 
         Topology (nodes + directed edges, with a ``conditional`` flag on runtime
         branches) is extracted via duck typing — no langgraph dependency.
-        Runtime logging is unchanged; you still call :meth:`log`.
+        Runtime logging is unchanged; you still call :meth:`log`. When
+        disabled, ``app.get_graph()`` is never called.
         """
-        nodes, edges = _topology_from_langgraph(app)
+        enabled = _resolve_enabled(enabled)
+        if enabled:
+            nodes: Optional[List[Dict[str, Any]]]
+            nodes, edges = _topology_from_langgraph(app)
+        else:
+            # No graph to attach per-node values to, so drop them rather than
+            # report every id as unknown.
+            nodes, edges = None, []
+            node_labels = node_colors = node_descriptions = None
         return cls(
             output_dir=output_dir,
             file_prefix=file_prefix,
@@ -565,6 +646,8 @@ class Client:
             node_descriptions=node_descriptions,
             meta=meta,
             silent=silent,
+            on_error=on_error,
+            enabled=enabled,
             max_bytes=max_bytes,
             max_messages=max_messages,
             jsonl=jsonl,
@@ -598,16 +681,26 @@ class Client:
             return {}
         valid, errors = split_otel_attributes(attributes)
         for error in errors:
-            self._fail(self.silent, WizardFlowError(error))
+            self._fail(WizardFlowError(error))
         return valid
 
     # --- recording --------------------------------------------------------
+
+    @property
+    def enabled(self) -> bool:
+        """Whether this client records anything (see ``init(enabled=...)``)."""
+        return self._enabled
+
+    @property
+    def silent(self) -> bool:
+        """Deprecated read-only view of ``on_error == "warn"``."""
+        return self.on_error == Errors.WARN
 
     def _get_or_create(self, id: str) -> _Message:
         with self._lock:
             msg = self._messages.get(id)
             if msg is None:
-                msg = _Message(id, label=None, silent=self.silent)
+                msg = _Message(id, label=None)
                 self._messages[id] = msg
             return msg
 
@@ -629,14 +722,13 @@ class Client:
         payloads. Nothing is written to disk here — :meth:`end_message` is what
         persists the trace.
         """
+        if not self._enabled:
+            return
         if otel_attribute is not None:
             if not self._otel_attribute_ok(otel_attribute):
                 return
             if label is None:
-                self._fail(
-                    self.silent,
-                    WizardFlowError("otel_attribute requires a payload label"),
-                )
+                self._fail(WizardFlowError("otel_attribute requires a payload label"))
                 return
         self._record(
             id,
@@ -649,10 +741,10 @@ class Client:
         )
 
     def _otel_attribute_ok(self, otel_attribute: Any) -> bool:
-        """Validate an exact per-record OTel key; raise or warn per ``silent``."""
+        """Validate an exact per-record OTel key; raise or warn per ``on_error``."""
         error = custom_otel_attribute_error(otel_attribute)
         if error is not None:
-            self._fail(self.silent, WizardFlowError(error))
+            self._fail(WizardFlowError(error))
             return False
         return True
 
@@ -668,11 +760,12 @@ class Client:
         export_to_jsonl: bool = True,
         export_to_otel: bool = True,
     ) -> None:
+        if not self._enabled:
+            return
         msg = self._get_or_create(id)
         with self._lock:
             if msg.completed:
                 self._fail(
-                    msg.silent,
                     WizardFlowError(
                         f"message {id!r} already ended; cannot log to it"
                     ),
@@ -680,7 +773,6 @@ class Client:
                 return
             if self._known is not None and node not in self._known:
                 self._fail(
-                    msg.silent,
                     UnknownNodeError(
                         f"Unknown node {node!r}. Declared nodes: {sorted(self._known)}"
                     ),
@@ -716,7 +808,7 @@ class Client:
                             self._otel_name,
                         )
             except Exception as exc:  # pragma: no cover - defensive
-                self._fail(msg.silent, exc)
+                self._fail(exc)
 
     def log_input(
         self,
@@ -773,6 +865,8 @@ class Client:
         export_to_otel: bool,
         otel_attribute: Optional[str],
     ) -> None:
+        if not self._enabled:
+            return
         if otel_attribute is not None and not self._otel_attribute_ok(otel_attribute):
             return
         self._record(
@@ -796,8 +890,11 @@ class Client:
         export_to_jsonl: bool = True,
         export_to_otel: bool = True,
     ) -> None:
+        if not self._enabled:
+            return
         if input_tokens is None and output_tokens is None:
-            raise WizardFlowError("log_usage requires at least one token count")
+            self._fail(WizardFlowError("log_usage requires at least one token count"))
+            return
         for name, value in (
             ("input_tokens", input_tokens),
             ("output_tokens", output_tokens),
@@ -807,7 +904,8 @@ class Client:
                 or not isinstance(value, int)
                 or value < 0
             ):
-                raise WizardFlowError(f"{name} must be a non-negative integer")
+                self._fail(WizardFlowError(f"{name} must be a non-negative integer"))
+                return
         usage: Dict[str, int] = {}
         if input_tokens is not None:
             usage["inputTokens"] = input_tokens
@@ -832,6 +930,8 @@ class Client:
         export_to_otel: bool = True,
         **parameters: Any,
     ) -> None:
+        if not self._enabled:
+            return
         canonical = {
             canonical_model_key(key): value for key, value in parameters.items()
         }
@@ -852,13 +952,13 @@ class Client:
         problem = WizardFlowError(
             f"Unknown node kind {normalized!r}. Expected one of {sorted(NODE_KINDS)}"
         )
-        if not self.silent:
-            raise problem
-        logger.warning("%s; using 'generic'", problem)
+        self._fail(problem, outcome="using 'generic'")
         return "generic"
 
     def start_node(self, id: str, node: str, kind: Optional[str] = None) -> None:
         """Mark the explicit start of ``node`` execution for message ``id``."""
+        if not self._enabled:
+            return
         resolved_kind = self._normalize_kind(kind)
         msg = self._get_or_create(id)
         with self._lock:
@@ -904,6 +1004,11 @@ class Client:
         return WorkflowRun(self)
 
     def _begin_workflow(self) -> str:
+        if not self._enabled:
+            # Still a fresh id, so apps can log/correlate it; never registered.
+            return Ids.WORKFLOW_ID_FORMAT.format(
+                hex=uuid.uuid4().hex[: Ids.WORKFLOW_ID_HEX_CHARS]
+            )
         with self._lock:
             while True:
                 message_id = Ids.WORKFLOW_ID_FORMAT.format(
@@ -938,6 +1043,8 @@ class Client:
         self._end_node(id, node, None)
 
     def _end_node(self, id: str, node: str, error: Optional[BaseException]) -> None:
+        if not self._enabled:
+            return
         with self._lock:
             msg = self._messages.get(id)
             timestamp = _now_iso()
@@ -970,7 +1077,7 @@ class Client:
         meta: Optional[Dict[str, Any]] = None,
         *,
         otel_attributes: Optional[Mapping[str, Any]] = None,
-    ) -> str:
+    ) -> Optional[str]:
         """Finalize message ``id`` and append it to the active part. Returns its path.
 
         This is the **only** thing that writes to disk; :meth:`log` just
@@ -985,7 +1092,10 @@ class Client:
         ``max_bytes`` (or holds ``max_messages`` already), it is sealed and the
         message starts a fresh part (rotation happens only at message
         boundaries). Idempotent: a second end on the same id won't append twice.
+        Returns ``None`` when the client is disabled.
         """
+        if not self._enabled:
+            return None
         attributes = self._valid_otel_attributes(otel_attributes)
         return self._finish_message(id, title, meta, attributes, None)
 
@@ -996,15 +1106,15 @@ class Client:
         meta: Optional[Mapping[str, Any]],
         otel_attributes: Mapping[str, Any],
         error: Optional[BaseException],
-    ) -> str:
+    ) -> Optional[str]:
         """The one finalization path shared by end_message() and workflow()."""
+        if not self._enabled:
+            return None
         with self._lock:
             msg = self._messages.get(id)
             if msg is None:
-                self._fail(
-                    self.silent, WizardFlowError(f"end_message: unknown message {id!r}")
-                )
-                return self.current_path
+                self._fail(WizardFlowError(f"end_message: unknown message {id!r}"))
+                return self._active_path
             if not msg.completed:
                 if title is not None:
                     msg.label = title
@@ -1041,15 +1151,22 @@ class Client:
                             exc_info=True,
                         )
                 msg.completed = True
-                if self.jsonl:
-                    line = self._render_line(
-                        {Records.TYPE_KEY: Records.MESSAGE, **msg.to_dict()}
-                    )
+                if not self.jsonl:
+                    self._active_part.append(msg)
+                    return self._active_path
+                line = self._render_line(
+                    {Records.TYPE_KEY: Records.MESSAGE, **msg.to_dict()}
+                )
+                try:
                     self._rotate_if_needed(len(line.encode("utf-8")))
-                self._active_part.append(msg)
-                if self.jsonl:
+                    self._active_part.append(msg)
                     self._append_to_part(line)
-            return self.current_path
+                except OSError as exc:
+                    # A full disk or vanished directory is a tracing failure,
+                    # not the app's: by default the record is dropped and
+                    # logged rather than raised into the caller.
+                    self._fail(exc, outcome="message not written")
+            return self._active_path
 
     def reinit(
         self,
@@ -1060,7 +1177,7 @@ class Client:
         jsonl: bool = True,
         otel: bool = True,
         otel_attributes: Optional[Mapping[str, Any]] = None,
-    ) -> str:
+    ) -> Optional[str]:
         """Independently start a new JSONL run and/or OTel trace.
 
         ``otel_attributes``, when given with ``otel=True``, replaces the
@@ -1076,8 +1193,11 @@ class Client:
         file is active when its :meth:`end_message` arrives. Completed messages
         are dropped from the registry, so their ids become reusable in the new
         trace. ``name`` / ``description`` / ``meta`` replace the current values
-        when given; otherwise the old ones are kept. Returns the new trace path.
+        when given; otherwise the old ones are kept. Returns the new trace path,
+        or ``None`` when the client is disabled.
         """
+        if not self._enabled:
+            return None
         with self._lock:
             if jsonl and self.jsonl:
                 if name is not None:
@@ -1101,7 +1221,7 @@ class Client:
                 self._part_started = False
                 logger.info(
                     "reinitialized JSONL; next trace file is %s",
-                    os.path.basename(self.current_path),
+                    os.path.basename(self._active_path),
                 )
             if otel and self._otel_configured:
                 if name is not None:
@@ -1126,7 +1246,7 @@ class Client:
                         self._nodes,
                         self._edges,
                     )
-            return self.current_path
+            return self._active_path
 
     def close_otel(self) -> None:
         """End and flush only WizardFlow's OTel output; JSONL is unaffected."""
@@ -1137,17 +1257,30 @@ class Client:
             self._otel = None
             bridge.close(_now_iso())
 
-    @staticmethod
-    def _fail(silent: bool, exc: Exception) -> None:
-        if not silent:
+    def _fail(self, exc: Exception, *, outcome: str = "ignored") -> None:
+        """Raise ``exc`` under ``on_error="raise"``; otherwise warn once.
+
+        Warn-once keys on the exact message, so a misspelled node inside a hot
+        loop logs one line, not one per call.
+        """
+        if self.on_error == Errors.RAISE:
             raise exc
-        logger.warning("%s; ignored", exc)
+        key = (type(exc), str(exc))
+        if key in self._warned:
+            return
+        if len(self._warned) < Logging.WARN_ONCE_MAX:
+            self._warned.add(key)
+        logger.warning("%s; %s", exc, outcome)
 
     # --- output & rotation ------------------------------------------------
 
     @property
-    def current_path(self) -> str:
-        """Path of the part currently being written."""
+    def current_path(self) -> Optional[str]:
+        """Path of the part currently being written; ``None`` when disabled."""
+        return self._active_path if self._enabled else None
+
+    @property
+    def _active_path(self) -> str:
         return self._part_filename(self._active_index)
 
     def _part_filename(self, index: int) -> str:
@@ -1188,7 +1321,7 @@ class Client:
             self._render_line(
                 {
                     Records.TYPE_KEY: Records.SEAL,
-                    "nextPart": os.path.basename(self.current_path),
+                    "nextPart": os.path.basename(self._active_path),
                 }
             ),
         )
@@ -1200,7 +1333,7 @@ class Client:
             sealed,
             self.max_bytes,
             self.max_messages,
-            os.path.basename(self.current_path),
+            os.path.basename(self._active_path),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1348,9 +1481,10 @@ class WorkflowRun:
         """
         if self._state != "active":
             self._client._fail(
-                self._client.silent,
                 WizardFlowError("set_info() called outside an active workflow block"),
             )
+            return
+        if not self._client.enabled:
             return
         if title is not None:
             self._title = title

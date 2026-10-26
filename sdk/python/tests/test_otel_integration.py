@@ -133,7 +133,7 @@ def test_custom_otel_attribute_is_persisted_by_all_generic_log_apis(tmp_path):
     ],
 )
 def test_custom_otel_attribute_validation(tmp_path, value, message):
-    trace = _new(tmp_path, nodes=["a"])
+    trace = _new(tmp_path, on_error="raise", nodes=["a"])
     with pytest.raises(WizardFlowError, match=message):
         trace.log("m1", "a", "value", 1, otel_attribute=value)
 
@@ -167,12 +167,12 @@ def test_semantic_content_persists_one_payload_with_otel_attribute(tmp_path, met
     [("", "must not be empty"), ("wizardflow.node.id", "protected"), (1, "string")],
 )
 def test_semantic_content_validates_otel_attribute(tmp_path, method, value, message):
-    trace = _new(tmp_path, nodes=["a"])
+    trace = _new(tmp_path, on_error="raise", nodes=["a"])
     with pytest.raises(WizardFlowError, match=message):
         getattr(trace, method)("m1", "a", "x", otel_attribute=value)
 
 
 def test_custom_otel_attribute_requires_a_payload(tmp_path):
-    trace = _new(tmp_path, nodes=["a"])
+    trace = _new(tmp_path, on_error="raise", nodes=["a"])
     with pytest.raises(WizardFlowError, match="requires a payload label"):
         trace.log("m1", "a", otel_attribute="app.visit")

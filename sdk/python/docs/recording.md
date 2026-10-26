@@ -48,20 +48,57 @@ wizardflow.end_message("msg-1")
 Do not mix module-level calls with several clients: module-level calls always
 target the most recently initialized client.
 
-### Strict and resilient error handling
+### Error handling: `on_error`
 
-WizardFlow is strict by default: invalid recording calls raise a
-`WizardFlowError`. Applications that must never be interrupted by instrumentation
-can opt into warning-and-continue behavior:
+Tracing should never break the app it traces. By default
+(`on_error="warn"`), a runtime usage error — an unknown node id,
+`end_message` on an unknown message, an invalid OTel attribute, a trace file
+that can't be written — is logged once on Python's `wizardflow` logger at
+warning level and the bad call is dropped. The same error repeated in a loop
+is logged only the first time.
+
+Choose `on_error="raise"` to get a `WizardFlowError` instead, which is useful
+in tests and while wiring up a new graph:
 
 ```python
-trace = wizardflow.init(silent=True)
+trace = wizardflow.init(nodes=["classifier"], on_error="raise")
 ```
 
-With `silent=True`, suppressed WizardFlow recording errors are emitted through
-Python's `wizardflow` logger at warning level and the invalid operation is
-ignored. Exceptions raised by the application itself, including inside
-`with trace.node(...)`, are never swallowed.
+Startup configuration errors raise regardless of `on_error`: a bad
+`otel_trace_scope`, `otel_content_max_bytes` or `otel_workflow_name`, a
+malformed node or edge spec, a LangGraph app whose graph can't be read, or an
+unparseable `WIZARDFLOW_ENABLED`. Exceptions raised by the application itself,
+including inside `with trace.node(...)`, are never swallowed.
+
+The library attaches only a `NullHandler`, so the warnings appear once your app
+configures logging (for example `logging.basicConfig()`).
+
+`silent=True` / `silent=False` still work as deprecated aliases for
+`on_error="warn"` / `on_error="raise"`.
+
+### Turning tracing off: `enabled`
+
+`on_error` keeps recording but decides what a mistake does. `enabled=False`
+turns recording off entirely, while the API stays usable, so app code never
+has to check whether tracing is on:
+
+```python
+trace = wizardflow.init_from_langgraph(app, enabled=settings.TRACING_ENABLED)
+
+with trace.node(message_id, "classifier") as node:   # no-op when disabled
+    node.log_input(user_message)
+```
+
+When disabled, no trace file, directory or OTel exporter is created, nothing is
+buffered in memory, and `init_from_langgraph` doesn't call `app.get_graph()`.
+`end_message()`, `reinit()` and `current_path` return `None`, `to_dict()`
+returns an empty trace, and `trace.workflow()` still hands out fresh message
+ids. Startup configuration is still validated. `trace.enabled` reports the
+current state.
+
+Without an explicit `enabled=` argument, the `WIZARDFLOW_ENABLED` environment
+variable decides (`false`/`0`/`no`/`off` or `true`/`1`/`yes`/`on`); unset means
+on. The argument always wins over the variable.
 
 ## Messages and node executions
 

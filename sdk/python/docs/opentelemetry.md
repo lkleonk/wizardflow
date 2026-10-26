@@ -255,8 +255,8 @@ trace.end_message(message_id, otel_attributes={"session.id": chat_id})
   `wizardflow.message.id`, `wizardflow.message.title`,
   `wizardflow.message.metadata`, plus the node identity keys.
 - Values must be `str`, `bool`, `int`, `float`, or a non-empty list of one of
-  those types. Invalid entries raise, or are dropped with a warning when
-  `silent=True`.
+  those types. Invalid entries are dropped with a warning, or raise with
+  `on_error="raise"`.
 - They are identifiers the application chose, so they are exported even with
   `otel_include_content=False`.
 - They are OTel-only: JSONL never stores them, and the offline exporter cannot

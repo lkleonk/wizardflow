@@ -29,6 +29,7 @@ from .client import (
     EdgeSpec,
     LangGraphExtractionError,
     NodeHandle,
+    OnError,
     NodeSpec,
     UnknownNodeError,
     WizardFlowError,
@@ -80,7 +81,7 @@ def init(
     node_colors: Optional[Mapping[str, str]] = None,
     node_descriptions: Optional[Mapping[str, str]] = None,
     meta: Optional[Dict[str, Any]] = None,
-    silent: bool = False,
+    silent: Optional[bool] = None,
     max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
     max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
     jsonl: bool = True,
@@ -92,6 +93,8 @@ def init(
     otel_include_content: bool = True,
     otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
     export_graph_to_otel: bool = False,
+    on_error: Optional[OnError] = None,
+    enabled: Optional[bool] = None,
 ) -> Client:
     """Create a recording client and set it as the module default."""
     global _default
@@ -118,6 +121,8 @@ def init(
         otel_include_content=otel_include_content,
         otel_content_max_bytes=otel_content_max_bytes,
         export_graph_to_otel=export_graph_to_otel,
+        on_error=on_error,
+        enabled=enabled,
     )
     return _default
 
@@ -132,7 +137,7 @@ def init_from_langgraph(
     node_labels: Optional[Mapping[str, str]] = None,
     node_colors: Optional[Mapping[str, str]] = None,
     node_descriptions: Optional[Mapping[str, str]] = None,
-    silent: bool = False,
+    silent: Optional[bool] = None,
     max_bytes: int = Rotation.DEFAULT_MAX_BYTES,
     max_messages: int = Rotation.DEFAULT_MAX_MESSAGES,
     jsonl: bool = True,
@@ -144,6 +149,8 @@ def init_from_langgraph(
     otel_include_content: bool = True,
     otel_content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
     export_graph_to_otel: bool = False,
+    on_error: Optional[OnError] = None,
+    enabled: Optional[bool] = None,
 ) -> Client:
     """Create a client from a compiled LangGraph ``app`` and set it as default.
 
@@ -173,6 +180,8 @@ def init_from_langgraph(
         otel_include_content=otel_include_content,
         otel_content_max_bytes=otel_content_max_bytes,
         export_graph_to_otel=export_graph_to_otel,
+        on_error=on_error,
+        enabled=enabled,
     )
     return _default
 
@@ -193,7 +202,7 @@ def reinit(
     jsonl: bool = True,
     otel: bool = True,
     otel_attributes: Optional[Mapping[str, Any]] = None,
-) -> str:
+) -> Optional[str]:
     """Independently start a new JSONL run and/or OTel trace."""
     return get_default().reinit(
         name=name,
@@ -257,7 +266,7 @@ def end_message(
     meta: Optional[Dict[str, Any]] = None,
     *,
     otel_attributes: Optional[Mapping[str, Any]] = None,
-) -> str:
+) -> Optional[str]:
     return get_default().end_message(
         id, title=title, meta=meta, otel_attributes=otel_attributes
     )

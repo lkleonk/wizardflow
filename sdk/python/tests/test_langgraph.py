@@ -123,6 +123,7 @@ def test_from_langgraph_unknown_node_color_raises(tmp_path):
             output_dir=str(tmp_path),
             file_prefix="t",
             node_colors={"routre": "#A78BFA"},
+            on_error="raise",
         )
 
 
@@ -135,7 +136,7 @@ def test_from_langgraph_unknown_node_color_silent_ignored(tmp_path):
             "router": "#A78BFA",
             "routre": "#22D3EE",
         },
-        silent=True,
+        on_error="warn",
     )
     nodes = {n["id"]: n for n in c.to_dict()["graph"]["nodes"]}
     assert nodes["router"]["color"] == "#A78BFA"

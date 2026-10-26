@@ -73,7 +73,7 @@ def test_semantic_node_api_preserves_transport_neutral_jsonl(tmp_path):
     ]
 
 def test_silent_logs_suppressed_errors_as_warnings(tmp_path, caplog):
-    trace = _new(tmp_path, nodes=["a"], silent=True)
+    trace = _new(tmp_path, nodes=["a"], on_error="warn")
     with caplog.at_level("WARNING", logger="wizardflow"):
         trace.log("m1", "missing", "value", 1)
         trace.end_message("missing-message")
@@ -84,11 +84,11 @@ def test_silent_logs_suppressed_errors_as_warnings(tmp_path, caplog):
 
 
 def test_kind_validation_and_silent_fallback(tmp_path, caplog):
-    c = _new(tmp_path, nodes=["a"])
+    c = _new(tmp_path, on_error="raise", nodes=["a"])
     with pytest.raises(WizardFlowError, match="Unknown node kind"):
         c.start_node("m1", "a", kind="unknown")
 
-    quiet = _new(tmp_path / "silent", nodes=["a"], silent=True)
+    quiet = _new(tmp_path / "silent", nodes=["a"], on_error="warn")
     with caplog.at_level("WARNING", logger="wizardflow"):
         quiet.start_node("m1", "a", kind="future-kind")
     quiet.end_message("m1")
@@ -97,7 +97,7 @@ def test_kind_validation_and_silent_fallback(tmp_path, caplog):
 
 
 def test_usage_rejects_invalid_counts(tmp_path):
-    c = _new(tmp_path, nodes=["a"])
+    c = _new(tmp_path, on_error="raise", nodes=["a"])
     with pytest.raises(WizardFlowError, match="non-negative integer"):
         c.log_usage("m1", "a", input_tokens=-1)
     with pytest.raises(WizardFlowError, match="at least one"):
@@ -236,7 +236,7 @@ def test_no_meta_means_no_meta_field(tmp_path):
 # --- validation & silencing ----------------------------------------------
 
 def test_unknown_node_fast_fails_when_nodes_declared(tmp_path):
-    c = _new(tmp_path, nodes=["a"])
+    c = _new(tmp_path, on_error="raise", nodes=["a"])
     with pytest.raises(UnknownNodeError):
         c.log("m1", "typo", "L", 1)
 
@@ -249,14 +249,14 @@ def test_unknown_node_allowed_when_nodes_not_declared(tmp_path):
 
 
 def test_silent_swallows_unknown_node(tmp_path):
-    c = _new(tmp_path, nodes=["a"], silent=True)
+    c = _new(tmp_path, nodes=["a"], on_error="warn")
     c.log("m1", "typo", "L", 1)       # swallowed, no step recorded
     c.end_message("m1")
     assert c.to_dict()["messages"][0]["steps"] == []
 
 
 def test_logging_to_ended_message_raises(tmp_path):
-    c = _new(tmp_path, nodes=["a"])
+    c = _new(tmp_path, on_error="raise", nodes=["a"])
     c.log("m1", "a", "L", 1)
     c.end_message("m1")
     with pytest.raises(WizardFlowError):
@@ -283,7 +283,7 @@ def test_init_applies_node_labels(tmp_path):
 
 def test_node_labels_unknown_id_raises(tmp_path):
     with pytest.raises(WizardFlowError, match="node_labels contains unknown"):
-        _new(tmp_path, nodes=["a"], node_labels={"typo": "X"})
+        _new(tmp_path, on_error="raise", nodes=["a"], node_labels={"typo": "X"})
 
 def test_init_applies_node_colors_kwarg(tmp_path):
     # node_colors exists on plain Client()/init() too, mirroring from_langgraph.
@@ -295,12 +295,12 @@ def test_init_applies_node_colors_kwarg(tmp_path):
 
 def test_node_descriptions_unknown_id_raises(tmp_path):
     with pytest.raises(WizardFlowError, match="node_descriptions contains unknown"):
-        _new(tmp_path, nodes=["a"], node_descriptions={"typo": "x"})
+        _new(tmp_path, on_error="raise", nodes=["a"], node_descriptions={"typo": "x"})
 
 
 def test_node_descriptions_silent_warns_and_skips_unknown(tmp_path, caplog):
     with caplog.at_level("WARNING", logger="wizardflow"):
-        c = _new(tmp_path, nodes=["a"], silent=True,
+        c = _new(tmp_path, nodes=["a"], on_error="warn",
                  node_descriptions={"a": "ok", "typo": "x"})
     nodes = {n["id"]: n for n in c.to_dict()["graph"]["nodes"]}
     assert nodes["a"]["description"] == "ok"         # known ids still applied
@@ -309,12 +309,12 @@ def test_node_descriptions_silent_warns_and_skips_unknown(tmp_path, caplog):
 
 def test_node_descriptions_without_declared_nodes_raises(tmp_path):
     with pytest.raises(WizardFlowError, match="no nodes are declared"):
-        _new(tmp_path, node_descriptions={"router": "x"})
+        _new(tmp_path, on_error="raise", node_descriptions={"router": "x"})
 
 
 def test_node_descriptions_without_nodes_silent_warns_and_ignores(tmp_path, caplog):
     with caplog.at_level("WARNING", logger="wizardflow"):
-        c = _new(tmp_path, silent=True, node_descriptions={"router": "x"})
+        c = _new(tmp_path, on_error="warn", node_descriptions={"router": "x"})
     assert c.to_dict()["graph"]["nodes"] == []
     assert any("no nodes are declared" in r.message for r in caplog.records)
 

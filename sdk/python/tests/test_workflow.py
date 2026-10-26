@@ -92,7 +92,7 @@ def test_set_info_replaces_title_and_merges_meta_and_attributes(tmp_path, monkey
 
 
 def test_set_info_after_exit_is_rejected(tmp_path):
-    trace = _new(tmp_path, nodes=["a"])
+    trace = _new(tmp_path, on_error="raise", nodes=["a"])
     with trace.workflow() as run:
         pass
     with pytest.raises(WizardFlowError, match="outside an active workflow"):
@@ -100,7 +100,7 @@ def test_set_info_after_exit_is_rejected(tmp_path):
 
 
 def test_set_info_after_exit_is_only_logged_when_silent(tmp_path, caplog):
-    trace = _new(tmp_path, nodes=["a"], silent=True)
+    trace = _new(tmp_path, nodes=["a"], on_error="warn")
     with trace.workflow() as run:
         pass
     run.set_info(title="late")
@@ -380,7 +380,7 @@ def test_init_and_reinit_attributes_feed_root_attributes(tmp_path, monkeypatch):
     ],
 )
 def test_invalid_otel_attributes_are_rejected(tmp_path, attributes, message):
-    trace = _new(tmp_path, nodes=["a"])
+    trace = _new(tmp_path, on_error="raise", nodes=["a"])
     trace.log("m1", "a", "x", 1)
     with pytest.raises(WizardFlowError, match=message):
         trace.end_message("m1", otel_attributes=attributes)
@@ -388,12 +388,12 @@ def test_invalid_otel_attributes_are_rejected(tmp_path, attributes, message):
         with trace.workflow() as run:
             run.set_info(otel_attributes=attributes)
     with pytest.raises(WizardFlowError, match=message):
-        _new(tmp_path, otel_attributes=attributes)
+        _new(tmp_path, on_error="raise", otel_attributes=attributes)
 
 
 def test_silent_drops_only_invalid_attribute_entries(tmp_path, monkeypatch, caplog):
     bridge = _fake(monkeypatch)
-    trace = _new(tmp_path, nodes=["a"], otel=True, silent=True)
+    trace = _new(tmp_path, nodes=["a"], otel=True, on_error="warn")
     trace.log("m1", "a", "x", 1)
     trace.end_message(
         "m1", otel_attributes={"user.id": "u1", "gen_ai.workflow.name": "x"}

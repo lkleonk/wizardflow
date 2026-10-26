@@ -51,6 +51,27 @@ class Ids:
 
 class Logging:
     LOGGER_NAME = "wizardflow"    # rotation notices logged here
+    # Distinct suppressed-error warnings remembered for warn-once. Past this,
+    # new ones are still logged, just no longer de-duplicated, so a process
+    # that hits many unique ids can't grow the set without bound.
+    WARN_ONCE_MAX = 1_024
+
+
+class Errors:
+    # ``on_error`` modes for runtime usage errors (unknown node, unknown
+    # message, invalid OTel attribute, failed trace write). Startup config
+    # errors raise regardless.
+    RAISE = "raise"
+    WARN = "warn"
+    MODES = (RAISE, WARN)
+    DEFAULT = WARN
+
+
+class Env:
+    # Read only when ``init(enabled=...)`` is not passed; the argument wins.
+    ENABLED = "WIZARDFLOW_ENABLED"
+    TRUE_VALUES = ("1", "true", "yes", "on")
+    FALSE_VALUES = ("0", "false", "no", "off")
 
 
 class Defaults:
