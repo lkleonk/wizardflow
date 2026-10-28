@@ -11,7 +11,7 @@ import atexit
 import contextlib
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from importlib import import_module
 from typing import Any, ContextManager, Dict, Iterable, Mapping, Optional, Tuple
 
@@ -47,9 +47,17 @@ class OTelExportError(RuntimeError):
     """
 
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
 def _nanoseconds(timestamp: str) -> int:
+    # Integer math: `timestamp() * 1e9` goes through a float and turns
+    # 10:00:01.250000 into …01.249999999, a microsecond early.
     parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    return int(parsed.timestamp() * 1_000_000_000)
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()  # naive means local time, as timestamp() assumes
+    delta = parsed - _EPOCH
+    return (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
 
 
 def _error_type(error: BaseException) -> str:
