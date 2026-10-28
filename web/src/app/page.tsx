@@ -61,6 +61,7 @@ import {
 } from "@/hooks/useKeyboardShortcuts";
 import { withUniqueLabels } from "@/utils/payloadLabels";
 import { parseAgentTrace } from "@/utils/agentTraceFile";
+import { useViewerChrome } from "@/utils/viewerContext";
 import {
   isTraceExtension,
   watchTrace,
@@ -178,6 +179,10 @@ export default function Home() {
   // depends on nothing in the trace, so it lives entirely on its own.
   const inspector = useInspectorPanel(disableGraphArrangeMode);
 
+  // Which chrome this context shows: the website's tour and examples, or the
+  // trimmed viewer of `wizardflow ui` / a replay opened from the dashboard.
+  const { chrome } = useViewerChrome();
+
   // The welcome dialog shows until the user makes their first choice this
   // session (then it's remembered), and never while a saved flow is loaded.
   const welcomeDismissed = useSyncExternalStore(
@@ -226,6 +231,7 @@ export default function Home() {
   // other two cover `?example=`, whose trace is now a separate chunk fetched
   // on demand rather than part of the entry bundle.
   const welcomeOpen =
+    chrome.demoGuide &&
     !welcomeDismissed &&
     !savedFlow &&
     !isLoadingUrlTrace &&
@@ -1104,11 +1110,13 @@ export default function Home() {
         }}
       />
 
-      <DemoExplainerToast
-        toast={demoToast}
-        onChange={setDemoToast}
-        onOpenTutorial={() => setTutorialOpen(true)}
-      />
+      {chrome.demoGuide && (
+        <DemoExplainerToast
+          toast={demoToast}
+          onChange={setDemoToast}
+          onOpenTutorial={() => setTutorialOpen(true)}
+        />
+      )}
 
       <LoadNotices
         uploadNoticeOpen={uploadNoticeOpen}
@@ -1180,6 +1188,7 @@ export default function Home() {
             <EmptyCanvas
               onUploadLoad={handleUploadLoad}
               onOpenGallery={() => setGalleryOpen(true)}
+              showExamples={chrome.examples}
             />
           )}
         </Paper>
@@ -1302,7 +1311,7 @@ export default function Home() {
             goToStep(index);
           }}
         />
-        <FooterLinks />
+        {chrome.footer && <FooterLinks />}
       </Paper>
     </Box>
   );

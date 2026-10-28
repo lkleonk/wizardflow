@@ -30,6 +30,7 @@ import TraceUploader, { useTraceFilePicker } from "@/components/TraceUploader";
 import LocalDataDialog from "@/components/LocalDataDialog";
 import type { AgentTraceFile } from "@/types/agenttrace";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
+import { useViewerChrome } from "@/utils/viewerContext";
 
 // Controls that move into the overflow menu on phones.
 const wideOnly = { display: { xs: "none", sm: "inline-flex" } } as const;
@@ -195,6 +196,9 @@ export default function AppHeader({
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [localDataOpen, setLocalDataOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuAnchor(null), []);
+  // What this context shows (website / `wizardflow ui` / from the dashboard).
+  const { chrome } = useViewerChrome();
+  const hasGuideItems = chrome.examples || chrome.upload || chrome.tutorial;
   // The menu's Upload row drives its own file input, since the header's
   // TraceUploader button is display:none at the width the menu appears at.
   const { input: traceFileInput, pick: pickTraceFile } =
@@ -313,27 +317,31 @@ export default function AppHeader({
           flexShrink: 0,
         }}
       >
-        <Button
-          size="small"
-          variant="outlined"
-          startIcon={<GridViewOutlinedIcon />}
-          onClick={onOpenGallery}
-          sx={wideOnly}
-        >
-          Examples
-        </Button>
-        <TraceUploader onLoad={onUploadLoad} sx={wideOnly} />
+        {chrome.examples && (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<GridViewOutlinedIcon />}
+            onClick={onOpenGallery}
+            sx={wideOnly}
+          >
+            Examples
+          </Button>
+        )}
+        {chrome.upload && <TraceUploader onLoad={onUploadLoad} sx={wideOnly} />}
         {/* Labeled and framed like its neighbours — a tooltip-only icon would
             be undiscoverable for something you reach for once. */}
-        <Button
-          size="small"
-          variant="outlined"
-          startIcon={<MenuBookOutlinedIcon />}
-          onClick={onOpenTutorial}
-          sx={wideOnly}
-        >
-          Tutorial
-        </Button>
+        {chrome.tutorial && (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<MenuBookOutlinedIcon />}
+            onClick={onOpenTutorial}
+            sx={wideOnly}
+          >
+            Tutorial
+          </Button>
+        )}
         <Tooltip title="Search trace (Ctrl+K)">
           {/* span so the Tooltip still anchors while the button is disabled */}
           <span>
@@ -397,63 +405,75 @@ export default function AppHeader({
           anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
           transformOrigin={{ vertical: "top", horizontal: "right" }}
         >
-          <MenuItem
-            onClick={() => {
-              closeMenu();
-              onOpenGallery();
-            }}
-          >
-            <ListItemIcon>
-              <GridViewOutlinedIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Examples</ListItemText>
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              // Close first: the menu restores focus when it unmounts, which
-              // would fight the file dialog if that opened first.
-              closeMenu();
-              pickTraceFile();
-            }}
-          >
-            <ListItemIcon>
-              <UploadFileIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Upload trace</ListItemText>
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              closeMenu();
-              onOpenTutorial();
-            }}
-          >
-            <ListItemIcon>
-              <MenuBookOutlinedIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Tutorial</ListItemText>
-          </MenuItem>
-          <Divider />
-          <MenuItem
-            component="a"
-            href={isHostedWizardFlow ? "/why-wizardflow" : "/why-wizardflow.html"}
-            onClick={closeMenu}
-          >
-            <ListItemIcon>
-              <HelpCenterOutlinedIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Why WizardFlow?</ListItemText>
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              closeMenu();
-              setLocalDataOpen(true);
-            }}
-          >
-            <ListItemIcon>
-              <LockOutlinedIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Data stays local</ListItemText>
-          </MenuItem>
+          {/* MUI's Menu wants direct children, not fragments, so each optional
+              row is its own conditional. */}
+          {chrome.examples && (
+            <MenuItem
+              onClick={() => {
+                closeMenu();
+                onOpenGallery();
+              }}
+            >
+              <ListItemIcon>
+                <GridViewOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Examples</ListItemText>
+            </MenuItem>
+          )}
+          {chrome.upload && (
+            <MenuItem
+              onClick={() => {
+                // Close first: the menu restores focus when it unmounts, which
+                // would fight the file dialog if that opened first.
+                closeMenu();
+                pickTraceFile();
+              }}
+            >
+              <ListItemIcon>
+                <UploadFileIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Upload trace</ListItemText>
+            </MenuItem>
+          )}
+          {chrome.tutorial && (
+            <MenuItem
+              onClick={() => {
+                closeMenu();
+                onOpenTutorial();
+              }}
+            >
+              <ListItemIcon>
+                <MenuBookOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Tutorial</ListItemText>
+            </MenuItem>
+          )}
+          {hasGuideItems && <Divider />}
+          {chrome.whyWizardFlow && (
+            <MenuItem
+              component="a"
+              href={isHostedWizardFlow ? "/why-wizardflow" : "/why-wizardflow.html"}
+              onClick={closeMenu}
+            >
+              <ListItemIcon>
+                <HelpCenterOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Why WizardFlow?</ListItemText>
+            </MenuItem>
+          )}
+          {chrome.localDataPromise && (
+            <MenuItem
+              onClick={() => {
+                closeMenu();
+                setLocalDataOpen(true);
+              }}
+            >
+              <ListItemIcon>
+                <LockOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Data stays local</ListItemText>
+            </MenuItem>
+          )}
           <MenuItem
             component="a"
             href="https://github.com/lkleonk/wizardflow"
@@ -485,10 +505,12 @@ export default function AppHeader({
             </ListItemText>
           </MenuItem>
         </Menu>
-        <LocalDataDialog
-          open={localDataOpen}
-          onClose={() => setLocalDataOpen(false)}
-        />
+        {chrome.localDataPromise && (
+          <LocalDataDialog
+            open={localDataOpen}
+            onClose={() => setLocalDataOpen(false)}
+          />
+        )}
       </Box>
     </Box>
   );

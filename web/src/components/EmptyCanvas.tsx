@@ -9,6 +9,8 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 type EmptyCanvasProps = {
   onUploadLoad: (trace: AgentTraceFile) => void;
   onOpenGallery: () => void;
+  /** The bundled examples are a website thing; locally only upload remains. */
+  showExamples: boolean;
 };
 
 // What fills the graph pane when no flow is loaded: the same two ways in as
@@ -16,6 +18,7 @@ type EmptyCanvasProps = {
 export default function EmptyCanvas({
   onUploadLoad,
   onOpenGallery,
+  showExamples,
 }: EmptyCanvasProps) {
   return (
     <TraceDropTarget
@@ -38,8 +41,9 @@ export default function EmptyCanvas({
         No flow loaded
       </Typography>
       <Typography color="text.secondary" sx={{ maxWidth: 360 }}>
-        Pick a bundled example or upload your own agent trace
-        (.jsonl or .json) to start replaying it.
+        {showExamples
+          ? "Pick a bundled example or upload your own agent trace (.jsonl or .json) to start replaying it."
+          : "Upload an agent trace (.jsonl or .json) or drop it here to start replaying it."}
       </Typography>
       <Box
         sx={{
@@ -51,14 +55,16 @@ export default function EmptyCanvas({
           maxWidth: 360,
         }}
       >
-        <Button
-          variant="contained"
-          startIcon={<GridViewOutlinedIcon />}
-          onClick={onOpenGallery}
-          sx={{ width: { xs: "100%", sm: "auto" } }}
-        >
-          Browse examples
-        </Button>
+        {showExamples && (
+          <Button
+            variant="contained"
+            startIcon={<GridViewOutlinedIcon />}
+            onClick={onOpenGallery}
+            sx={{ width: { xs: "100%", sm: "auto" } }}
+          >
+            Browse examples
+          </Button>
+        )}
         <TraceUploader
           onLoad={onUploadLoad}
           sx={{ width: { xs: "100%", sm: "auto" } }}

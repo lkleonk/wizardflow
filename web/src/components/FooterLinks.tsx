@@ -2,13 +2,15 @@ import { Fragment, useState } from "react";
 import Box from "@mui/material/Box";
 import LocalDataDialog from "@/components/LocalDataDialog";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
+import { useViewerChrome } from "@/utils/viewerContext";
 
-const footerLinks = [
-  {
-    href: isHostedWizardFlow ? "/why-wizardflow" : "/why-wizardflow.html",
-    label: "Why WizardFlow?",
-    external: false,
-  },
+const whyLink = {
+  href: isHostedWizardFlow ? "/why-wizardflow" : "/why-wizardflow.html",
+  label: "Why WizardFlow?",
+  external: false,
+} as const;
+
+const otherLinks = [
   ...(isHostedWizardFlow
     ? [
         { href: "/impressum", label: "Impressum", external: false },
@@ -52,6 +54,10 @@ function Separator() {
 
 export default function FooterLinks() {
   const [localDataOpen, setLocalDataOpen] = useState(false);
+  const { chrome } = useViewerChrome();
+  const footerLinks = chrome.whyWizardFlow
+    ? [whyLink, ...otherLinks]
+    : otherLinks;
 
   return (
     <>
@@ -96,24 +102,29 @@ export default function FooterLinks() {
           lineHeight: 1.4,
         }}
       >
-        {/* Persistent home of the privacy message: always visible, so the
-            reassurance is one click away at the moment someone hesitates
-            over the Upload button. */}
-        <Box
-          component="button"
-          type="button"
-          onClick={() => setLocalDataOpen(true)}
-          sx={linkButtonSx}
-        >
-          Data stays local
-        </Box>
-        <LocalDataDialog
-          open={localDataOpen}
-          onClose={() => setLocalDataOpen(false)}
-        />
-        {footerLinks.map((link) => (
+        {/* Persistent home of the privacy message on the website: always
+            visible, so the reassurance is one click away at the moment someone
+            hesitates over the Upload button. Locally it's your own machine, so
+            there is nothing to promise. */}
+        {chrome.localDataPromise && (
+          <>
+            <Box
+              component="button"
+              type="button"
+              onClick={() => setLocalDataOpen(true)}
+              sx={linkButtonSx}
+            >
+              Data stays local
+            </Box>
+            <LocalDataDialog
+              open={localDataOpen}
+              onClose={() => setLocalDataOpen(false)}
+            />
+          </>
+        )}
+        {footerLinks.map((link, i) => (
           <Fragment key={link.href}>
-            <Separator />
+            {(chrome.localDataPromise || i > 0) && <Separator />}
             <Box
               component="a"
               href={link.href}
