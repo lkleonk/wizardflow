@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
-from .store import open_store
+from .store import open_store, projection
 from .store import queries
 
 API_PREFIX = "/api/"
@@ -90,8 +90,16 @@ def _route(
             cursor=one("cursor"),
             limit=_int(one("limit"), "limit") or queries.DEFAULT_PAGE,
         )
-    if rest.startswith("traces/") and rest.count("/") == 1:
-        return queries.get_trace(con, one("project") or "", rest.split("/", 1)[1])
+    segments = rest.split("/")
+    if len(segments) == 2 and segments[0] == "traces":
+        return queries.get_trace(con, one("project") or "", segments[1])
+    # Replay: an AgentTraceFile the existing viewer loads via ?trace=<this URL>.
+    if len(segments) == 3 and segments[0] == "traces" and segments[2] == "agenttrace":
+        return projection.project_trace(con, one("project") or "", segments[1])
+    if rest == "conversations":
+        return projection.list_conversations(con, one("project") or "")
+    if len(segments) == 3 and segments[0] == "conversations" and segments[2] == "agenttrace":
+        return projection.project_conversation(con, one("project") or "", segments[1])
     if rest == "logs":
         return queries.list_logs(
             con,

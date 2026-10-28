@@ -199,8 +199,8 @@ INSERT INTO attribute_mappings (project_id, concept, keys, updated_ns) VALUES
   (NULL, 'model',         '["gen_ai.request.model","llm.model_name"]', 0),
   (NULL, 'input_tokens',  '["gen_ai.usage.input_tokens","wizardflow.usage.input_tokens"]', 0),
   (NULL, 'output_tokens', '["gen_ai.usage.output_tokens","wizardflow.usage.output_tokens"]', 0),
-  (NULL, 'input',         '["gen_ai.input.messages","input.value"]', 0),
-  (NULL, 'output',        '["gen_ai.output.messages","output.value"]', 0),
+  (NULL, 'input',         '["gen_ai.input.messages","gen_ai.tool.call.arguments","gen_ai.retrieval.query.text","wizardflow.input","input.value"]', 0),
+  (NULL, 'output',        '["gen_ai.output.messages","gen_ai.tool.call.result","gen_ai.retrieval.documents","wizardflow.output","output.value"]', 0),
   (NULL, 'payloads',      '["wizardflow.payload.*"]', 0);
 """
 
