@@ -126,7 +126,31 @@ trace.close_otel()
 `close_otel()` is idempotent. It ends any active WizardFlow roots, flushes and
 shuts down only a WizardFlow-owned private provider, and leaves JSONL recording
 completely unaffected. After closing, `trace.reinit(otel=True)` can create a
-fresh private provider and trace.
+fresh private provider and trace. If you never call it, WizardFlow closes the
+bridge at process exit.
+
+## Failures
+
+OTel output is an optional projection of the recording, so, following the
+OpenTelemetry error-handling rules, it never raises into your application at
+run time:
+
+- A failure in the OTel bridge or SDK while starting or ending nodes,
+  workflows, or runs, or during `reinit()`, is logged as a warning on the
+  `wizardflow` logger and recording continues. This holds whatever `on_error`
+  is set to, because it isn't a mistake in your code. In particular it never
+  replaces an exception your code raises inside `with trace.node(...)`.
+- A flush that doesn't complete in `close_otel()` or at process exit is
+  logged as a warning ("some spans may not have been exported"); the provider
+  is still shut down.
+- Invalid `otel_attributes` or `otel_attribute` values only drop the OTel
+  part. The message or payload is still written to JSONL, and the error is
+  then warned about or raised per `on_error`.
+
+Startup is the exception: missing OTel packages raise
+`OTelConfigurationError` from `init()`. The offline `wizardflow otel export`
+command raises `OTelExportError` when its final flush fails, so a CLI run can't
+report success for an incomplete export.
 
 ## Trace scope, shape, and timestamps
 
@@ -256,7 +280,8 @@ trace.end_message(message_id, otel_attributes={"session.id": chat_id})
   `wizardflow.message.metadata`, plus the node identity keys.
 - Values must be `str`, `bool`, `int`, `float`, or a non-empty list of one of
   those types. Invalid entries are dropped with a warning, or raise with
-  `on_error="raise"`.
+  `on_error="raise"`. Either way the valid entries are kept and the message
+  is still written to JSONL first.
 - They are identifiers the application chose, so they are exported even with
   `otel_include_content=False`.
 - They are OTel-only: JSONL never stores them, and the offline exporter cannot

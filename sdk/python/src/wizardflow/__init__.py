@@ -36,7 +36,7 @@ from .client import (
     WorkflowRun,
 )
 from .constants import Defaults, Logging, Output, Rotation
-from .otel import DEFAULT_OTEL_TRACE_SCOPE, OTelConfigurationError
+from .otel import DEFAULT_OTEL_TRACE_SCOPE, OTelConfigurationError, OTelExportError
 from .otel_mapping import DEFAULT_CONTENT_MAX_BYTES
 
 # Library convention: attach a NullHandler so we emit nothing unless the host
@@ -65,6 +65,7 @@ __all__ = [
     "UnknownNodeError",
     "LangGraphExtractionError",
     "OTelConfigurationError",
+    "OTelExportError",
 ]
 
 _default: Optional[Client] = None

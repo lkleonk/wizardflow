@@ -475,9 +475,10 @@ def test_close_flushes_private_provider_only_and_is_idempotent():
     global_bridge.close("2026-09-15T10:00:01.000Z")
 
 
-def test_close_reports_private_provider_flush_failure():
+def test_close_reports_private_provider_flush_failure(caplog):
     provider = SimpleNamespace(force_flush=lambda: False, shutdown=lambda: None)
     bridge = OTelBridge(Tracer(), provider=provider)
     bridge.start_run("2026-09-15T10:00:00.000Z", None, [], [])
-    with pytest.raises(OTelConfigurationError, match="did not flush"):
-        bridge.close("2026-09-15T10:00:01.000Z")
+    with caplog.at_level("WARNING", logger="wizardflow"):
+        assert bridge.close("2026-09-15T10:00:01.000Z") is False
+    assert "did not flush" in caplog.text

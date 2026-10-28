@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional
 
-from .otel import DEFAULT_OTEL_TRACE_SCOPE, OTEL_TRACE_SCOPES, create_otel_bridge
+from .otel import (
+    DEFAULT_OTEL_TRACE_SCOPE,
+    OTEL_TRACE_SCOPES,
+    OTelExportError,
+    create_otel_bridge,
+)
 from .otel_mapping import (
     DEFAULT_CONTENT_MAX_BYTES,
     DEFAULT_GRAPH_MAX_BYTES,
@@ -121,8 +126,15 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
                 title=message.get("label"),
                 meta=message.get("meta"),
             )
-    finally:
+    except BaseException:
+        # Close (and flush what we have) without letting a flush failure
+        # replace the error that actually stopped the export.
         bridge.close(end)
+        raise
+    if bridge.close(end) is False:
+        raise OTelExportError(
+            "OpenTelemetry provider did not flush all spans; the export may be incomplete"
+        )
     trace_count = len(messages) if options.trace_scope == "workflow" else 1
     return ExportSummary(
         len(unit.parts), len(messages), span_count, trace_count, unit.sealed

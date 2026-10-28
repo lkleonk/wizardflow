@@ -27,7 +27,7 @@ import threading
 import uuid
 import warnings
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Literal, Mapping, Optional, Tuple, Union
 
 from .constants import (
     Defaults,
@@ -677,12 +677,44 @@ class Client:
         self, attributes: Optional[Mapping[str, Any]]
     ) -> Dict[str, Any]:
         """Validate ``otel_attributes``; invalid entries raise or are dropped."""
-        if attributes is None:
-            return {}
-        valid, errors = split_otel_attributes(attributes)
-        for error in errors:
-            self._fail(WizardFlowError(error))
+        valid, problems = self._split_otel_attributes(attributes)
+        self._report(problems)
         return valid
+
+    @staticmethod
+    def _split_otel_attributes(
+        attributes: Optional[Mapping[str, Any]],
+    ) -> Tuple[Dict[str, Any], List[WizardFlowError]]:
+        """Valid entries plus one error per rejected entry, reported later.
+
+        Callers that persist JSONL report the errors only *after* writing, so
+        a bad OTel-only value never costs the durable record.
+        """
+        if attributes is None:
+            return {}, []
+        valid, errors = split_otel_attributes(attributes)
+        return valid, [WizardFlowError(error) for error in errors]
+
+    def _report(self, problems: Iterable[Exception]) -> None:
+        for problem in problems:
+            self._fail(problem)
+
+    def _otel_safe(self, action: str, call: Callable[[], Any]) -> None:
+        """Run one OTel bridge call; a failure there is logged, never raised.
+
+        OTel is an optional projection of the recording. Its failures (an SDK
+        or bridge bug, a span in an unexpected state) are not the caller's
+        mistake, so ``on_error`` doesn't apply: raising would at best break the
+        app and at worst replace its own exception in ``NodeHandle.__exit__``.
+        """
+        try:
+            call()
+        except Exception:  # noqa: BLE001 - OTel is optional
+            logger.warning(
+                "OTel export failed while %s; JSONL is unaffected",
+                action,
+                exc_info=True,
+            )
 
     # --- recording --------------------------------------------------------
 
@@ -724,29 +756,28 @@ class Client:
         """
         if not self._enabled:
             return
-        if otel_attribute is not None:
-            if not self._otel_attribute_ok(otel_attribute):
-                return
-            if label is None:
-                self._fail(WizardFlowError("otel_attribute requires a payload label"))
-                return
+        problem = self._otel_attribute_problem(otel_attribute)
+        if problem is None and otel_attribute is not None and label is None:
+            problem = WizardFlowError("otel_attribute requires a payload label")
         self._record(
             id,
             node,
             label,
             content,
-            otel_attribute=otel_attribute,
+            otel_attribute=None if problem is not None else otel_attribute,
             export_to_jsonl=export_to_jsonl,
             export_to_otel=export_to_otel,
         )
+        if problem is not None:
+            self._fail(problem, outcome="OTel key dropped, payload kept")
 
-    def _otel_attribute_ok(self, otel_attribute: Any) -> bool:
-        """Validate an exact per-record OTel key; raise or warn per ``on_error``."""
+    @staticmethod
+    def _otel_attribute_problem(otel_attribute: Any) -> Optional[WizardFlowError]:
+        """Why an exact per-record OTel key is invalid, or ``None``."""
+        if otel_attribute is None:
+            return None
         error = custom_otel_attribute_error(otel_attribute)
-        if error is not None:
-            self._fail(WizardFlowError(error))
-            return False
-        return True
+        return WizardFlowError(error) if error is not None else None
 
     def _record(
         self,
@@ -789,26 +820,33 @@ class Client:
                     export_to_jsonl=export_to_jsonl,
                     export_to_otel=export_to_otel,
                 )
-                if self._otel is not None:
-                    for closed_node, end_timestamp, closed_step in closed:
-                        self._otel.end_node(
-                            id,
-                            closed_node,
-                            closed_step.get("kind", "generic"),
-                            end_timestamp,
-                            closed_step["payloads"],
-                            msg.meta,
-                        )
-                    if started:
-                        self._otel.start_node(
-                            id,
-                            node,
-                            active["step"].get("kind", "generic"),
-                            active["step"]["timestamp"],
-                            self._otel_name,
-                        )
             except Exception as exc:  # pragma: no cover - defensive
                 self._fail(exc)
+                return
+            bridge = self._otel
+            if bridge is None:
+                return
+
+            def project() -> None:
+                for closed_node, end_timestamp, closed_step in closed:
+                    bridge.end_node(
+                        id,
+                        closed_node,
+                        closed_step.get("kind", "generic"),
+                        end_timestamp,
+                        closed_step["payloads"],
+                        msg.meta,
+                    )
+                if started:
+                    bridge.start_node(
+                        id,
+                        node,
+                        active["step"].get("kind", "generic"),
+                        active["step"]["timestamp"],
+                        self._otel_name,
+                    )
+
+            self._otel_safe(f"logging node {node!r} of message {id!r}", project)
 
     def log_input(
         self,
@@ -867,18 +905,19 @@ class Client:
     ) -> None:
         if not self._enabled:
             return
-        if otel_attribute is not None and not self._otel_attribute_ok(otel_attribute):
-            return
+        problem = self._otel_attribute_problem(otel_attribute)
         self._record(
             id,
             node,
             semantic_type,
             value,
             semantic_type=semantic_type,
-            otel_attribute=otel_attribute,
+            otel_attribute=None if problem is not None else otel_attribute,
             export_to_jsonl=export_to_jsonl,
             export_to_otel=export_to_otel,
         )
+        if problem is not None:
+            self._fail(problem, outcome="OTel key dropped, payload kept")
 
     def log_usage(
         self,
@@ -982,8 +1021,12 @@ class Client:
                     id,
                 )
             elif self._otel is not None:
-                self._otel.start_node(
-                    id, node, resolved_kind, timestamp, self._otel_name
+                bridge = self._otel
+                self._otel_safe(
+                    f"starting node {node!r} of message {id!r}",
+                    lambda: bridge.start_node(
+                        id, node, resolved_kind, timestamp, self._otel_name
+                    ),
                 )
 
     def node(
@@ -1060,14 +1103,20 @@ class Client:
                     id,
                 )
             elif self._otel is not None:
-                self._otel.end_node(
-                    id,
-                    node,
-                    step.get("kind", "generic"),
-                    timestamp,
-                    step["payloads"],
-                    msg.meta,
-                    error=error,
+                # Runs inside NodeHandle.__exit__: a failure here must never
+                # replace the exception the node body is raising.
+                bridge, ended = self._otel, step
+                self._otel_safe(
+                    f"ending node {node!r} of message {id!r}",
+                    lambda: bridge.end_node(
+                        id,
+                        node,
+                        ended.get("kind", "generic"),
+                        timestamp,
+                        ended["payloads"],
+                        msg.meta,
+                        error=error,
+                    ),
                 )
 
     def end_message(
@@ -1096,8 +1145,10 @@ class Client:
         """
         if not self._enabled:
             return None
-        attributes = self._valid_otel_attributes(otel_attributes)
-        return self._finish_message(id, title, meta, attributes, None)
+        attributes, problems = self._split_otel_attributes(otel_attributes)
+        path = self._finish_message(id, title, meta, attributes, None)
+        self._report(problems)
+        return path
 
     def _finish_message(
         self,
@@ -1223,22 +1274,25 @@ class Client:
                     "reinitialized JSONL; next trace file is %s",
                     os.path.basename(self._active_path),
                 )
+            problems: List[WizardFlowError] = []
             if otel and self._otel_configured:
                 if name is not None:
                     self._otel_name = name
                 if otel_attributes is not None:
-                    self._otel_root_attributes = self._valid_otel_attributes(
-                        otel_attributes
+                    self._otel_root_attributes, problems = (
+                        self._split_otel_attributes(otel_attributes)
                     )
-                    if self._otel is not None:
-                        self._otel.set_root_attributes(self._otel_root_attributes)
                 timestamp = _now_iso()
-                if self._otel is None:
-                    self._otel = self._create_otel_bridge()
-                    self._otel.start_run(
-                        timestamp, self._otel_name, self._nodes, self._edges
-                    )
-                else:
+
+                def restart() -> None:
+                    if self._otel is None:
+                        self._otel = self._create_otel_bridge()
+                        self._otel.start_run(
+                            timestamp, self._otel_name, self._nodes, self._edges
+                        )
+                        return
+                    if otel_attributes is not None:
+                        self._otel.set_root_attributes(self._otel_root_attributes)
                     self._otel.reinit_run(
                         timestamp,
                         timestamp,
@@ -1246,16 +1300,25 @@ class Client:
                         self._nodes,
                         self._edges,
                     )
-            return self._active_path
+
+                # reinit() runs mid-process (a new session, a new day), so the
+                # startup fail-fast allowance doesn't cover it.
+                self._otel_safe("reinitializing the OTel trace", restart)
+            path = self._active_path
+        self._report(problems)
+        return path
 
     def close_otel(self) -> None:
-        """End and flush only WizardFlow's OTel output; JSONL is unaffected."""
+        """End and flush only WizardFlow's OTel output; JSONL is unaffected.
+
+        A flush that doesn't complete is logged as a warning, never raised.
+        """
         with self._lock:
             bridge = self._otel
             if bridge is None:
                 return
             self._otel = None
-            bridge.close(_now_iso())
+            self._otel_safe("closing the OTel trace", lambda: bridge.close(_now_iso()))
 
     def _fail(self, exc: Exception, *, outcome: str = "ignored") -> None:
         """Raise ``exc`` under ``on_error="raise"``; otherwise warn once.

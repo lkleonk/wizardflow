@@ -40,6 +40,13 @@ class OTelConfigurationError(RuntimeError):
     """Raised when optional OpenTelemetry packages are unavailable."""
 
 
+class OTelExportError(RuntimeError):
+    """Raised by the offline exporter when spans could not be flushed.
+
+    Live recording never raises this: there a failed flush is only logged.
+    """
+
+
 def _nanoseconds(timestamp: str) -> int:
     parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
     return int(parsed.timestamp() * 1_000_000_000)
@@ -96,7 +103,10 @@ class OTelBridge:
         self._closed = False
         # Ending a WizardFlow-owned run span is safe in global-provider mode;
         # ``close`` only shuts down the provider when it is our private one.
-        atexit.register(self.close)
+        # An explicit close() unregisters this, so a closed bridge isn't kept
+        # alive by the atexit list until the process ends.
+        self._at_exit = False
+        atexit.register(self._close_at_exit)
 
     def set_root_attributes(self, attributes: Mapping[str, Any]) -> None:
         """Replace the attributes applied to roots started from now on."""
@@ -339,32 +349,62 @@ class OTelBridge:
         if span is not None:
             span.end(end_time=_nanoseconds(timestamp))
 
-    def close(self, timestamp: Optional[str] = None) -> None:
-        """End the run and open workflows; shut down only a WizardFlow-owned provider."""
+    def _close_at_exit(self) -> None:
+        # Never unregister from inside the atexit run itself.
+        self._at_exit = True
+        self.close()
+
+    def close(self, timestamp: Optional[str] = None) -> bool:
+        """End the run and open workflows; shut down only a WizardFlow-owned provider.
+
+        Never raises: like the OTel SDK's own ForceFlush/Shutdown, it only
+        reports. Returns ``False`` (after logging a warning) when spans may
+        not have been exported, else ``True``.
+        """
         with self._lock:
             if self._closed:
-                return
+                return True
             self._closed = True
+            if not self._at_exit:
+                atexit.unregister(self._close_at_exit)
             if timestamp is None:
                 timestamp = datetime.now().astimezone().isoformat()
-            self._end_run(timestamp)
+            ok = self._quietly("ending the run span", lambda: self._end_run(timestamp))
             # Unfinished workflows end as incomplete with UNSET status: no
             # failure was observed, the execution simply never ended.
             for span, _context in self._workflow_roots.values():
-                span.end(end_time=_nanoseconds(timestamp))
+                ok &= self._quietly(
+                    "ending an unfinished workflow span",
+                    lambda span=span: span.end(end_time=_nanoseconds(timestamp)),
+                )
             self._workflow_roots.clear()
-            if self._provider is not None:
-                force_flush = getattr(self._provider, "force_flush", None)
-                flush_failed = False
-                if callable(force_flush):
-                    flush_failed = force_flush() is False
-                shutdown = getattr(self._provider, "shutdown", None)
-                if callable(shutdown):
-                    shutdown()
-                if flush_failed:
-                    raise OTelConfigurationError(
-                        "OpenTelemetry provider did not flush all spans"
-                    )
+            if self._provider is None:
+                return ok
+            # Shutdown must run even when the flush itself raises.
+            flushed = self._quietly("flushing spans", self._force_flush)
+            ok &= self._quietly(
+                "shutting down the OTel provider",
+                getattr(self._provider, "shutdown", None) or (lambda: None),
+            )
+            return ok and flushed
+
+    def _force_flush(self) -> None:
+        force_flush = getattr(self._provider, "force_flush", None)
+        if callable(force_flush) and force_flush() is False:
+            raise OTelExportError("OpenTelemetry provider did not flush all spans")
+
+    @staticmethod
+    def _quietly(action: str, call: Any) -> bool:
+        try:
+            call()
+        except Exception:  # noqa: BLE001 - closing must never raise
+            logger.warning(
+                "OTel close: failed while %s; some spans may not have been exported",
+                action,
+                exc_info=True,
+            )
+            return False
+        return True
 
 
 def create_otel_bridge(
@@ -430,6 +470,7 @@ __all__ = [
     "DEFAULT_OTEL_TRACE_SCOPE",
     "OTelBridge",
     "OTelConfigurationError",
+    "OTelExportError",
     "OTEL_INSTALL",
     "OTEL_TRACE_SCOPES",
     "create_otel_bridge",
