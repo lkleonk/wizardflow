@@ -17,6 +17,15 @@ from urllib.parse import unquote, urlencode, urlsplit
 from .html import render_html
 from .markdown import render_markdown
 from .reader import TraceFormatError, load_trace_chain, load_trace_file
+from .store import (
+    ImportResult,
+    OtlpFormatError,
+    StoreError,
+    default_db_path,
+    import_otlp_file,
+    open_store,
+)
+from .store.otlp import is_otlp_request
 
 # The bundled static UI fetches the assembled trace as plain JSON; the CLI does
 # the JSONL assembly server-side, so the UI build never needs to know about
@@ -76,6 +85,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 graph_max_bytes=args.graph_max_bytes,
                 current_part_only=args.current_part_only,
             )
+        if args.command == "serve":
+            return run_serve(
+                db=args.db,
+                host=args.host,
+                port=args.port,
+                open_browser=not args.no_open,
+            )
+        if args.command == "db" and args.db_command == "import":
+            return run_db_import(files=args.files, db=args.db, project=args.project)
+        if args.command == "db" and args.db_command == "info":
+            return run_db_info(db=args.db)
+        if args.command == "db" and args.db_command == "migrate":
+            return run_db_migrate(db=args.db)
     except WizardFlowCliError as exc:
         parser.exit(1 if args.command == "otel" else 2, f"wizardflow: error: {exc}\n")
 
@@ -100,6 +122,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "examples:\n"
             "  wizardflow ui                     open the newest trace in this directory\n"
             "  wizardflow ui run.jsonl           open a specific trace\n"
+            "  wizardflow serve                  OTel dashboard over the local database\n"
             "  wizardflow md run.jsonl -o run.md render a trace to Markdown"
         ),
     )
@@ -245,6 +268,42 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Export only the named part instead of discovering its rotation chain.",
     )
+
+    # Shared by every command that uses the local OTel database.
+    db_option = argparse.ArgumentParser(add_help=False)
+    db_option.add_argument(
+        "--db",
+        help="WizardFlow database file (default: ./.wizardflow/wizardflow.db).",
+    )
+
+    serve = subparsers.add_parser(
+        "serve",
+        parents=[db_option],
+        help="Open the OTel dashboard over the local WizardFlow database.",
+    )
+    serve.add_argument("--host", default="127.0.0.1", help="Host interface to bind.")
+    serve.add_argument(
+        "--port", type=int, default=0, help="Port to bind (default: a free port)."
+    )
+    serve.add_argument(
+        "--no-open", action="store_true", help="Print the URL without opening a browser."
+    )
+
+    db = subparsers.add_parser("db", help="Manage the local OTel database.")
+    db_commands = db.add_subparsers(dest="db_command", required=True)
+    db_import = db_commands.add_parser(
+        "import", parents=[db_option], help="Import OTLP JSON files (OTel Collector format)."
+    )
+    db_import.add_argument("files", nargs="+", help="OTLP JSON file(s).")
+    db_import.add_argument(
+        "--project", help="Put everything into this project instead of the resource's."
+    )
+    db_commands.add_parser(
+        "info", parents=[db_option], help="Show schema version, size and contents."
+    )
+    db_commands.add_parser(
+        "migrate", parents=[db_option], help="Upgrade the database schema (also automatic)."
+    )
     return parser
 
 
@@ -315,6 +374,150 @@ def _resolve_otel_endpoint(explicit: Optional[str]) -> str:
     )
 
 
+def run_serve(
+    *,
+    db: Optional[str],
+    host: str,
+    port: int,
+    open_browser: bool,
+    project: Optional[str] = None,
+) -> int:
+    from .serve import run_serve as serve_dashboard
+
+    db_path = _db_path(db)
+    try:
+        return serve_dashboard(
+            db_path=db_path,
+            ui_dir=_resolve_ui_dir(),
+            host=host,
+            port=port,
+            open_browser=open_browser,
+            version=_package_version(),
+            project=project,
+        )
+    except StoreError as exc:
+        raise WizardFlowCliError(str(exc)) from exc
+
+
+def run_db_import(*, files: Sequence[str], db: Optional[str], project: Optional[str]) -> int:
+    db_path = _db_path(db)
+    paths = []
+    for name in files:
+        file_path = Path(name).expanduser()
+        if not file_path.is_file():
+            raise WizardFlowCliError(f"file does not exist: {file_path}")
+        paths.append(file_path)
+    _import_into(db_path, paths, project=project)
+    print(f"Open the dashboard: wizardflow serve{'' if db is None else f' --db {db}'}")
+    return 0
+
+
+def run_db_info(*, db: Optional[str]) -> int:
+    db_path = _db_path(db)
+    try:
+        con = open_store(db_path, create=False)
+    except StoreError as exc:
+        raise WizardFlowCliError(str(exc)) from exc
+    try:
+        version = con.execute("PRAGMA user_version").fetchone()[0]
+        imports = con.execute("SELECT count(*) FROM imports").fetchone()[0]
+        rows = con.execute(
+            "SELECT p.name, "
+            "(SELECT count(*) FROM traces t WHERE t.project_id = p.id), "
+            "(SELECT coalesce(sum(t.span_count), 0) FROM traces t WHERE t.project_id = p.id), "
+            "(SELECT count(*) FROM logs l WHERE l.project_id = p.id) "
+            "FROM projects p ORDER BY p.name"
+        ).fetchall()
+    finally:
+        con.close()
+    size = sum(
+        f.stat().st_size
+        for f in db_path.parent.glob(db_path.name + "*")
+        if f.is_file() and not f.name.endswith(".bak")
+    )
+    print(f"Database: {db_path}")
+    print(f"Schema: v{version} · {size / 1_000_000:.1f} MB · {_count(imports, 'import')}")
+    if not rows:
+        print("No data yet. Import some: wizardflow db import FILE")
+    for name, traces, spans, logs in rows:
+        print(f"  {name}: {_count(traces, 'trace')}, {_count(spans, 'span')}, {_count(logs, 'log')}")
+    return 0
+
+
+def run_db_migrate(*, db: Optional[str]) -> int:
+    db_path = _db_path(db)
+    try:
+        con = open_store(db_path, create=False)  # migrating is part of opening
+    except StoreError as exc:
+        raise WizardFlowCliError(str(exc)) from exc
+    version = con.execute("PRAGMA user_version").fetchone()[0]
+    con.close()
+    print(f"{db_path}: schema v{version}, up to date")
+    return 0
+
+
+def _db_path(db: Optional[str]) -> Path:
+    return Path(db).expanduser().resolve() if db else default_db_path()
+
+
+def _import_into(
+    db_path: Path, paths: Sequence[Path], *, project: Optional[str]
+) -> "list[ImportResult]":
+    try:
+        con = open_store(db_path)
+    except StoreError as exc:
+        raise WizardFlowCliError(str(exc)) from exc
+    results = []
+    try:
+        for file_path in paths:
+            try:
+                result = import_otlp_file(con, file_path, project=project)
+            except (OtlpFormatError, UnicodeDecodeError) as exc:
+                raise WizardFlowCliError(f"{file_path} is not OTLP JSON: {exc}") from exc
+            except OSError as exc:
+                raise WizardFlowCliError(f"could not read {file_path}: {exc}") from exc
+            results.append(result)
+            if result.already_imported:
+                print(f"{file_path.name}: already imported, skipped")
+                continue
+            extra = []
+            if result.duplicate_spans:
+                extra.append(f"{_count(result.duplicate_spans, 'duplicate span')} skipped")
+            if result.skipped_spans:
+                extra.append(f"{_count(result.skipped_spans, 'invalid span')} skipped")
+            print(
+                f"{file_path.name}: imported {_count(result.spans, 'span')} "
+                f"({_count(result.traces, 'trace')}) and {_count(result.logs, 'log')} "
+                f"into {', '.join(result.projects) or 'no project'}"
+                + (f" · {'; '.join(extra)}" if extra else "")
+            )
+    finally:
+        con.close()
+    print(f"Database: {db_path}")
+    return results
+
+
+def _is_otlp_file(path: Path) -> bool:
+    """Whether ``path`` holds OTLP JSON rather than a WizardFlow trace.
+
+    Line 1 decides: one export request per line (the Collector's format).
+    A pretty-printed single request is checked as a whole if it is small.
+    """
+    try:
+        with path.open("r", encoding="utf-8-sig") as handle:
+            first = handle.readline()
+            try:
+                return is_otlp_request(json.loads(first))
+            except json.JSONDecodeError:
+                pass
+            if path.stat().st_size > 32_000_000:
+                return False
+            handle.seek(0)
+            return is_otlp_request(json.loads(handle.read()))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+
+
 def _count(value: int, noun: str) -> str:
     return f"{value} {noun if value == 1 else noun + 's'}"
 
@@ -342,7 +545,21 @@ def run_ui(
         print(f"Serving newest trace: {trace_path}")
     else:
         trace_path = _resolve_trace_path(trace=trace, path=path, latest=latest)
+    # `ui` means "open this file": an OTel file is imported into the local
+    # database and opened in the dashboard instead of the single-file replay.
+    if _is_otlp_file(trace_path):
+        db_path = default_db_path()
+        result = _import_into(db_path, [trace_path], project=None)[0]
+        return run_serve(
+            db=str(db_path),
+            host=host,
+            port=port,
+            open_browser=open_browser,
+            project=result.projects[0] if result.projects else None,
+        )
     _load_trace(trace_path)  # fail fast on an unreadable trace before serving
+    if default_db_path().exists():
+        print("Your OTel data: wizardflow serve")
     ui_dir = _resolve_ui_dir()
 
     handler = _make_handler(ui_dir=ui_dir, trace_path=trace_path)
@@ -473,11 +690,13 @@ def _resolve_latest_trace(raw: Optional[str]) -> Path:
     directory = Path(raw).expanduser().resolve() if raw else Path.cwd()
     if not directory.is_dir():
         raise WizardFlowCliError(f"--latest expects a directory, got: {directory}")
+    # OTel files are opened explicitly (or via `wizardflow serve`), never
+    # picked up as "the newest trace" by accident.
     candidates = [
         candidate
         for pattern in ("*.jsonl", "*.json")
         for candidate in directory.glob(pattern)
-        if candidate.is_file()
+        if candidate.is_file() and not _is_otlp_file(candidate)
     ]
     if not candidates:
         raise WizardFlowCliError(

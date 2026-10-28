@@ -15,6 +15,12 @@ from wizardflow.store import (
     open_store,
 )
 from wizardflow.store.otlp import any_value, iter_logs, iter_requests, iter_spans, otel_id
+from otlp_builders import TRACE_A, TRACE_B
+from otlp_builders import attrs as _attrs
+from otlp_builders import lines as _lines
+from otlp_builders import logs_request as _logs_request
+from otlp_builders import span as _span_builder
+from otlp_builders import traces_request as _traces_request
 from wizardflow.store.schema import (
     FLAG_CROSS_PROJECT,
     FLAG_GENAI,
@@ -25,77 +31,10 @@ from wizardflow.store.schema import (
     LATEST_VERSION,
 )
 
-TRACE_A = "a" * 32
-TRACE_B = "b" * 32
-
-
-# --------------------------------------------------------------------------- builders
-
-
-def _value(v):
-    if isinstance(v, bool):
-        return {"boolValue": v}
-    if isinstance(v, int):
-        return {"intValue": str(v)}
-    if isinstance(v, float):
-        return {"doubleValue": v}
-    if isinstance(v, list):
-        return {"arrayValue": {"values": [_value(x) for x in v]}}
-    if isinstance(v, dict):
-        return {"kvlistValue": {"values": _attrs(v)}}
-    return {"stringValue": v}
-
-
-def _attrs(d):
-    return [{"key": k, "value": _value(v)} for k, v in d.items()]
-
-
-def _span(span_id, *, trace_id=TRACE_A, parent=None, name=None, start=100, end=200,
-          attrs=None, status=0, events=None):
-    span = {
-        "traceId": trace_id,
-        "spanId": span_id,
-        "name": name or span_id,
-        "kind": 1,
-        "startTimeUnixNano": str(start),
-        "endTimeUnixNano": str(end),
-        "attributes": _attrs(attrs or {}),
-        "status": {"code": status},
-    }
-    if parent:
-        span["parentSpanId"] = parent
-    if events:
-        span["events"] = [
-            {"timeUnixNano": str(t), "name": n, "attributes": _attrs(a)} for t, n, a in events
-        ]
-    return span
-
-
-def _traces_request(spans, *, service="svc", resource_attrs=None):
-    attrs = {"service.name": service, **(resource_attrs or {})}
-    return {
-        "resourceSpans": [
-            {
-                "resource": {"attributes": _attrs(attrs)},
-                "scopeSpans": [{"scope": {"name": "test-scope", "version": "1"}, "spans": spans}],
-            }
-        ]
-    }
-
-
-def _logs_request(records, *, service="svc"):
-    return {
-        "resourceLogs": [
-            {
-                "resource": {"attributes": _attrs({"service.name": service})},
-                "scopeLogs": [{"scope": {"name": "logger"}, "logRecords": records}],
-            }
-        ]
-    }
-
-
-def _lines(*requests):
-    return "\n".join(json.dumps(r) for r in requests) + "\n"
+def _span(span_id, **kw):
+    if "attrs" in kw:
+        kw["attributes"] = kw.pop("attrs")
+    return _span_builder(span_id, **kw)
 
 
 @pytest.fixture
