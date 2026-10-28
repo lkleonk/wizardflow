@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable, Mapping, Optional
+from pathlib import Path
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 from .otel import (
     DEFAULT_OTEL_TRACE_SCOPE,
     OTEL_TRACE_SCOPES,
+    PROJECT_NAME_RESOURCE,
+    OTelBridge,
     OTelExportError,
     create_otel_bridge,
 )
@@ -17,12 +21,16 @@ from .otel_mapping import (
     DEFAULT_GRAPH_MAX_BYTES,
     NODE_KINDS,
 )
+from .otlp_writer import SpanRecorder, write_otlp_json
 from .reader import TraceChain
 
 
 @dataclass(frozen=True)
 class ExportOptions:
-    endpoint: str
+    """Exactly one target: an OTLP/HTTP ``endpoint`` or an ``out`` file."""
+
+    endpoint: Optional[str] = None
+    out: Optional[Path] = None
     trace_scope: str = DEFAULT_OTEL_TRACE_SCOPE
     workflow_name: Optional[str] = None
     include_content: bool = True
@@ -45,6 +53,8 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
         raise ValueError(f"unknown OTel trace scope: {options.trace_scope!r}")
     if options.content_max_bytes <= 0 or options.graph_max_bytes <= 0:
         raise ValueError("OTel byte limits must be positive")
+    if (options.endpoint is None) == (options.out is None):
+        raise ValueError("export needs exactly one target: an endpoint or an output file")
 
     trace = unit.trace
     graph = trace.get("graph", {})
@@ -53,9 +63,7 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
     fallback = trace.get("meta", {}).get("createdAt") or datetime.now(timezone.utc).isoformat()
     start = min(timestamps, key=_timestamp_key) if timestamps else fallback
     end = max(timestamps, key=_timestamp_key) if timestamps else start
-    bridge = create_otel_bridge(
-        options.endpoint,
-        project_name=trace.get("name"),
+    bridge_options: Dict[str, Any] = dict(
         trace_scope=options.trace_scope,
         workflow_name=options.workflow_name,
         include_content=options.include_content,
@@ -73,6 +81,14 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
             "wizardflow.export.source_sealed": unit.sealed,
         },
     )
+    # A file needs no OTel packages: the same bridge drives a span recorder.
+    recorder = SpanRecorder() if options.out is not None else None
+    if recorder is not None:
+        bridge = OTelBridge(recorder, trace_api=recorder, **bridge_options)
+    else:
+        bridge = create_otel_bridge(
+            options.endpoint, project_name=trace.get("name"), **bridge_options
+        )
     span_count = 0
     try:
         bridge.start_run(
@@ -136,9 +152,37 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
             "OpenTelemetry provider did not flush all spans; the export may be incomplete"
         )
     trace_count = len(messages) if options.trace_scope == "workflow" else 1
+    if recorder is not None and options.out is not None:
+        trace_count = write_otlp_json(
+            recorder.finished,
+            options.out,
+            resource_attributes=_file_resource(trace.get("name")),
+            scope_version=_package_version(),
+        )
     return ExportSummary(
         len(unit.parts), len(messages), span_count, trace_count, unit.sealed
     )
+
+
+def _file_resource(trace_name: Optional[str]) -> Dict[str, Any]:
+    """The resource of a file export: the run's name is its project, as with
+    live export to an endpoint (``openinference.project.name``), and also its
+    service, so plain OTel tools group it too."""
+    attributes: Dict[str, Any] = {
+        "telemetry.sdk.name": "wizardflow",
+        "telemetry.sdk.language": "python",
+        "service.name": trace_name or "wizardflow",
+    }
+    if trace_name:
+        attributes[PROJECT_NAME_RESOURCE] = trace_name
+    return attributes
+
+
+def _package_version() -> str:
+    try:
+        return importlib.metadata.version("wizardflow")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
 
 
 def _timestamps(messages: Iterable[Mapping[str, Any]]) -> Iterable[str]:

@@ -77,6 +77,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return run_otel_export(
                 trace=args.trace,
                 endpoint=args.endpoint,
+                out=args.out,
                 trace_scope=args.trace_scope,
                 workflow_name=args.workflow_name,
                 include_content=args.include_content,
@@ -234,7 +235,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "export", help="Project a JSONL run or part-chain to fresh OTLP traces."
     )
     otel_export.add_argument("trace", help="WizardFlow JSONL or JSON trace file.")
-    otel_export.add_argument("--endpoint", help="OTLP/HTTP traces endpoint.")
+    otel_target = otel_export.add_mutually_exclusive_group()
+    otel_target.add_argument("--endpoint", help="OTLP/HTTP traces endpoint.")
+    otel_target.add_argument(
+        "--out",
+        help=(
+            "Write OTLP JSON to this file instead of sending it (OTel Collector "
+            "file format; needs no OpenTelemetry packages). Includes the graph "
+            "and full content by default."
+        ),
+    )
     otel_export.add_argument(
         "--trace-scope",
         choices=("workflow", "recording"),
@@ -260,8 +270,18 @@ def _build_parser() -> argparse.ArgumentParser:
             "enabled; use --no-include-content to omit it)."
         ),
     )
-    otel_export.add_argument("--content-max-bytes", type=_positive_int, default=16_384)
-    otel_export.add_argument("--export-graph", action="store_true")
+    otel_export.add_argument(
+        "--content-max-bytes",
+        type=_positive_int,
+        default=None,
+        help="Cap per content attribute (default: 16384, or 16000000 with --out).",
+    )
+    otel_export.add_argument(
+        "--export-graph",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Attach the graph as a span event (default: off, on with --out).",
+    )
     otel_export.add_argument("--graph-max-bytes", type=_positive_int, default=65_536)
     otel_export.add_argument(
         "--current-part-only",
@@ -314,21 +334,37 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+# A file is read locally and replayed in full, so it keeps the graph and the
+# whole content by default; an endpoint keeps the live, backend-friendly caps.
+FILE_EXPORT_CONTENT_MAX_BYTES = 16_000_000
+ENDPOINT_EXPORT_CONTENT_MAX_BYTES = 16_384
+
+
 def run_otel_export(
     *,
     trace: str,
     endpoint: Optional[str],
     trace_scope: str,
     include_content: bool,
-    content_max_bytes: int,
-    export_graph: bool,
+    content_max_bytes: Optional[int],
+    export_graph: Optional[bool],
     graph_max_bytes: int,
     current_part_only: bool,
     workflow_name: Optional[str] = None,
+    out: Optional[str] = None,
 ) -> int:
-    """Export a durable WizardFlow artifact through a private OTLP provider."""
+    """Export a durable WizardFlow artifact to an OTLP endpoint or an OTLP JSON file."""
     trace_path = _resolve_trace_path(trace=trace, path=None)
-    resolved_endpoint = _resolve_otel_endpoint(endpoint)
+    if out is not None and endpoint is not None:
+        raise WizardFlowCliError("pass either --endpoint or --out, not both")
+    to_file = out is not None
+    resolved_endpoint = None if to_file else _resolve_otel_endpoint(endpoint)
+    if content_max_bytes is None:
+        content_max_bytes = (
+            FILE_EXPORT_CONTENT_MAX_BYTES if to_file else ENDPOINT_EXPORT_CONTENT_MAX_BYTES
+        )
+    if export_graph is None:
+        export_graph = to_file
     try:
         unit = load_trace_chain(trace_path, current_part_only=current_part_only)
         from .otel_file_exporter import ExportOptions, export_trace_chain
@@ -337,6 +373,7 @@ def run_otel_export(
             unit,
             ExportOptions(
                 endpoint=resolved_endpoint,
+                out=Path(out).expanduser() if to_file else None,
                 trace_scope=trace_scope,
                 workflow_name=workflow_name,
                 include_content=include_content,
@@ -353,9 +390,12 @@ def run_otel_export(
         f"Exported {_count(summary.parts, 'part')}, "
         f"{_count(summary.messages, 'message')}, and "
         f"{_count(summary.node_spans, 'node span')} as "
-        f"{_count(summary.traces, 'new OTel trace')}{snapshot}.",
+        f"{_count(summary.traces, 'new OTel trace')}{snapshot}"
+        + (f" to {out}." if to_file else "."),
         file=sys.stderr,
     )
+    if to_file:
+        print(f"Import it: wizardflow db import {out}", file=sys.stderr)
     return 0
 
 
