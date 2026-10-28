@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import webbrowser
@@ -56,7 +57,16 @@ def make_serve_handler(
 
         def _json(self, status: HTTPStatus, body: Any) -> None:
             payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+            # The replay viewer polls its trace URL for live updates; an ETag
+            # lets an unchanged answer go back as a bodiless 304.
+            etag = f'"{hashlib.sha1(payload).hexdigest()[:20]}"'
+            if status == HTTPStatus.OK and self.headers.get("If-None-Match") == etag:
+                self.send_response(HTTPStatus.NOT_MODIFIED)
+                self.send_header("ETag", etag)
+                self.end_headers()
+                return
             self.send_response(status)
+            self.send_header("ETag", etag)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(payload)))

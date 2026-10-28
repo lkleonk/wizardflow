@@ -4,7 +4,7 @@ import json
 import threading
 from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -138,6 +138,7 @@ def api(tmp_path):
             body = response.read().decode("utf-8")
             return json.loads(body) if path.startswith("/api/") else body
 
+    get.base = base
     yield get
     server.shutdown()
     server.server_close()
@@ -221,3 +222,15 @@ def test_api_errors(api):
     assert _status(api, "/api/traces?project=advisor&cursor=bad")[0] == 400
     assert _status(api, f"/api/traces/{'c' * 32}?project=advisor")[0] == 404
     assert _status(api, "/api/nothing")[0] == 404
+
+
+
+def test_api_answers_unchanged_data_with_304(api):
+    # The replay viewer revalidates its trace URL with If-None-Match.
+    url = api.base + "/api/projects"
+    with urlopen(url, timeout=5) as response:
+        etag = response.headers["ETag"]
+    assert etag
+    with pytest.raises(HTTPError) as exc:
+        urlopen(Request(url, headers={"If-None-Match": etag}), timeout=5)
+    assert exc.value.code == 304

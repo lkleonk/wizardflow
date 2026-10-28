@@ -73,6 +73,17 @@ function readContext(): ViewerContext {
 // nothing to subscribe to.
 const subscribe = () => () => {};
 
+function readBackHref(): string | null {
+  const back = new URLSearchParams(window.location.search).get("back");
+  // Only ever back into our own dashboard: never an arbitrary URL from a link.
+  return back && back.startsWith("/otel") && !back.startsWith("//") ? back : null;
+}
+
+/** Where "back to the dashboard" leads, for a replay opened from it. */
+export function useDashboardBackHref(): string | null {
+  return useSyncExternalStore(subscribe, readBackHref, () => null);
+}
+
 /**
  * The viewer's context and chrome. Renders the build target's base context on
  * the server and during hydration, then switches to the URL-derived one, so

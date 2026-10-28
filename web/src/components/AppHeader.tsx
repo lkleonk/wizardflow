@@ -11,6 +11,7 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CloseIcon from "@mui/icons-material/Close";
@@ -30,7 +31,7 @@ import TraceUploader, { useTraceFilePicker } from "@/components/TraceUploader";
 import LocalDataDialog from "@/components/LocalDataDialog";
 import type { AgentTraceFile } from "@/types/agenttrace";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
-import { useViewerChrome } from "@/utils/viewerContext";
+import { useDashboardBackHref, useViewerChrome } from "@/utils/viewerContext";
 
 // Controls that move into the overflow menu on phones.
 const wideOnly = { display: { xs: "none", sm: "inline-flex" } } as const;
@@ -197,7 +198,8 @@ export default function AppHeader({
   const [localDataOpen, setLocalDataOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuAnchor(null), []);
   // What this context shows (website / `wizardflow ui` / from the dashboard).
-  const { chrome } = useViewerChrome();
+  const { context, chrome } = useViewerChrome();
+  const dashboardHref = useDashboardBackHref();
   const hasGuideItems = chrome.examples || chrome.upload || chrome.tutorial;
   // The menu's Upload row drives its own file input, since the header's
   // TraceUploader button is display:none at the width the menu appears at.
@@ -245,6 +247,18 @@ export default function AppHeader({
             overflow: "hidden",
           }}
         >
+          {context === "from-dashboard" && dashboardHref && (
+            <Tooltip title="Back to the dashboard">
+              <IconButton
+                size="small"
+                href={dashboardHref}
+                aria-label="Back to the dashboard"
+                sx={{ alignSelf: "center", ml: -0.5 }}
+              >
+                <ArrowBackIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           <Typography
             variant="h6"
             sx={{ flexShrink: 0, fontWeight: 600, letterSpacing: -0.2 }}
