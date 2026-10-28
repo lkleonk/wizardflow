@@ -10,8 +10,17 @@ export class ApiError extends Error {
   }
 }
 
+// Development only: `npm run dev` has no /api of its own, so point it at a
+// separately started `wizardflow serve --port 8765` with
+// NEXT_PUBLIC_WIZARDFLOW_API=http://127.0.0.1:8765. Unset in real builds,
+// where the dashboard and its API share one origin.
+const API_ORIGIN = process.env.NEXT_PUBLIC_WIZARDFLOW_API ?? "";
+
 export async function fetchApi<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, { signal, headers: { Accept: "application/json" } });
+  const response = await fetch(API_ORIGIN + path, {
+    signal,
+    headers: { Accept: "application/json" },
+  });
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try {

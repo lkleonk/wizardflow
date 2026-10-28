@@ -225,6 +225,17 @@ def test_api_errors(api):
 
 
 
+def test_cors_only_for_local_origins(api):
+    def allowed(origin):
+        request = Request(api.base + "/api/meta", headers={"Origin": origin})
+        with urlopen(request, timeout=5) as response:
+            return response.headers.get("Access-Control-Allow-Origin")
+
+    assert allowed("http://localhost:3000") == "http://localhost:3000"
+    assert allowed("http://127.0.0.1:3000") == "http://127.0.0.1:3000"
+    assert allowed("https://evil.example") is None
+
+
 def test_api_answers_unchanged_data_with_304(api):
     # The replay viewer revalidates its trace URL with If-None-Match.
     url = api.base + "/api/projects"

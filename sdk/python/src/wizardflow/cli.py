@@ -476,7 +476,7 @@ def run_db_info(*, db: Optional[str]) -> int:
         if f.is_file() and not f.name.endswith(".bak")
     )
     print(f"Database: {db_path}")
-    print(f"Schema: v{version} · {size / 1_000_000:.1f} MB · {_count(imports, 'import')}")
+    print(f"Schema: v{version}, {size / 1_000_000:.1f} MB, {_count(imports, 'import')}")
     if not rows:
         print("No data yet. Import some: wizardflow db import FILE")
     for name, traces, spans, logs in rows:
@@ -529,7 +529,7 @@ def _import_into(
                 f"{file_path.name}: imported {_count(result.spans, 'span')} "
                 f"({_count(result.traces, 'trace')}) and {_count(result.logs, 'log')} "
                 f"into {', '.join(result.projects) or 'no project'}"
-                + (f" · {'; '.join(extra)}" if extra else "")
+                + (f" ({'; '.join(extra)})" if extra else "")
             )
     finally:
         con.close()

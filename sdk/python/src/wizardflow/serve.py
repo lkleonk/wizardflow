@@ -10,7 +10,7 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
-from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit, urlparse
 
 from .store import open_store, projection
 from .store import queries
@@ -67,6 +67,13 @@ def make_serve_handler(
                 return
             self.send_response(status)
             self.send_header("ETag", etag)
+            # Lets a local `npm run dev` dashboard read this API from its own
+            # port during development. Local origins only: the API serves
+            # prompts and user data.
+            origin = self.headers.get("Origin")
+            if origin and _is_local_origin(origin):
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(payload)))
@@ -123,6 +130,11 @@ def _route(
     if rest == "settings":
         return queries.get_settings(con)
     raise queries.NotFound(f"no API route {path}")
+
+
+def _is_local_origin(origin: str) -> bool:
+    parsed = urlparse(origin)
+    return parsed.scheme in ("http", "https") and parsed.hostname in ("localhost", "127.0.0.1", "::1")
 
 
 def _int(raw: Optional[str], name: str) -> Optional[int]:
