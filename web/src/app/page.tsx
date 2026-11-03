@@ -19,6 +19,8 @@ import DemoExplainerToast, {
   type DemoToastState,
 } from "@/components/DemoExplainerToast";
 import EmptyCanvas from "@/components/EmptyCanvas";
+import { TraceLoadError, TraceLoadingCanvas } from "@/components/TracePendingCanvas";
+import { clearTracePending } from "@/components/TracePendingScript";
 import ExampleGallery from "@/components/ExampleGallery";
 import FooterLinks from "@/components/FooterLinks";
 import GraphCanvas from "@/components/GraphCanvas";
@@ -137,6 +139,8 @@ export default function Home() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [graphArrangeMode, setGraphArrangeMode] = useState(false);
   const [isLoadingUrlTrace, setIsLoadingUrlTrace] = useState(false);
+  // A `?trace=` URL that failed to load: shown in the graph pane.
+  const [urlTraceError, setUrlTraceError] = useState<string | null>(null);
   const loadedTraceUrlRef = useRef<string | null>(null);
   // Live-watch state for the SDK launcher: while the served trace is being
   // polled for updates the header shows a pulse dot, and messages that arrive
@@ -697,7 +701,12 @@ export default function Home() {
 
     const traceUrl = new URL(traceParam, window.location.href);
     if (traceUrl.origin !== window.location.origin) {
-      alert("Trace URLs must be served from the same origin as WizardFlow.");
+      // Deferred like the deep-link effect below: the effect body itself
+      // doesn't set state.
+      queueMicrotask(() => {
+        setUrlTraceError("Trace URLs must be served from the same origin as WizardFlow.");
+        clearTracePending();
+      });
       return;
     }
     const traceHref = traceUrl.href;
@@ -793,14 +802,22 @@ export default function Home() {
         if (!parsed.meta?.nextPart) {
           startWatching(response.headers.get("ETag"));
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
-          alert("Could not load the WizardFlow trace file from the URL.");
           loadedTraceUrlRef.current = null;
+          if (getSavedFlow()) {
+            // Stepping to another part: the current part stays on screen.
+            alert("Could not load the WizardFlow trace file from the URL.");
+          } else {
+            setUrlTraceError(
+              `The trace at ${traceUrl.pathname} could not be loaded (${(error as Error).message}).`
+            );
+          }
         }
       } finally {
         if (!cancelled) {
           setIsLoadingUrlTrace(false);
+          clearTracePending();
         }
       }
     }
@@ -1040,8 +1057,10 @@ export default function Home() {
         },
       }}
     >
+      {/* Only over a flow already on screen (stepping to another part): a
+          first load shows TraceLoadingCanvas in the graph pane instead. */}
       <Backdrop
-        open={isLoadingUrlTrace}
+        open={isLoadingUrlTrace && hasFlow}
         sx={{
           zIndex: (theme) => theme.zIndex.modal + 1,
           color: "primary.contrastText",
@@ -1184,12 +1203,21 @@ export default function Home() {
               onArrangeModeChange={setGraphArrangeMode}
               nodeKinds={nodeKinds}
             />
+          ) : urlTraceError ? (
+            <TraceLoadError message={urlTraceError} />
           ) : (
-            <EmptyCanvas
-              onUploadLoad={handleUploadLoad}
-              onOpenGallery={() => setGalleryOpen(true)}
-              showExamples={chrome.examples}
-            />
+            <>
+              {/* Both are rendered; globals.css shows the loading one while a
+                  `?trace=` URL loads, from the very first paint. */}
+              <TraceLoadingCanvas />
+              <Box className="wf-empty-canvas" sx={{ height: "100%" }}>
+                <EmptyCanvas
+                  onUploadLoad={handleUploadLoad}
+                  onOpenGallery={() => setGalleryOpen(true)}
+                  showExamples={chrome.examples}
+                />
+              </Box>
+            </>
           )}
         </Paper>
         {inspector.open && (

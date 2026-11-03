@@ -59,3 +59,12 @@ body > div:first-child {
 *::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* A `?trace=` URL is loading (TracePendingScript marks <html> before first
+   paint): the graph pane shows "Opening graph replay…", never the "No flow
+   loaded" canvas the static HTML was rendered with. !important because the
+   two panes' own display comes from MUI's sx classes. */
+html[data-trace-pending] .wf-empty-canvas,
+html:not([data-trace-pending]) .wf-trace-loading {
+  display: none !important;
+}
