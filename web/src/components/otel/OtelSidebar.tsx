@@ -73,8 +73,12 @@ export default function OtelSidebar({
         display: { xs: "none", md: "flex" },
         flexDirection: "column",
         overflow: "hidden",
-        m: 1.5,
-        mr: 0,
+        // Attached to the window's left edge, full height: the page's frame,
+        // not one more floating panel.
+        borderRadius: 0,
+        border: 0,
+        borderRight: 1,
+        borderColor: "divider",
       }}
     >
       <Box
