@@ -817,7 +817,7 @@ function SpanInspector({
               </Box>
             </Typography>
             <Button size="small" variant="outlined" color="secondary" startIcon={<PlayArrowIcon />} href={replay}>
-              Replay
+              Graph replay
             </Button>
           </Paper>
         )}

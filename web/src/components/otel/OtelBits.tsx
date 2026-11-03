@@ -16,7 +16,7 @@ export function TraceBadges({ flags }: { flags: number }) {
   return (
     <Box component="span" sx={{ display: "inline-flex", gap: 0.5, flexWrap: "wrap", verticalAlign: "middle" }}>
       {wizardflow && (
-        <Tooltip title={`Has graph nodes (attribute mapping → Node), so it can be replayed in WizardFlow. ${graphSource(flags)}`}>
+        <Tooltip title={`Has graph nodes (attribute mapping → Node), so it opens in graph replay. ${graphSource(flags)}`}>
           <Chip label="WizardFlow" size="small" color="secondary" variant="outlined" sx={chipSx} />
         </Tooltip>
       )}

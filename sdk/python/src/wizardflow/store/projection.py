@@ -96,8 +96,8 @@ def project_trace(con: sqlite3.Connection, project: str, trace_id: str) -> Dict[
         raise NotFound(f"no trace {trace_id} in project {project!r}")
     if not row[2] & FLAG_WIZARDFLOW:
         raise QueryError(
-            "this trace has no graph nodes to replay; map its node attribute in "
-            "Settings → Attribute mapping"
+            "this trace has no graph nodes, so it cannot open in graph replay; map its "
+            "node attribute in Settings → Attribute mapping"
         )
     return _project(con, pid, project, [(row[0], row[1])], conversation_id=None)
 

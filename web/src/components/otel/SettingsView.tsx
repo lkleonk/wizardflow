@@ -91,17 +91,17 @@ function SectionHead({ title, sub, children }: { title: string; sub: string; chi
 
 const CONCEPTS: { id: MappingConcept; label: string; hint: string; global?: boolean }[] = [
   { id: "project", label: "Project", hint: "Groups traces into projects. Read from resource attributes; a change applies to later imports.", global: true },
-  { id: "execution", label: "Workflow execution", hint: "What one replay message is. Falls back to the trace." },
-  { id: "conversation", label: "Conversation", hint: "Joins executions into one replay." },
+  { id: "execution", label: "Workflow execution", hint: "One message in graph replay. Falls back to the trace." },
+  { id: "conversation", label: "Conversation", hint: "Joins executions into one graph replay." },
   { id: "user", label: "User", hint: "Shown on traces." },
-  { id: "node", label: "Node", hint: "A step on the WizardFlow graph. Enables replay." },
+  { id: "node", label: "Node", hint: "A step on the WizardFlow graph. Enables graph replay." },
   { id: "node_kind", label: "Node kind", hint: "Colour and icon of a node." },
   { id: "model", label: "Model", hint: "Model column." },
   { id: "input_tokens", label: "Input tokens", hint: "Token columns." },
   { id: "output_tokens", label: "Output tokens", hint: "Token columns." },
-  { id: "input", label: "Input payload", hint: "Replay input." },
-  { id: "output", label: "Output payload", hint: "Replay output." },
-  { id: "payloads", label: "Extra payloads", hint: "More replay payloads. A trailing * matches a prefix." },
+  { id: "input", label: "Input payload", hint: "Node input in graph replay." },
+  { id: "output", label: "Output payload", hint: "Node output in graph replay." },
+  { id: "payloads", label: "Extra payloads", hint: "More payloads in graph replay. A trailing * matches a prefix." },
 ];
 
 // The shipped defaults: mirrors DEFAULT_MAPPING in sdk/python/src/wizardflow/store/settings.py.
@@ -211,7 +211,7 @@ function MappingSection({ route }: { route: OtelRoute }) {
       const result = await request();
       setSaved({ settings: result, version: (saved?.version ?? 0) + 1 });
       setMessage({
-        text: `Re-indexed ${result.reindexed.traces} traces · ${result.reindexed.replayable} replayable in WizardFlow`,
+        text: `Re-indexed ${result.reindexed.traces} traces · ${result.reindexed.replayable} open in graph replay`,
       });
     } catch (error) {
       setMessage({ text: (error as Error).message, error: true });

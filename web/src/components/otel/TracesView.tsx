@@ -338,7 +338,7 @@ function GroupRows({
         <TableCell padding="checkbox">
           {conversationId && group.replayableCount > 0 && (
             <ReplayButton
-              title={`Replay conversation ${conversationId} in WizardFlow (${group.replayableCount} execution${
+              title={`Open conversation ${conversationId} in graph replay (${group.replayableCount} execution${
                 group.replayableCount === 1 ? "" : "s"
               }). ${graphSource(group.flags)}`}
               href={replayHref({ project: route.project, conversationId, name: conversationId, back })}
@@ -508,8 +508,8 @@ function TraceRow({
           <ReplayButton
             title={`${
               trace.conversationId
-                ? `Replay conversation ${trace.conversationId} in WizardFlow`
-                : "Replay this execution in WizardFlow"
+                ? `Open conversation ${trace.conversationId} in graph replay`
+                : "Open this execution in graph replay"
             }. ${graphSource(trace.flags)}`}
             href={replayHref({
               project: route.project,
@@ -556,7 +556,7 @@ function ConversationPicker({ project, back }: { project: string; back: string }
         slotProps={{ paper: { sx: { maxHeight: 420, minWidth: 280 } } }}
       >
         <Typography sx={{ px: 2, py: 0.75, fontSize: 12, color: "text.secondary", maxWidth: 320 }}>
-          Pick a conversation. Its executions become the replay&apos;s messages.
+          Pick a conversation. Its executions become the messages of the graph replay.
         </Typography>
         {data.map((conversation) => (
           <MenuItem
@@ -580,7 +580,7 @@ function ConversationPicker({ project, back }: { project: string; back: string }
         ))}
         <Divider />
         <Typography sx={{ px: 2, py: 0.75, fontSize: 12, color: "text.secondary", maxWidth: 320 }}>
-          Executions without a conversation: replay them from their row.
+          Executions without a conversation open from their own row.
         </Typography>
       </Menu>
     </>
@@ -593,7 +593,7 @@ function ReplayButton({ title, href }: { title: string; href: string }) {
       <IconButton
         size="small"
         color="secondary"
-        aria-label="Replay in WizardFlow"
+        aria-label="Open in graph replay"
         href={href}
         onClick={(e) => e.stopPropagation()}
       >
