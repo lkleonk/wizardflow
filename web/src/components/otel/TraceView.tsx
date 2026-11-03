@@ -309,10 +309,13 @@ function SplitPane({
         },
         borderTop: 1,
         borderColor: "divider",
+        // Explicit columns below: the strip and the divider are display:none
+        // in turn, and a hidden item would otherwise shift the rest left.
       }}
     >
       <Box
         sx={{
+          gridColumn: { md: 1 },
           display: { xs: "none", md: collapsed ? "flex" : "none" },
           flexDirection: "column",
           alignItems: "center",
@@ -333,6 +336,7 @@ function SplitPane({
       </Box>
       <Box
         sx={{
+          gridColumn: { md: 2 },
           overflow: "auto",
           minWidth: 0,
           minHeight: { xs: 240, md: 0 },
@@ -368,6 +372,7 @@ function SplitPane({
           if (tree) save(Math.max(TREE_MIN, Math.round(tree.width + (e.key === "ArrowRight" ? 32 : -32))));
         }}
         sx={{
+          gridColumn: { md: 3 },
           display: { xs: "none", md: collapsed ? "none" : "block" },
           cursor: "col-resize",
           touchAction: "none",
@@ -385,7 +390,7 @@ function SplitPane({
           outline: "none",
         }}
       />
-      <Box sx={{ overflow: "auto", minWidth: 0, minHeight: 0, borderTop: { xs: 1, md: 0 }, borderColor: "divider" }}>
+      <Box sx={{ gridColumn: { md: 4 }, overflow: "auto", minWidth: 0, minHeight: 0, borderTop: { xs: 1, md: 0 }, borderColor: "divider" }}>
         {right}
       </Box>
     </Box>
