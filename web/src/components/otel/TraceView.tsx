@@ -400,7 +400,8 @@ function SplitPane({
             size="small"
             onClick={() => save(-1)}
             aria-label="Collapse the span tree"
-            sx={{ display: { xs: "none", md: "inline-flex" }, position: "absolute", top: 2, left: 2, zIndex: 2 }}
+            // Small enough that its hover circle stays inside the 28px header.
+            sx={{ display: { xs: "none", md: "inline-flex" }, position: "absolute", top: 3, left: 4, zIndex: 2, p: 0.25 }}
           >
             <ChevronLeftIcon fontSize="small" />
           </IconButton>
