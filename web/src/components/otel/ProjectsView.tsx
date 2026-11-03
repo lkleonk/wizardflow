@@ -119,13 +119,17 @@ export default function ProjectsView() {
           ? Math.round((project.errorTraceCount / project.traceCount) * 100)
           : 0;
         return (
-          <Paper key={project.id} variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+          // The grid stretches every card to its row's tallest; the button
+          // fills the card so all of it highlights and clicks.
+          <Paper key={project.id} variant="outlined" sx={{ borderRadius: 2, overflow: "hidden", display: "flex" }}>
             <ButtonBase
               onClick={() => goTo({ view: "traces", project: project.name })}
               sx={{
+                flex: 1,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "stretch",
+                justifyContent: "flex-start",
                 textAlign: "left",
                 gap: 1.25,
                 p: 2,
