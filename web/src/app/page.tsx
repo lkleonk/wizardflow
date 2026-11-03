@@ -65,6 +65,7 @@ import { withUniqueLabels } from "@/utils/payloadLabels";
 import { parseAgentTrace } from "@/utils/agentTraceFile";
 import { useDashboardBackHref, useViewerChrome } from "@/utils/viewerContext";
 import { parseOtelRoute } from "@/utils/otelRoute";
+import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 import OtelSidebar from "@/components/otel/OtelSidebar";
 import {
   isTraceExtension,
@@ -1072,8 +1073,14 @@ export default function Home() {
         bgcolor: "background.default",
       }}
     >
-      {chrome.dashboardSidebar && (
-        <OtelSidebar route={dashboardRoute} replay />
+      {/* In the static HTML of every local build, shown only for a replay
+          opened from the dashboard (CSS on `data-from-dashboard`, set before
+          first paint): it is on screen from the first frame, beside the
+          loading cover instead of under it. */}
+      {!isHostedWizardFlow && (
+        <Box className="wf-dashboard-rail" sx={{ display: "flex" }}>
+          <OtelSidebar route={dashboardRoute} replay />
+        </Box>
       )}
       <Box
         sx={{

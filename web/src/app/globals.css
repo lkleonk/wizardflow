@@ -82,6 +82,18 @@ body > div:first-child {
   transition: opacity 180ms ease, visibility 0s linear 180ms;
 }
 
+/* A replay from the dashboard keeps its sidebar rail (64px + 12px margin,
+   from md up) uncovered. */
+@media (min-width: 900px) {
+  html[data-from-dashboard] .wf-trace-cover {
+    left: 76px;
+  }
+}
+
+html:not([data-from-dashboard]) .wf-dashboard-rail {
+  display: none !important;
+}
+
 html[data-trace-pending] .wf-trace-cover {
   opacity: 1;
   visibility: visible;

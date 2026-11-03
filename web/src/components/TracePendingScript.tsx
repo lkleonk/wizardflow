@@ -11,10 +11,14 @@
 // Same executable-only-in-server-HTML trick as ColorSchemeScript.tsx (see
 // there for why).
 // Only on the viewer: the dashboard's trace page (/otel?view=trace&trace=…)
-// has a `trace` param too, and nothing there would ever lift the cover.
+// has a `trace` param too, and nothing there would ever lift the cover. A
+// replay opened from the dashboard (`from=otel`) is marked too, so its
+// sidebar shows and the cover leaves it uncovered, both from the first frame.
 const MARK_PENDING_TRACE = `(function(){try{
-var p=window.location.pathname;
-if((p==='/'||p==='/index.html')&&new URLSearchParams(window.location.search).get('trace')){document.documentElement.setAttribute('data-trace-pending','');}
+var p=window.location.pathname,q=new URLSearchParams(window.location.search),h=document.documentElement;
+if(p!=='/'&&p!=='/index.html')return;
+if(q.get('from')==='otel')h.setAttribute('data-from-dashboard','');
+if(q.get('trace'))h.setAttribute('data-trace-pending','');
 }catch(e){}})();`;
 
 /** The `?trace=` load is over (shown or failed): the cover fades out. */
