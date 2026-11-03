@@ -274,7 +274,8 @@ const INSPECTOR_MIN = 320;
 function readTreeWidth(): number | null {
   try {
     const value = Number(window.localStorage.getItem(TREE_WIDTH_KEY));
-    return Number.isFinite(value) && value !== 0 ? value : null;
+    // Older builds stored -1 for "collapsed"; that is no longer remembered.
+    return Number.isFinite(value) && value > 0 ? value : null;
   } catch {
     return null;
   }
@@ -284,7 +285,7 @@ function readTreeWidth(): number | null {
  * Span tree | inspector, with a draggable divider. The width is a per-browser
  * display preference; a one-span trace starts with a narrow tree, since the
  * content is in the inspector. Dragging to the far left (or ⟨) collapses the
- * tree to a strip; -1 stores "collapsed".
+ * tree to a strip, for this trace only: the next trace opens with its tree.
  */
 function SplitPane({
   spanCount,
@@ -298,9 +299,11 @@ function SplitPane({
   const [width, setWidth] = useState<number | null>(() =>
     typeof window === "undefined" ? null : readTreeWidth()
   );
+  const [collapsed, setCollapsed] = useState(false);
   const container = useRef<HTMLDivElement>(null);
   const save = (value: number | null) => {
     setWidth(value);
+    setCollapsed(false);
     try {
       if (value === null) window.localStorage.removeItem(TREE_WIDTH_KEY);
       else window.localStorage.setItem(TREE_WIDTH_KEY, String(value));
@@ -308,14 +311,11 @@ function SplitPane({
       // storage unavailable (private mode): the width just isn't remembered
     }
   };
-  const collapsed = width === -1;
-  const treeColumn = collapsed
-    ? "0px"
-    : width
-      ? `${width}px`
-      : spanCount <= 1
-        ? "300px"
-        : `minmax(${TREE_MIN}px, 57%)`;
+  const treeColumn = width
+    ? `${width}px`
+    : spanCount <= 1
+      ? "300px"
+      : `minmax(${TREE_MIN}px, 57%)`;
 
   const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const box = container.current?.getBoundingClientRect();
@@ -336,7 +336,9 @@ function SplitPane({
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
       if (container.current) container.current.style.gridTemplateColumns = "";
-      if (Math.abs(next - startWidth) > 2) save(next < TREE_MIN - 20 ? -1 : Math.round(next));
+      if (Math.abs(next - startWidth) <= 2) return;
+      if (next < TREE_MIN - 20) setCollapsed(true);
+      else save(Math.round(next));
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
@@ -376,7 +378,7 @@ function SplitPane({
         }}
       >
         <Tooltip title="Show the span tree">
-          <IconButton size="small" onClick={() => save(null)} aria-label="Show the span tree">
+          <IconButton size="small" onClick={() => setCollapsed(false)} aria-label="Show the span tree">
             <ChevronRightIcon fontSize="small" />
           </IconButton>
         </Tooltip>
@@ -399,7 +401,7 @@ function SplitPane({
         <Tooltip title="Collapse the span tree">
           <IconButton
             size="small"
-            onClick={() => save(-1)}
+            onClick={() => setCollapsed(true)}
             aria-label="Collapse the span tree"
             // Small enough that its hover circle stays inside the 28px header.
             sx={{ display: { xs: "none", md: "inline-flex" }, position: "absolute", top: 0, left: 4, zIndex: 2, p: 0.25 }}
