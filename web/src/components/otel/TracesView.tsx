@@ -406,7 +406,7 @@ function GroupMembers({
 
 function TraceTable({ anyGenAI, children }: { anyGenAI: boolean; children: React.ReactNode }) {
   return (
-    <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+    <TableContainer component={Paper} variant="outlined">
       <Table size="small" aria-label="Traces">
         <TableHead>
           <TableRow>

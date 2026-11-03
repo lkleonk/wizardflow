@@ -17,6 +17,8 @@ export type DisplayPrefs = {
   hidden: string[];
   /** Order of the attributes inside a group. */
   attrOrder: "sent" | "az";
+  /** The sidebar folded down to a narrow rail. */
+  sidebarFolded: boolean;
 };
 
 export const DEFAULT_DISPLAY: DisplayPrefs = {
@@ -25,6 +27,7 @@ export const DEFAULT_DISPLAY: DisplayPrefs = {
   pins: [],
   hidden: [],
   attrOrder: "sent",
+  sidebarFolded: false,
 };
 
 export const RANGE_MS: Record<TimeRange, number | null> = {

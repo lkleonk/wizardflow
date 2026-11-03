@@ -16,7 +16,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PushPinIcon from "@mui/icons-material/PushPin";
 import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
-import { nodeColorForKind } from "@/theme/muiTheme";
+import { nodeColorAt, nodeColorForKind } from "@/theme/muiTheme";
 import {
   TraceFlag,
   type ApiLog,
@@ -51,10 +51,47 @@ const KIND_ALIASES: Record<string, string> = {
   embeddings: "embedding",
 };
 
-function spanColor(span: ApiSpan): string {
+function kindColor(kind: string | null): string | undefined {
+  const raw = (kind ?? "").toLowerCase();
+  return nodeColorForKind(KIND_ALIASES[raw] ?? raw);
+}
+
+/**
+ * The accent each node has in graph replay, so a span and the node it becomes
+ * look alike. Same rule as GraphCanvas: the recorded node's own color, else
+ * its kind's color, else the palette by the node's place in the graph — the
+ * recorded graph's order (a `wizardflow.graph` event), or else the order the
+ * nodes first ran in, which is how the replay infers one.
+ */
+function nodeAccents(spans: ApiSpan[]): Map<string, string> {
+  let recorded: { id?: unknown; color?: unknown }[] | null = null;
+  for (const span of spans) {
+    for (const event of span.events) {
+      if (event.name !== "wizardflow.graph") continue;
+      try {
+        const nodes = JSON.parse(String(event.attributes["wizardflow.graph.nodes"] ?? ""));
+        if (Array.isArray(nodes)) recorded = nodes;
+      } catch {
+        // omitted or unreadable: fall back to the run order
+      }
+    }
+  }
+  const byStart = spans.filter((s) => s.nodeId).sort((a, b) => nsDiff(a.startNs, b.startNs));
+  const kinds = new Map<string, string | null>();
+  for (const span of byStart) if (!kinds.has(span.nodeId!)) kinds.set(span.nodeId!, span.nodeKind);
+  const order: { id: string; color?: string }[] = recorded
+    ? recorded.map((n) => ({ id: String(n.id), color: typeof n.color === "string" ? n.color : undefined }))
+    : [...kinds.keys()].map((id) => ({ id }));
+  const accents = new Map<string, string>();
+  order.forEach((node, index) => {
+    accents.set(node.id, node.color ?? kindColor(kinds.get(node.id) ?? null) ?? nodeColorAt(index));
+  });
+  return accents;
+}
+
+function spanColor(span: ApiSpan, accents: Map<string, string>): string {
   if (span.statusCode === 2) return "error.main";
-  const raw = (span.nodeKind ?? "").toLowerCase();
-  return nodeColorForKind(KIND_ALIASES[raw] ?? raw) ?? "text.disabled";
+  return (span.nodeId && accents.get(span.nodeId)) || kindColor(span.nodeKind) || "text.disabled";
 }
 
 type Row = { span: ApiSpan; depth: number };
@@ -106,6 +143,7 @@ function TraceDetail({
 }) {
   const { trace, spans } = detail;
   const rows = flattenTree(spans);
+  const accents = nodeAccents(spans);
   const selected = spans.find((s) => s.spanId === route.span) ?? rows[0]?.span;
   const select = (spanId: string) => goTo({ ...route, span: spanId }, { replace: true });
   const back = otelHref(route);
@@ -140,12 +178,13 @@ function TraceDetail({
       )}
       <SplitPane
         spanCount={spans.length}
-        left={<SpanTimeline rows={rows} detail={detail} selectedId={selected?.spanId} onSelect={select} />}
+        left={<SpanTimeline rows={rows} detail={detail} accents={accents} selectedId={selected?.spanId} onSelect={select} />}
         right={
           selected ? (
             <SpanInspector
               span={selected}
               detail={detail}
+              accents={accents}
               tab={route.tab}
               onTab={(tab) => goTo({ ...route, span: selected.spanId, tab }, { replace: true })}
               replay={
@@ -218,6 +257,14 @@ function TraceHeader({ detail }: { detail: ApiTraceDetail }) {
 }
 
 // --- split pane --------------------------------------------------------------
+
+// The surface of the replay's panels (MuiPaper in muiTheme.ts), on grid cells.
+const card = {
+  bgcolor: "background.paper",
+  border: 1,
+  borderColor: "divider",
+  borderRadius: 1,
+} as const;
 
 const TREE_WIDTH_KEY = "wf-otel-tree-width";
 const TREE_MIN = 180;
@@ -301,28 +348,30 @@ function SplitPane({
         flex: 1,
         minHeight: 0,
         display: "grid",
+        // Two floating cards, like the replay's graph + inspector; the 6px
+        // column between them is the resize handle (and the gap when folded).
         gridTemplateColumns: {
           xs: "1fr",
           md: collapsed
-            ? `34px 0px 0px minmax(0, 1fr)`
+            ? `34px 0px 6px minmax(0, 1fr)`
             : `0px ${treeColumn} 6px minmax(${INSPECTOR_MIN}px, 1fr)`,
         },
-        borderTop: 1,
-        borderColor: "divider",
+        rowGap: { xs: 1.5, md: 0 },
+        px: { xs: 1.5, sm: 2 },
+        pb: { xs: 1.5, sm: 2 },
         // Explicit columns below: the strip and the divider are display:none
         // in turn, and a hidden item would otherwise shift the rest left.
       }}
     >
       <Box
         sx={{
+          ...card,
           gridColumn: { md: 1 },
           display: { xs: "none", md: collapsed ? "flex" : "none" },
           flexDirection: "column",
           alignItems: "center",
           pt: 1,
           gap: 1,
-          borderRight: 1,
-          borderColor: "divider",
         }}
       >
         <Tooltip title="Show the span tree">
@@ -336,6 +385,7 @@ function SplitPane({
       </Box>
       <Box
         sx={{
+          ...card,
           gridColumn: { md: 2 },
           overflow: "auto",
           minWidth: 0,
@@ -380,17 +430,17 @@ function SplitPane({
           "&::after": {
             content: '""',
             position: "absolute",
-            top: 0,
-            bottom: 0,
+            top: 8,
+            bottom: 8,
             left: 2,
-            width: "1px",
-            bgcolor: "divider",
+            width: "2px",
+            borderRadius: 1,
           },
-          "&:hover::after, &:focus-visible::after": { bgcolor: "primary.main", width: "2px" },
+          "&:hover::after, &:focus-visible::after": { bgcolor: "primary.main" },
           outline: "none",
         }}
       />
-      <Box sx={{ gridColumn: { md: 4 }, overflow: "auto", minWidth: 0, minHeight: 0, borderTop: { xs: 1, md: 0 }, borderColor: "divider" }}>
+      <Box sx={{ ...card, gridColumn: { md: 4 }, overflow: "auto", minWidth: 0, minHeight: 0 }}>
         {right}
       </Box>
     </Box>
@@ -402,11 +452,13 @@ function SplitPane({
 function SpanTimeline({
   rows,
   detail,
+  accents,
   selectedId,
   onSelect,
 }: {
   rows: Row[];
   detail: ApiTraceDetail;
+  accents: Map<string, string>;
   selectedId?: string;
   onSelect: (spanId: string) => void;
 }) {
@@ -460,7 +512,7 @@ function SpanTimeline({
       </Box>
       {rows.map(({ span, depth }) => {
         const selected = span.spanId === selectedId;
-        const color = spanColor(span);
+        const color = spanColor(span, accents);
         const isRoot = span.spanId === trace.rootSpanId;
         return (
           <Box
@@ -477,7 +529,7 @@ function SpanTimeline({
             }}
           >
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, pl: `${10 + depth * 14}px`, pr: 1, overflow: "hidden" }}>
-              <Box sx={{ width: 8, height: 8, borderRadius: 0.5, bgcolor: color, flex: "none" }} />
+              <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: color, flex: "none" }} />
               <Typography noWrap title={span.name} sx={{ fontSize: 13 }}>
                 {span.name}
               </Typography>
@@ -755,12 +807,14 @@ function ChatMessages({ raw }: { raw: unknown }) {
 function SpanInspector({
   span,
   detail,
+  accents,
   tab,
   onTab,
   replay,
 }: {
   span: ApiSpan;
   detail: ApiTraceDetail;
+  accents: Map<string, string>;
   tab?: string;
   onTab: (tab: string) => void;
   replay?: string;
@@ -786,7 +840,7 @@ function SpanInspector({
     <Box>
       <Box sx={{ px: 2, pt: 1.5 }}>
         <Typography sx={{ fontWeight: 650, fontSize: 15, display: "flex", alignItems: "center", gap: 1 }}>
-          <Box component="span" sx={{ width: 9, height: 9, borderRadius: 0.5, bgcolor: spanColor(span), flex: "none" }} />
+          <Box component="span" sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: spanColor(span, accents), flex: "none" }} />
           {span.name}
         </Typography>
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", fontSize: 12, color: "text.secondary", mt: 0.25 }}>

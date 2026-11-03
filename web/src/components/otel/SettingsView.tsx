@@ -274,7 +274,7 @@ function MappingSection({ route }: { route: OtelRoute }) {
         </Select>
       </SectionHead>
 
-      <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+      <Paper variant="outlined">
         {CONCEPTS.map((concept, i) => {
           const disabled = !!(concept.global && scope);
           const changed = !same(mapping[concept.id], current[concept.id]);

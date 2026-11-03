@@ -100,7 +100,7 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
         </EmptyState>
       )}
       {items && items.length > 0 && (
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+        <TableContainer component={Paper} variant="outlined">
           <Table size="small" aria-label="Logs">
             <TableHead>
               <TableRow>

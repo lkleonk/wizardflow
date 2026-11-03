@@ -121,7 +121,7 @@ export default function ProjectsView() {
         return (
           // The grid stretches every card to its row's tallest; the button
           // fills the card so all of it highlights and clicks.
-          <Paper key={project.id} variant="outlined" sx={{ borderRadius: 2, overflow: "hidden", display: "flex" }}>
+          <Paper key={project.id} variant="outlined" sx={{ overflow: "hidden", display: "flex" }}>
             <ButtonBase
               onClick={() => goTo({ view: "traces", project: project.name })}
               sx={{
