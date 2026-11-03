@@ -41,6 +41,11 @@ while the tab is hidden and stops when the part gains `nextPart`, because a
 sealed part no longer grows. Part navigation loads neighboring files rather
 than stitching the entire rotation chain into one timeline.
 
+An OTLP JSON file passed to `wizardflow ui` is imported into the local
+database and opens in the OTel dashboard instead. `wizardflow serve` and the
+`wizardflow db` commands are covered in the
+[OTel dashboard guide](otel-dashboard.md).
+
 ## Markdown export
 
 ```bash

@@ -5,7 +5,7 @@ into a portable WizardFlow JSONL file that you can replay as an interactive
 graph, inspect with ordinary tools, or attach to a bug report.
 
 Drop the file into [getwizardflow.com](https://getwizardflow.com) and it is
-processed entirely in the browserâ€”nothing is uploaded. You can also replay it
+processed entirely in the browser—nothing is uploaded. You can also replay it
 locally with `wizardflow ui`.
 
 ![WizardFlow replaying an agent run](https://raw.githubusercontent.com/lkleonk/wizardflow/main/sdk/python/assets/demo.gif)
@@ -157,15 +157,18 @@ duck-typed through `app.get_graph()`.
 ## Documentation
 
 - **[Recording agent runs](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/recording.md)**
-  â€” messages, node scopes, semantic records, generic logs, kinds, output
+  — messages, node scopes, semantic records, generic logs, kinds, output
   selection, multiple clients, and reinitialization.
 - **[OpenTelemetry export](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/opentelemetry.md)**
-  â€” OTLP setup, provider ownership, GenAI mappings, privacy controls, graph
+  — OTLP setup, provider ownership, GenAI mappings, privacy controls, graph
   events, offline JSONL export, and cleanup.
 - **[WizardFlow JSONL format](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/jsonl-file-format.md)**
-  â€” record shapes, semantic fields, compatibility, and rotation.
+  — record shapes, semantic fields, compatibility, and rotation.
 - **[CLI and local viewer](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/cli.md)**
-  â€” live local replay and Markdown, HTML, and JSON export.
+  — live local replay and Markdown, HTML, and JSON export.
+- **[OTel dashboard](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/otel-dashboard.md)**
+  — import OTLP JSON into a local database, browse projects, traces, and logs,
+  open graph replay, and map attributes.
 
 ## CLI at a glance
 
@@ -175,6 +178,8 @@ wizardflow ui --latest traces/       # newest trace in a directory
 wizardflow md run.jsonl -o run.md    # Markdown export
 wizardflow html run.jsonl -o run.html
 wizardflow json run.jsonl -o run.json
+wizardflow db import traces.otlp.jsonl   # OTLP JSON into the local database
+wizardflow serve                     # OTel dashboard over that database
 ```
 
 All commands read both WizardFlow JSONL and the single-document JSON form. See
