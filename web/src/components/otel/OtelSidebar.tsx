@@ -20,9 +20,9 @@ import { goTo, otelHref, type OtelRoute } from "@/utils/otelRoute";
 
 /**
  * The dashboard's sidebar. Graph replay (`replay`) shows it too, always folded
- * to the rail and without the pieces its own header already has (fold toggle,
- * color mode); there it links back into the dashboard instead of routing in
- * place.
+ * to the rail and without the fold toggle; it keeps the color mode toggle
+ * (AppHeader hides its own beside it), and links back into the dashboard
+ * instead of routing in place.
  */
 export default function OtelSidebar({
   route,
@@ -201,53 +201,51 @@ export default function OtelSidebar({
           active === "settings"
         )}
       </List>
-      {!replay && (
-        <Box
-          sx={{
-            mt: "auto",
-            px: folded ? 0 : 1.75,
-            py: 1,
-            borderTop: 1,
-            borderColor: "divider",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 1,
-          }}
-        >
-          {!folded && dbPath && (
-            <Tooltip title={dbPath}>
-              <Typography
-                noWrap
-                sx={{
-                  flex: 1,
-                  fontSize: 11.5,
-                  color: "text.secondary",
-                  fontFamily: "var(--font-geist-mono), monospace",
-                }}
-              >
-                {dbPath.split(/[\\/]/).slice(-2).join("/")}
-              </Typography>
-            </Tooltip>
-          )}
-          <Tooltip
-            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-            placement={folded ? "right" : "top"}
-          >
-            <IconButton
-              size="small"
-              onClick={() => setMode(isDark ? "light" : "dark")}
-              aria-label="Toggle color mode"
+      <Box
+        sx={{
+          mt: "auto",
+          px: folded ? 0 : 1.75,
+          py: 1,
+          borderTop: 1,
+          borderColor: "divider",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 1,
+        }}
+      >
+        {!folded && dbPath && (
+          <Tooltip title={dbPath}>
+            <Typography
+              noWrap
+              sx={{
+                flex: 1,
+                fontSize: 11.5,
+                color: "text.secondary",
+                fontFamily: "var(--font-geist-mono), monospace",
+              }}
             >
-              {isDark ? (
-                <LightModeOutlinedIcon fontSize="small" />
-              ) : (
-                <DarkModeOutlinedIcon fontSize="small" />
-              )}
-            </IconButton>
+              {dbPath.split(/[\\/]/).slice(-2).join("/")}
+            </Typography>
           </Tooltip>
-        </Box>
-      )}
+        )}
+        <Tooltip
+          title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          placement={folded ? "right" : "top"}
+        >
+          <IconButton
+            size="small"
+            onClick={() => setMode(isDark ? "light" : "dark")}
+            aria-label="Toggle color mode"
+          >
+            {isDark ? (
+              <LightModeOutlinedIcon fontSize="small" />
+            ) : (
+              <DarkModeOutlinedIcon fontSize="small" />
+            )}
+          </IconButton>
+        </Tooltip>
+      </Box>
     </Paper>
   );
 }

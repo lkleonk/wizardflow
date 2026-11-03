@@ -376,7 +376,13 @@ export default function AppHeader({
             size="small"
             onClick={onToggleColorMode}
             aria-label="Toggle color mode"
-            sx={wideOnly}
+            // From the dashboard, its sidebar (md up) has the toggle, in the
+            // same corner as on every dashboard page.
+            sx={
+              context === "from-dashboard"
+                ? { display: { xs: "none", sm: "inline-flex", md: "none" } }
+                : wideOnly
+            }
           >
             {isDarkMode ? (
               <LightModeOutlinedIcon fontSize="small" />
