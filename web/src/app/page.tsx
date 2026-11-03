@@ -63,7 +63,9 @@ import {
 } from "@/hooks/useKeyboardShortcuts";
 import { withUniqueLabels } from "@/utils/payloadLabels";
 import { parseAgentTrace } from "@/utils/agentTraceFile";
-import { useViewerChrome } from "@/utils/viewerContext";
+import { useDashboardBackHref, useViewerChrome } from "@/utils/viewerContext";
+import { parseOtelRoute } from "@/utils/otelRoute";
+import OtelSidebar from "@/components/otel/OtelSidebar";
 import {
   isTraceExtension,
   watchTrace,
@@ -186,6 +188,12 @@ export default function Home() {
   // Which chrome this context shows: the website's tour and examples, or the
   // trimmed viewer of `wizardflow ui` / a replay opened from the dashboard.
   const { chrome } = useViewerChrome();
+  // From the dashboard, its sidebar stays beside the replay, pointing at the
+  // project the user came from.
+  const dashboardBackHref = useDashboardBackHref();
+  const dashboardRoute = parseOtelRoute(
+    new URLSearchParams(dashboardBackHref?.split("?")[1] ?? "")
+  );
 
   // The welcome dialog shows until the user makes their first choice this
   // session (then it's remembered), and never while a saved flow is loaded.
@@ -1055,207 +1063,242 @@ export default function Home() {
   const selectedNodeLabel = selectedNode?.label;
 
   return (
+    // Always this row, sidebar or not: switching the tree's shape after
+    // hydration (the context is read from the URL) would remount the viewer.
     <Box
       sx={{
-        minHeight: "100dvh",
-        height: { xs: "auto", md: "100%" },
-        width: "100%",
-        maxWidth: "100vw",
-        overflowX: "hidden",
         display: "flex",
-        flexDirection: "column",
-        pb: {
-          xs: `calc(${MOBILE_FOOTER_RESERVED_HEIGHT} + env(safe-area-inset-bottom))`,
-          sm: 0,
-        },
+        height: { xs: "auto", md: "100%" },
+        bgcolor: "background.default",
       }}
     >
-      {/* Only over a flow already on screen (stepping to another part): a
-          first load is behind TracePendingScript's full-screen cover. */}
-      <Backdrop
-        open={isLoadingUrlTrace && hasFlow}
-        sx={{
-          zIndex: (theme) => theme.zIndex.modal + 1,
-          color: "primary.contrastText",
-        }}
-      >
-        <CircularProgress aria-label="Loading trace" color="inherit" />
-      </Backdrop>
-
-      <WelcomeDialog
-        open={welcomeOpen}
-        onDismiss={() => setWelcomeDismissed()}
-        onUploadLoad={handleUploadLoad}
-        onWatchDemo={() =>
-          requestExample({
-            flow: flagshipExample,
-            options: { autoplay: true, playThrough: true },
-            toast: { step: 1, flagship: true, withSdkPitch: true },
-          })
-        }
-        watchDemoLoading={isFlagshipLoading}
-        onOpenTutorial={() => {
-          setWelcomeDismissed();
-          setTutorialOpen(true);
-        }}
-        onBrowseExamples={() => {
-          setWelcomeDismissed();
-          setGalleryOpen(true);
-        }}
-      />
-
-      <SearchDialog
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        trace={trace}
-        onJump={handleSearchJump}
-      />
-
-      <ExampleGallery
-        open={galleryOpen}
-        onClose={() => setGalleryOpen(false)}
-        onSelect={(flow) => {
-          requestExample({ flow, options: { autoplay: true } });
-        }}
-        currentExampleId={currentExampleId}
-      />
-
-      <ReplaceFlowDialog
-        open={pendingExample !== null}
-        incomingTitle={pendingExample?.flow.title}
-        openFlowName={trace.name}
-        onCancel={() => setPendingExample(null)}
-        onOpenInNewTab={handleReplaceInNewTab}
-        onOpenHere={handleReplaceHere}
-      />
-
-      <TutorialDialog
-        open={tutorialOpen}
-        onClose={() => setTutorialOpen(false)}
-        onWatchDemo={() => {
-          setTutorialOpen(false);
-          requestExample({
-            flow: flagshipExample,
-            options: { autoplay: true, playThrough: true },
-            toast: { step: 1, flagship: true, withSdkPitch: false },
-          });
-        }}
-      />
-
-      {chrome.demoGuide && (
-        <DemoExplainerToast
-          toast={demoToast}
-          onChange={setDemoToast}
-          onOpenTutorial={() => setTutorialOpen(true)}
-        />
+      {chrome.dashboardSidebar && (
+        <OtelSidebar route={dashboardRoute} replay />
       )}
-
-      <LoadNotices
-        uploadNoticeOpen={uploadNoticeOpen}
-        onCloseUploadNotice={() => setUploadNoticeOpen(false)}
-        exampleErrorOpen={exampleErrorOpen}
-        onCloseExampleError={() => setExampleErrorOpen(false)}
-      />
-
-      <AppHeader
-        trace={trace}
-        hasFlow={hasFlow}
-        canClearFlow={!!savedFlow}
-        isServedTrace={isServedTrace}
-        isLiveWatching={isLiveWatching}
-        partLinks={partLinks}
-        onGoToPart={goToPart}
-        onClearFlow={handleDropFlow}
-        onOpenGallery={() => setGalleryOpen(true)}
-        onUploadLoad={handleUploadLoad}
-        onOpenTutorial={() => setTutorialOpen(true)}
-        onOpenSearch={openSearch}
-        isDarkMode={isDarkMode}
-        onToggleColorMode={toggleColorMode}
-        inspectorOpen={inspector.open}
-        onToggleInspector={inspector.toggle}
-        onInteract={disableGraphArrangeMode}
-      />
-
-      {/* Main area: graph + inspector. No gap — the resize handle is the
-          separator, so it stays slim. */}
       <Box
         sx={{
-          flex: { xs: "0 0 auto", md: 1 },
+          minHeight: "100dvh",
+          height: { xs: "auto", md: "100%" },
+          flex: 1,
+          minWidth: 0,
+          width: "100%",
+          maxWidth: "100vw",
+          overflowX: "hidden",
           display: "flex",
-          flexDirection: { xs: "column", md: "row" },
-          minHeight: 0,
-          p: { xs: 1, sm: 1.5 },
-          gap: { xs: 1, md: 0 },
+          flexDirection: "column",
+          pb: {
+            xs: `calc(${MOBILE_FOOTER_RESERVED_HEIGHT} + env(safe-area-inset-bottom))`,
+            sm: 0,
+          },
         }}
       >
-        <Paper
+        {/* Only over a flow already on screen (stepping to another part): a
+            first load is behind TracePendingScript's full-screen cover. */}
+        <Backdrop
+          open={isLoadingUrlTrace && hasFlow}
           sx={{
-            flex: { xs: "0 0 auto", md: 1 },
-            minWidth: 0,
-            minHeight: { xs: 320, md: 0 },
-            height: {
-              xs: inspector.open
-                ? "clamp(320px, 52dvh, 520px)"
-                : `clamp(320px, calc(100dvh - ${MOBILE_GRAPH_CHROME_HEIGHT} - env(safe-area-inset-bottom)), 720px)`,
-              md: "auto",
-            },
-            overflow: "hidden",
+            zIndex: (theme) => theme.zIndex.modal + 1,
+            color: "primary.contrastText",
           }}
         >
-          {hasFlow ? (
-            <GraphCanvas
-              nodes={graph.nodes}
-              edges={graph.edges}
-              activeNodeId={activeNodeId}
-              selectedNodeId={selectedNodeId}
-              recentNodeIds={recentNodeIds}
-              onSelectNode={handleSelectNode}
-              isPlaying={isPlaying}
-              arrangeMode={graphArrangeMode}
-              onArrangeModeChange={setGraphArrangeMode}
-              nodeKinds={nodeKinds}
-            />
-          ) : urlTraceError ? (
-            <TraceLoadError message={urlTraceError} />
-          ) : (
-            // Under the first-paint cover while a `?trace=` URL loads.
-            <EmptyCanvas
-              onUploadLoad={handleUploadLoad}
-              onOpenGallery={() => setGalleryOpen(true)}
-              showExamples={chrome.examples}
-            />
-          )}
-        </Paper>
-        {inspector.open && (
-          <>
-            <Box
-              onMouseDown={inspector.startResize}
-              sx={{
-                display: { xs: "none", md: "block" },
-                width: 6,
-                flexShrink: 0,
-                alignSelf: "stretch",
-                cursor: "col-resize",
-                borderRadius: 1,
-                bgcolor: "transparent",
-                transition: "background-color 120ms",
-                "&:hover": { bgcolor: "primary.main" },
-              }}
-            />
-            <Paper
-              onClickCapture={disableGraphArrangeMode}
-              sx={{
-                width: { xs: "100%", md: inspector.width },
-                height: { xs: 320, md: "auto" },
-                flexShrink: 0,
-                overflow: "hidden",
-              }}
-            >
-              {/* While maximized the panel lives in the fullscreen Dialog
-                  below instead — rendering it in both places would fork its
-                  internal tab state. */}
-              {!inspector.maximized && (
+          <CircularProgress aria-label="Loading trace" color="inherit" />
+        </Backdrop>
+
+        <WelcomeDialog
+          open={welcomeOpen}
+          onDismiss={() => setWelcomeDismissed()}
+          onUploadLoad={handleUploadLoad}
+          onWatchDemo={() =>
+            requestExample({
+              flow: flagshipExample,
+              options: { autoplay: true, playThrough: true },
+              toast: { step: 1, flagship: true, withSdkPitch: true },
+            })
+          }
+          watchDemoLoading={isFlagshipLoading}
+          onOpenTutorial={() => {
+            setWelcomeDismissed();
+            setTutorialOpen(true);
+          }}
+          onBrowseExamples={() => {
+            setWelcomeDismissed();
+            setGalleryOpen(true);
+          }}
+        />
+
+        <SearchDialog
+          open={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          trace={trace}
+          onJump={handleSearchJump}
+        />
+
+        <ExampleGallery
+          open={galleryOpen}
+          onClose={() => setGalleryOpen(false)}
+          onSelect={(flow) => {
+            requestExample({ flow, options: { autoplay: true } });
+          }}
+          currentExampleId={currentExampleId}
+        />
+
+        <ReplaceFlowDialog
+          open={pendingExample !== null}
+          incomingTitle={pendingExample?.flow.title}
+          openFlowName={trace.name}
+          onCancel={() => setPendingExample(null)}
+          onOpenInNewTab={handleReplaceInNewTab}
+          onOpenHere={handleReplaceHere}
+        />
+
+        <TutorialDialog
+          open={tutorialOpen}
+          onClose={() => setTutorialOpen(false)}
+          onWatchDemo={() => {
+            setTutorialOpen(false);
+            requestExample({
+              flow: flagshipExample,
+              options: { autoplay: true, playThrough: true },
+              toast: { step: 1, flagship: true, withSdkPitch: false },
+            });
+          }}
+        />
+
+        {chrome.demoGuide && (
+          <DemoExplainerToast
+            toast={demoToast}
+            onChange={setDemoToast}
+            onOpenTutorial={() => setTutorialOpen(true)}
+          />
+        )}
+
+        <LoadNotices
+          uploadNoticeOpen={uploadNoticeOpen}
+          onCloseUploadNotice={() => setUploadNoticeOpen(false)}
+          exampleErrorOpen={exampleErrorOpen}
+          onCloseExampleError={() => setExampleErrorOpen(false)}
+        />
+
+        <AppHeader
+          trace={trace}
+          hasFlow={hasFlow}
+          canClearFlow={!!savedFlow}
+          isServedTrace={isServedTrace}
+          isLiveWatching={isLiveWatching}
+          partLinks={partLinks}
+          onGoToPart={goToPart}
+          onClearFlow={handleDropFlow}
+          onOpenGallery={() => setGalleryOpen(true)}
+          onUploadLoad={handleUploadLoad}
+          onOpenTutorial={() => setTutorialOpen(true)}
+          onOpenSearch={openSearch}
+          isDarkMode={isDarkMode}
+          onToggleColorMode={toggleColorMode}
+          inspectorOpen={inspector.open}
+          onToggleInspector={inspector.toggle}
+          onInteract={disableGraphArrangeMode}
+        />
+
+        {/* Main area: graph + inspector. No gap — the resize handle is the
+            separator, so it stays slim. */}
+        <Box
+          sx={{
+            flex: { xs: "0 0 auto", md: 1 },
+            display: "flex",
+            flexDirection: { xs: "column", md: "row" },
+            minHeight: 0,
+            p: { xs: 1, sm: 1.5 },
+            gap: { xs: 1, md: 0 },
+          }}
+        >
+          <Paper
+            sx={{
+              flex: { xs: "0 0 auto", md: 1 },
+              minWidth: 0,
+              minHeight: { xs: 320, md: 0 },
+              height: {
+                xs: inspector.open
+                  ? "clamp(320px, 52dvh, 520px)"
+                  : `clamp(320px, calc(100dvh - ${MOBILE_GRAPH_CHROME_HEIGHT} - env(safe-area-inset-bottom)), 720px)`,
+                md: "auto",
+              },
+              overflow: "hidden",
+            }}
+          >
+            {hasFlow ? (
+              <GraphCanvas
+                nodes={graph.nodes}
+                edges={graph.edges}
+                activeNodeId={activeNodeId}
+                selectedNodeId={selectedNodeId}
+                recentNodeIds={recentNodeIds}
+                onSelectNode={handleSelectNode}
+                isPlaying={isPlaying}
+                arrangeMode={graphArrangeMode}
+                onArrangeModeChange={setGraphArrangeMode}
+                nodeKinds={nodeKinds}
+              />
+            ) : urlTraceError ? (
+              <TraceLoadError message={urlTraceError} />
+            ) : (
+              // Under the first-paint cover while a `?trace=` URL loads.
+              <EmptyCanvas
+                onUploadLoad={handleUploadLoad}
+                onOpenGallery={() => setGalleryOpen(true)}
+                showExamples={chrome.examples}
+              />
+            )}
+          </Paper>
+          {inspector.open && (
+            <>
+              <Box
+                onMouseDown={inspector.startResize}
+                sx={{
+                  display: { xs: "none", md: "block" },
+                  width: 6,
+                  flexShrink: 0,
+                  alignSelf: "stretch",
+                  cursor: "col-resize",
+                  borderRadius: 1,
+                  bgcolor: "transparent",
+                  transition: "background-color 120ms",
+                  "&:hover": { bgcolor: "primary.main" },
+                }}
+              />
+              <Paper
+                onClickCapture={disableGraphArrangeMode}
+                sx={{
+                  width: { xs: "100%", md: inspector.width },
+                  height: { xs: 320, md: "auto" },
+                  flexShrink: 0,
+                  overflow: "hidden",
+                }}
+              >
+                {/* While maximized the panel lives in the fullscreen Dialog
+                    below instead — rendering it in both places would fork its
+                    internal tab state. */}
+                {!inspector.maximized && (
+                  <InspectorPanel
+                    selectedNodeId={selectedNodeId}
+                    selectedNodeLabel={selectedNodeLabel}
+                    selectedNodeDescription={selectedNode?.description}
+                    payloads={payloads}
+                    visits={selectedNodeVisits}
+                    currentVisitStepId={currentVisitStepId}
+                    visitedInMessage={selectedNodeVisited}
+                    maximized={false}
+                    onMaximizedChange={inspector.setMaximized}
+                    focusPayload={inspector.focus}
+                    selectedPayload={inspector.selectedPayload}
+                    onSelectedPayloadChange={inspector.setSelectedPayload}
+                  />
+                )}
+              </Paper>
+              <Dialog
+                fullScreen
+                open={inspector.maximized}
+                onClose={() => inspector.setMaximized(false)}
+              >
                 <InspectorPanel
                   selectedNodeId={selectedNodeId}
                   selectedNodeLabel={selectedNodeLabel}
@@ -1264,90 +1307,70 @@ export default function Home() {
                   visits={selectedNodeVisits}
                   currentVisitStepId={currentVisitStepId}
                   visitedInMessage={selectedNodeVisited}
-                  maximized={false}
+                  maximized
                   onMaximizedChange={inspector.setMaximized}
                   focusPayload={inspector.focus}
                   selectedPayload={inspector.selectedPayload}
                   onSelectedPayloadChange={inspector.setSelectedPayload}
                 />
-              )}
-            </Paper>
-            <Dialog
-              fullScreen
-              open={inspector.maximized}
-              onClose={() => inspector.setMaximized(false)}
-            >
-              <InspectorPanel
-                selectedNodeId={selectedNodeId}
-                selectedNodeLabel={selectedNodeLabel}
-                selectedNodeDescription={selectedNode?.description}
-                payloads={payloads}
-                visits={selectedNodeVisits}
-                currentVisitStepId={currentVisitStepId}
-                visitedInMessage={selectedNodeVisited}
-                maximized
-                onMaximizedChange={inspector.setMaximized}
-                focusPayload={inspector.focus}
-                selectedPayload={inspector.selectedPayload}
-                onSelectedPayloadChange={inspector.setSelectedPayload}
-              />
-            </Dialog>
-          </>
-        )}
-      </Box>
+              </Dialog>
+            </>
+          )}
+        </Box>
 
-      {/* Footer: timeline + playback */}
-      <Paper
-        square
-        onClickCapture={disableGraphArrangeMode}
-        sx={{
-          borderTop: 1,
-          borderColor: "divider",
-          position: { xs: "fixed", sm: "static" },
-          right: { xs: 0, sm: "auto" },
-          bottom: { xs: 0, sm: "auto" },
-          left: { xs: 0, sm: "auto" },
-          width: { xs: "100vw", sm: "auto" },
-          maxWidth: "100vw",
-          overflowX: "hidden",
-          zIndex: (theme) => theme.zIndex.appBar,
-          pb: { xs: "env(safe-area-inset-bottom)", sm: 0 },
-        }}
-      >
-        <MessageTimeline
-          messages={trace.messages}
-          selectedMessageId={selectedMessageId}
-          onSelectMessage={handleSelectMessage}
-          newMessageCount={newLiveMessageCount}
-          onJumpToNewest={handleJumpToNewest}
-        />
-        <PlaybackControls
-          stepIndex={currentStepIndex}
-          stepCount={stepCount}
-          isPlaying={isPlaying}
-          playbackMode={playbackMode}
-          playbackSpeed={playbackSpeed}
-          deltaMs={currentDeltaMs}
-          elapsedMs={currentElapsedMs}
-          onPrev={() => {
-            disableGraphArrangeMode();
-            goToStep(currentStepIndex - 1);
+        {/* Footer: timeline + playback */}
+        <Paper
+          square
+          onClickCapture={disableGraphArrangeMode}
+          sx={{
+            borderTop: 1,
+            borderColor: "divider",
+            position: { xs: "fixed", sm: "static" },
+            right: { xs: 0, sm: "auto" },
+            bottom: { xs: 0, sm: "auto" },
+            left: { xs: 0, sm: "auto" },
+            width: { xs: "100vw", sm: "auto" },
+            maxWidth: "100vw",
+            overflowX: "hidden",
+            zIndex: (theme) => theme.zIndex.appBar,
+            pb: { xs: "env(safe-area-inset-bottom)", sm: 0 },
           }}
-          onNext={() => {
-            disableGraphArrangeMode();
-            goToStep(currentStepIndex + 1);
-          }}
-          onTogglePlay={handleTogglePlay}
-          onTogglePlaybackMode={handleTogglePlaybackMode}
-          onCyclePlaybackSpeed={handleCyclePlaybackSpeed}
-          onSeek={(index) => {
-            disableGraphArrangeMode();
-            setIsPlaying(false);
-            goToStep(index);
-          }}
-        />
-        {chrome.footer && <FooterLinks />}
-      </Paper>
+        >
+          <MessageTimeline
+            messages={trace.messages}
+            selectedMessageId={selectedMessageId}
+            onSelectMessage={handleSelectMessage}
+            newMessageCount={newLiveMessageCount}
+            onJumpToNewest={handleJumpToNewest}
+          />
+          <PlaybackControls
+            stepIndex={currentStepIndex}
+            stepCount={stepCount}
+            isPlaying={isPlaying}
+            playbackMode={playbackMode}
+            playbackSpeed={playbackSpeed}
+            deltaMs={currentDeltaMs}
+            elapsedMs={currentElapsedMs}
+            onPrev={() => {
+              disableGraphArrangeMode();
+              goToStep(currentStepIndex - 1);
+            }}
+            onNext={() => {
+              disableGraphArrangeMode();
+              goToStep(currentStepIndex + 1);
+            }}
+            onTogglePlay={handleTogglePlay}
+            onTogglePlaybackMode={handleTogglePlaybackMode}
+            onCyclePlaybackSpeed={handleCyclePlaybackSpeed}
+            onSeek={(index) => {
+              disableGraphArrangeMode();
+              setIsPlaying(false);
+              goToStep(index);
+            }}
+          />
+          {chrome.footer && <FooterLinks />}
+        </Paper>
+      </Box>
     </Box>
   );
 }

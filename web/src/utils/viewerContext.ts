@@ -22,6 +22,8 @@ export type ViewerChrome = {
   /** Welcome dialog and the demo explainer toast. */
   demoGuide: boolean;
   footer: boolean;
+  /** The dashboard's sidebar, folded to its rail, beside the replay. */
+  dashboardSidebar: boolean;
 };
 
 // The one place that decides what each context shows; components read this
@@ -37,6 +39,7 @@ const CHROME: Record<ViewerContext, ViewerChrome> = {
     localDataPromise: true,
     demoGuide: true,
     footer: true,
+    dashboardSidebar: false,
   },
   "local-file": {
     examples: false,
@@ -46,6 +49,7 @@ const CHROME: Record<ViewerContext, ViewerChrome> = {
     localDataPromise: false,
     demoGuide: false,
     footer: true,
+    dashboardSidebar: false,
   },
   "from-dashboard": {
     examples: false,
@@ -55,6 +59,7 @@ const CHROME: Record<ViewerContext, ViewerChrome> = {
     localDataPromise: false,
     demoGuide: false,
     footer: false,
+    dashboardSidebar: true,
   },
 };
 
