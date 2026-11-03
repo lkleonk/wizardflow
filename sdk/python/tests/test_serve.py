@@ -236,6 +236,50 @@ def test_cors_only_for_local_origins(api):
     assert allowed("https://evil.example") is None
 
 
+def _send(api, method, path, body=None, headers=None):
+    data = None if body is None else json.dumps(body).encode("utf-8")
+    request = Request(api.base + path, data=data, method=method, headers={
+        **({"Content-Type": "application/json"} if data is not None else {}), **(headers or {}),
+    })
+    try:
+        with urlopen(request, timeout=5) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
+def test_mapping_write_reindexes_and_reset_restores(api):
+    status, body = _send(api, "PUT", "/api/settings/mapping",
+                         {"project": "advisor", "mapping": {"node": ["gen_ai.operation.name"]}})
+    assert status == 200
+    assert body["reindexed"] == {"traces": 2, "replayable": 1}
+    assert body["mapping"]["overrides"] == {"advisor": {"node": ["gen_ai.operation.name"]}}
+    assert api("/api/settings/coverage?project=advisor")["node"]["matched"] == 1
+    status, body = _send(api, "DELETE", "/api/settings/mapping?project=advisor")
+    assert status == 200 and body["mapping"]["overrides"] == {}
+
+
+def test_mapping_write_errors_and_foreign_origins(api):
+    assert _send(api, "PUT", "/api/settings/mapping", {"mapping": {"nope": []}})[0] == 400
+    assert _send(api, "PUT", "/api/settings/mapping", {"mapping": {"node": []}},
+                 headers={"Origin": "https://evil.example"})[0] == 403
+    assert _send(api, "PUT", "/api/settings/mapping", {"mapping": {"node": []}},
+                 headers={"Host": "evil.example"})[0] == 403
+    request = Request(api.base + "/api/settings/mapping", data=b"{}", method="PUT",
+                      headers={"Content-Type": "text/plain"})
+    with pytest.raises(HTTPError) as exc:
+        urlopen(request, timeout=5)
+    assert exc.value.code == 415
+
+
+def test_trace_groups_and_conversation_filter(api):
+    groups = api("/api/traces/groups?project=advisor")["items"]
+    assert [g["conversationId"] for g in groups] == ["chat-1", None]
+    members = api("/api/traces?project=advisor&conversation=chat-1")["items"]
+    assert [t["traceId"] for t in members] == [TRACE_A]
+    assert [t["traceId"] for t in api("/api/traces?project=advisor&noConversation=1")["items"]] == [TRACE_B]
+
+
 def test_api_answers_unchanged_data_with_304(api):
     # The replay viewer revalidates its trace URL with If-None-Match.
     url = api.base + "/api/projects"

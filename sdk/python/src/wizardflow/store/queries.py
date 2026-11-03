@@ -12,16 +12,22 @@ together:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from .mapping import load_mapping
-from .schema import FLAG_GENAI, FLAG_WIZARDFLOW, LATEST_VERSION
+from .schema import FLAG_GENAI, FLAG_TOPOLOGY, FLAG_WIZARDFLOW, LATEST_VERSION
 
 DEFAULT_PAGE = 50
 MAX_PAGE = 500
 
 TRACE_KINDS = ("all", "wizardflow", "genai", "otel")
+
+# Project activity chart: 24 half-hour slots.
+ACTIVITY_SLOT_NS = 30 * 60 * 1_000_000_000
+ACTIVITY_SLOTS = 24
 LOG_CORRELATIONS = ("all", "with", "without")
 
 
@@ -37,19 +43,26 @@ class NotFound(LookupError):
 
 
 def meta(con: sqlite3.Connection, *, db_path: str, version: str) -> Dict[str, Any]:
+    size = 0
+    for suffix in ("", "-wal"):
+        try:
+            size += os.path.getsize(db_path + suffix)
+        except OSError:
+            pass
     return {
         "schemaVersion": con.execute("PRAGMA user_version").fetchone()[0],
         "latestSchemaVersion": LATEST_VERSION,
         "dbPath": db_path,
+        "dbSizeBytes": size,
         "wizardflowVersion": version,
-        "capabilities": ["traces", "logs", "settings"],
+        "capabilities": ["traces", "logs", "settings", "settings-write"],
     }
 
 
 # --------------------------------------------------------------------------- projects
 
 
-def list_projects(con: sqlite3.Connection) -> List[Dict[str, Any]]:
+def list_projects(con: sqlite3.Connection, *, now_ns: Optional[int] = None) -> List[Dict[str, Any]]:
     rows = con.execute(
         """
         SELECT p.id, p.name,
@@ -86,8 +99,37 @@ def list_projects(con: sqlite3.Connection) -> List[Dict[str, Any]]:
             "lastSeenNs": _ns(max(last_trace, last_log)) if (last_trace or last_log) else None,
             "flags": layer_flags,
             "services": sorted(filter(None, (services or "").split(","))),
+            "activity": _activity(con, pid, now_ns or time.time_ns()),
         })
     return projects
+
+
+def _activity(con: sqlite3.Connection, pid: int, now_ns: int) -> Dict[str, Any]:
+    """Traces started per half hour over 12 hours, ending now; or ending at
+    the project's last trace when that is older (an imported old dump)."""
+    slot, slots = ACTIVITY_SLOT_NS, ACTIVITY_SLOTS
+    end = -(-now_ns // slot) * slot
+    anchor = "now"
+    latest = con.execute(
+        "SELECT max(start_ns) FROM traces WHERE project_id = ?", (pid,)
+    ).fetchone()[0]
+    if latest is not None and latest < end - slots * slot:
+        end, anchor = (latest // slot + 1) * slot, "last"
+    start = end - slots * slot
+    traces, errors = [0] * slots, [0] * slots
+    for index, count, failed in con.execute(
+        "SELECT (start_ns - ?) / ?, count(*), sum(error_count > 0) FROM traces "
+        "WHERE project_id = ? AND start_ns >= ? AND start_ns < ? GROUP BY 1",
+        (start, slot, pid, start, end),
+    ):
+        traces[index], errors[index] = count, failed
+    return {
+        "endNs": _ns(end),
+        "slotNs": _ns(slot),
+        "anchor": anchor,
+        "traces": traces,
+        "errors": errors,
+    }
 
 
 def project_id(con: sqlite3.Connection, name: Optional[str]) -> int:
@@ -117,16 +159,105 @@ def list_traces(
     kind: str = "all",
     errors_only: bool = False,
     q: Optional[str] = None,
+    conversation: Optional[str] = None,
+    no_conversation: bool = False,
     cursor: Optional[str] = None,
     limit: int = DEFAULT_PAGE,
 ) -> Dict[str, Any]:
     """Newest first, keyset-paged on (start_ns, id)."""
     pid = project_id(con, project)
+    limit = _limit(limit)
+    where, params = _trace_filters(
+        pid, from_ns=from_ns, to_ns=to_ns, kind=kind, errors_only=errors_only, q=q,
+        conversation=conversation, no_conversation=no_conversation,
+    )
+    if cursor:
+        start, row_id = _parse_cursor(cursor)
+        where.append("(start_ns < ? OR (start_ns = ? AND id < ?))")
+        params += [start, start, row_id]
+    rows = con.execute(
+        f"SELECT {_TRACE_COLUMNS} FROM traces WHERE {' AND '.join(where)} "
+        "ORDER BY start_ns DESC, id DESC LIMIT ?",
+        [*params, limit + 1],
+    ).fetchall()
+    items = [_trace_row(row) for row in rows[:limit]]
+    next_cursor = None
+    if len(rows) > limit:
+        last = rows[limit - 1]
+        next_cursor = f"{last[4]}:{last[0]}"
+    return {"items": items, "nextCursor": next_cursor}
+
+
+def list_conversation_groups(
+    con: sqlite3.Connection,
+    project: str,
+    *,
+    from_ns: Optional[int] = None,
+    to_ns: Optional[int] = None,
+    kind: str = "all",
+    errors_only: bool = False,
+    q: Optional[str] = None,
+    limit: int = DEFAULT_PAGE,
+) -> Dict[str, Any]:
+    """The trace list grouped by conversation id, newest activity first; the
+    traces without one come last as a single group (``conversationId`` null).
+    The same filters as ``list_traces`` pick the traces that are grouped."""
+    pid = project_id(con, project)
+    limit = _limit(limit)
+    where, params = _trace_filters(
+        pid, from_ns=from_ns, to_ns=to_ns, kind=kind, errors_only=errors_only, q=q
+    )
+    rows = con.execute(
+        "SELECT conversation_id, count(*), min(start_ns), max(start_ns), max(end_ns), "
+        "sum(span_count), sum(log_count), sum(error_count > 0), sum(input_tokens), "
+        f"sum(output_tokens), max(model), sum(flags & {FLAG_WIZARDFLOW} > 0), "
+        f"max(flags & {FLAG_GENAI}) | max(flags & {FLAG_WIZARDFLOW}) | max(flags & {FLAG_TOPOLOGY}) "
+        f"FROM traces WHERE {' AND '.join(where)} GROUP BY conversation_id "
+        "ORDER BY conversation_id IS NULL, max(start_ns) DESC LIMIT ?",
+        [*params, limit + 1],
+    ).fetchall()
+    items = [
+        {
+            "conversationId": conversation,
+            "traceCount": count,
+            "replayableCount": replayable,
+            "firstNs": _ns(first),
+            "lastStartNs": _ns(last_start),
+            "lastEndNs": _ns(last_end),
+            "spanCount": spans,
+            "logCount": logs,
+            "errorTraceCount": failed,
+            "inputTokens": in_tok,
+            "outputTokens": out_tok,
+            "model": model,
+            "flags": flags,
+        }
+        for (conversation, count, first, last_start, last_end, spans, logs, failed, in_tok,
+             out_tok, model, replayable, flags) in rows[:limit]
+    ]
+    return {"items": items, "hasMore": len(rows) > limit}
+
+
+def _trace_filters(
+    pid: int,
+    *,
+    from_ns: Optional[int],
+    to_ns: Optional[int],
+    kind: str,
+    errors_only: bool,
+    q: Optional[str],
+    conversation: Optional[str] = None,
+    no_conversation: bool = False,
+) -> Tuple[List[str], List[Any]]:
     if kind not in TRACE_KINDS:
         raise QueryError(f"kind must be one of {', '.join(TRACE_KINDS)}")
-    limit = _limit(limit)
     where = ["project_id = ?"]
     params: List[Any] = [pid]
+    if conversation is not None:
+        where.append("conversation_id = ?")
+        params.append(conversation)
+    elif no_conversation:
+        where.append("conversation_id IS NULL")
     if from_ns is not None:
         where.append("start_ns >= ?")
         params.append(from_ns)
@@ -148,21 +279,7 @@ def list_traces(
             "OR conversation_id LIKE ? ESCAPE '\\' OR model LIKE ? ESCAPE '\\')"
         )
         params += [like] * 4
-    if cursor:
-        start, row_id = _parse_cursor(cursor)
-        where.append("(start_ns < ? OR (start_ns = ? AND id < ?))")
-        params += [start, start, row_id]
-    rows = con.execute(
-        f"SELECT {_TRACE_COLUMNS} FROM traces WHERE {' AND '.join(where)} "
-        "ORDER BY start_ns DESC, id DESC LIMIT ?",
-        [*params, limit + 1],
-    ).fetchall()
-    items = [_trace_row(row) for row in rows[:limit]]
-    next_cursor = None
-    if len(rows) > limit:
-        last = rows[limit - 1]
-        next_cursor = f"{last[4]}:{last[0]}"
-    return {"items": items, "nextCursor": next_cursor}
+    return where, params
 
 
 def get_trace(con: sqlite3.Connection, project: str, trace_id: str) -> Dict[str, Any]:

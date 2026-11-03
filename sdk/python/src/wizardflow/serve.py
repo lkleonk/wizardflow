@@ -1,4 +1,7 @@
-"""``wizardflow serve``: the bundled UI plus a read API over the local OTel store."""
+"""``wizardflow serve``: the bundled UI plus an API over the local OTel store.
+
+Read-only apart from the settings writes (the attribute mapping), which are
+accepted from this machine only."""
 
 from __future__ import annotations
 
@@ -13,7 +16,7 @@ from typing import Any, Callable, Dict, Optional
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit, urlparse
 
 from .store import open_store, projection
-from .store import queries
+from .store import queries, settings
 
 API_PREFIX = "/api/"
 DASHBOARD_ROUTE = "/otel"
@@ -37,14 +40,73 @@ def make_serve_handler(
                 self.path = f"/{quote(name)}.html" + (f"?{parts.query}" if parts.query else "")
             super().do_GET()
 
+        def do_PUT(self) -> None:  # noqa: N802 - inherited stdlib API name
+            self._write("PUT")
+
+        def do_DELETE(self) -> None:  # noqa: N802 - inherited stdlib API name
+            self._write("DELETE")
+
+        def do_OPTIONS(self) -> None:  # noqa: N802 - inherited stdlib API name
+            # CORS preflight for the `npm run dev` dashboard's writes.
+            origin = self.headers.get("Origin")
+            if not (origin and _is_local_origin(origin)):
+                self.send_error(HTTPStatus.FORBIDDEN)
+                return
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, PUT, DELETE")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Vary", "Origin")
+            self.end_headers()
+
         def _api(self, path: str, query: Dict[str, Any]) -> None:
             try:
                 con = _read_connection(db_path)
             except sqlite3.Error as exc:
                 self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": f"database unavailable: {exc}"})
                 return
+            self._answer(con, lambda: _route(con, path, query, str(db_path), version))
+
+        def _write(self, method: str) -> None:
+            parts = urlsplit(self.path)
+            path = unquote(parts.path)
+            if not path.startswith(API_PREFIX):
+                self.send_error(HTTPStatus.METHOD_NOT_ALLOWED)
+                return
+            # Writes come from this machine's own dashboard only: a local Host
+            # (no DNS rebinding) and, if the browser sends one, a local Origin
+            # (no other website posting here). A JSON body also forces a CORS
+            # preflight, which non-local origins never pass.
+            origin = self.headers.get("Origin")
+            if not _is_local_host(self.headers.get("Host", "")) or (
+                origin is not None and not _is_local_origin(origin)
+            ):
+                self._json(HTTPStatus.FORBIDDEN, {"error": "settings can only be changed from this machine"})
+                return
+            body: Any = None
+            if method == "PUT":
+                if not (self.headers.get("Content-Type") or "").startswith("application/json"):
+                    self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "send application/json"})
+                    return
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > MAX_BODY:
+                    self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request body too large"})
+                    return
+                try:
+                    body = json.loads(self.rfile.read(length) or b"null")
+                except ValueError:
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "body is not valid JSON"})
+                    return
             try:
-                status, body = HTTPStatus.OK, _route(con, path, query, str(db_path), version)
+                con = _write_connection(db_path)
+            except sqlite3.Error as exc:
+                self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": f"database unavailable: {exc}"})
+                return
+            self._answer(con, lambda: _write_route(con, method, path, parse_qs(parts.query), body))
+
+        def _answer(self, con: sqlite3.Connection, run: Callable[[], Any]) -> None:
+            try:
+                status, body = HTTPStatus.OK, run()
             except queries.QueryError as exc:
                 status, body = HTTPStatus.BAD_REQUEST, {"error": str(exc)}
             except queries.NotFound as exc:
@@ -95,18 +157,25 @@ def _route(
         return queries.meta(con, db_path=db_path, version=version)
     if rest == "projects":
         return queries.list_projects(con)
+    filters = lambda: dict(  # noqa: E731 - the trace list's shared filters
+        from_ns=_int(one("from"), "from"),
+        to_ns=_int(one("to"), "to"),
+        kind=one("kind") or "all",
+        errors_only=one("errors") in ("1", "true"),
+        q=one("q"),
+        limit=_int(one("limit"), "limit") or queries.DEFAULT_PAGE,
+    )
     if rest == "traces":
         return queries.list_traces(
             con,
             one("project") or "",
-            from_ns=_int(one("from"), "from"),
-            to_ns=_int(one("to"), "to"),
-            kind=one("kind") or "all",
-            errors_only=one("errors") in ("1", "true"),
-            q=one("q"),
+            conversation=one("conversation"),
+            no_conversation=one("noConversation") in ("1", "true"),
             cursor=one("cursor"),
-            limit=_int(one("limit"), "limit") or queries.DEFAULT_PAGE,
+            **filters(),
         )
+    if rest == "traces/groups":
+        return queries.list_conversation_groups(con, one("project") or "", **filters())
     segments = rest.split("/")
     if len(segments) == 2 and segments[0] == "traces":
         return queries.get_trace(con, one("project") or "", segments[1])
@@ -129,12 +198,37 @@ def _route(
         )
     if rest == "settings":
         return queries.get_settings(con)
+    if rest == "settings/coverage":
+        return settings.mapping_coverage(con, one("project"))
     raise queries.NotFound(f"no API route {path}")
+
+
+def _write_route(
+    con: sqlite3.Connection, method: str, path: str, query: Dict[str, Any], body: Any
+) -> Any:
+    rest = path[len(API_PREFIX):].strip("/")
+    if rest != "settings/mapping":
+        raise queries.NotFound(f"no API route {method} {path}")
+    if method == "PUT":
+        if not isinstance(body, dict):
+            raise queries.QueryError('send {"project": name or null, "mapping": {...}}')
+        result = settings.save_mapping(con, body.get("project"), body.get("mapping"))
+    else:
+        result = settings.reset_mapping(con, (query.get("project") or [None])[0])
+    return {"reindexed": result, **queries.get_settings(con)}
+
+
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
+MAX_BODY = 1 << 20
 
 
 def _is_local_origin(origin: str) -> bool:
     parsed = urlparse(origin)
-    return parsed.scheme in ("http", "https") and parsed.hostname in ("localhost", "127.0.0.1", "::1")
+    return parsed.scheme in ("http", "https") and parsed.hostname in LOCAL_HOSTS
+
+
+def _is_local_host(host: str) -> bool:
+    return urlparse(f"//{host}").hostname in LOCAL_HOSTS
 
 
 def _int(raw: Optional[str], name: str) -> Optional[int]:
@@ -150,6 +244,16 @@ def _read_connection(db_path: Path) -> sqlite3.Connection:
     # Read-only and per request: safe across the server's threads, and WAL
     # lets reads run while `wizardflow db import` writes.
     con = sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)
+    con.execute("PRAGMA busy_timeout = 5000")
+    return con
+
+
+def _write_connection(db_path: Path) -> sqlite3.Connection:
+    # Only settings writes use this; run_serve already created and migrated
+    # the store. Autocommit mode: the settings functions open their own
+    # transactions.
+    con = sqlite3.connect(str(db_path), isolation_level=None)
+    con.execute("PRAGMA foreign_keys = ON")
     con.execute("PRAGMA busy_timeout = 5000")
     return con
 
