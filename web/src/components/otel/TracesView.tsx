@@ -192,7 +192,9 @@ function useShown<T>(key: string, items: T[] | undefined): T[] | undefined {
 function FlatTraces({ route, params, back }: { route: TracesRoute; params: Params; back: string }) {
   const key = JSON.stringify(params);
   const [limit, more] = usePaging(key);
-  const { data, error, loading } = useApi<Page<ApiTrace>>(apiPath("traces", { ...params, limit }));
+  const { data, error, loading } = useApi<Page<ApiTrace>>(apiPath("traces", { ...params, limit }), {
+    live: true,
+  });
   const items = useShown(key, data?.items);
 
   if (error) return <LoadError error={error} />;
@@ -216,7 +218,8 @@ function GroupedTraces({ route, params, back }: { route: TracesRoute; params: Pa
   const key = JSON.stringify(params);
   const [limit, more] = usePaging(key);
   const { data, error, loading } = useApi<{ items: ApiConversationGroup[]; hasMore: boolean }>(
-    apiPath("traces/groups", { ...params, limit })
+    apiPath("traces/groups", { ...params, limit }),
+    { live: true }
   );
   const items = useShown(key, data?.items);
   const [open, setOpen] = useState<Set<string>>(() => new Set());
@@ -372,7 +375,8 @@ function GroupMembers({
       conversation: group.conversationId,
       noConversation: group.conversationId === null ? 1 : undefined,
       limit,
-    })
+    }),
+    { live: true }
   );
   const items = useShown(key, data?.items);
   const columns = anyGenAI ? 10 : 8;
@@ -530,7 +534,7 @@ function TraceRow({
  * pick one first. Executions without a conversation replay from their row.
  */
 function ConversationPicker({ project, back }: { project: string; back: string }) {
-  const { data } = useApi<ApiConversation[]>(apiPath("conversations", { project }));
+  const { data } = useApi<ApiConversation[]>(apiPath("conversations", { project }), { live: true });
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const now = useNow();
   if (!data || data.length === 0) return null;

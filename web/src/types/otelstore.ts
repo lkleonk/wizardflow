@@ -28,7 +28,26 @@ export type ApiMeta = {
   dbSizeBytes: number;
   wizardflowVersion: string;
   capabilities: string[];
+  /** The OTLP receiver of `wizardflow serve --otlp`; off without the flag. */
+  receiver: ApiReceiver;
 };
+
+export type ApiReceiver =
+  | { enabled: false }
+  | {
+      enabled: true;
+      /** Base URL for OTEL_EXPORTER_OTLP_ENDPOINT, e.g. http://127.0.0.1:4318. */
+      endpoint: string;
+      port: number;
+      /** Counted since this `serve` started. */
+      requests: number;
+      spans: number;
+      logs: number;
+      /** Spans refused for a missing or invalid trace or span id. */
+      rejected: number;
+      lastReceivedNs: string | null;
+      lastError: string | null;
+    };
 
 /** Traces started per slot, oldest first; the last slot ends at `endNs`. */
 export type ApiActivity = {

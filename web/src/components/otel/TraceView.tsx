@@ -127,7 +127,8 @@ export default function TraceView({
   route: OtelRoute & { project: string; trace: string };
 }) {
   const { data, error, loading } = useApi<ApiTraceDetail>(
-    apiPath(`traces/${encodeURIComponent(route.trace)}`, { project: route.project })
+    apiPath(`traces/${encodeURIComponent(route.trace)}`, { project: route.project }),
+    { live: true }
   );
   if (error) return <LoadError error={error} />;
   if (loading || !data) return <Loading />;

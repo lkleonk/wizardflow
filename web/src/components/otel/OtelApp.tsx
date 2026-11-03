@@ -28,8 +28,8 @@ import TracesView from "./TracesView";
 export default function OtelApp() {
   const params = useSearchParams();
   const route = parseOtelRoute(new URLSearchParams(params.toString()));
-  const meta = useApi<ApiMeta>(isHostedWizardFlow ? null : apiPath("meta"));
-  const projects = useApi<ApiProject[]>(meta.data ? apiPath("projects") : null);
+  const meta = useApi<ApiMeta>(isHostedWizardFlow ? null : apiPath("meta"), { live: true });
+  const projects = useApi<ApiProject[]>(meta.data ? apiPath("projects") : null, { live: true });
 
   if (isHostedWizardFlow || meta.error) {
     return (
@@ -45,7 +45,7 @@ export default function OtelApp() {
   return (
     // Floating panels on the page background, like the replay view.
     <Box sx={{ display: "flex", height: "100dvh", minHeight: 0, bgcolor: "background.default" }}>
-      <OtelSidebar route={route} dbPath={meta.data.dbPath} />
+      <OtelSidebar route={route} dbPath={meta.data.dbPath} receiver={meta.data.receiver} />
       <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <Header route={route} projects={projects.data ?? []} />
         <Box sx={{ flex: 1, minHeight: 0, overflow: route.view === "trace" ? "hidden" : "auto", display: "flex", flexDirection: "column" }}>

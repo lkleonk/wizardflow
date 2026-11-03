@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 /** Thrown for a non-2xx /api response; carries the server's message. */
 export class ApiError extends Error {
@@ -70,30 +70,114 @@ type ApiState<T> = { key: string | null; data?: T; error?: ApiError | Error };
  * Fetch `path` (null = nothing to fetch). Loading is derived from whether the
  * held result belongs to the current path, so a path change never needs a
  * synchronous reset inside the effect.
+ *
+ * `live` refetches whenever new data lands in the database (see the poller
+ * below), keeping the shown result until the new one is in, so a refresh
+ * never flashes a spinner. A failed refresh keeps the old result too.
  */
-export function useApi<T>(path: string | null): {
+export function useApi<T>(
+  path: string | null,
+  { live = false }: { live?: boolean } = {}
+): {
   data: T | undefined;
   error: Error | undefined;
   loading: boolean;
 } {
   const [state, setState] = useState<ApiState<T>>({ key: null });
+  const generation = useDataGeneration(live && path !== null);
   useEffect(() => {
     if (path === null) return;
     const controller = new AbortController();
     fetchApi<T>(path, controller.signal).then(
       (data) => setState({ key: path, data }),
       (error: Error) => {
-        if (error.name !== "AbortError") setState({ key: path, error });
+        if (error.name === "AbortError") return;
+        setState((held) => (held.key === path && held.data !== undefined ? held : { key: path, error }));
       }
     );
     return () => controller.abort();
-  }, [path]);
+  }, [path, generation]);
   const current = state.key === path;
   return {
     data: current ? state.data : undefined,
     error: current ? state.error : undefined,
     loading: path !== null && !current,
   };
+}
+
+// --- live refresh ------------------------------------------------------------
+
+// One poller per tab watches /api/version, a token that changes whenever
+// spans, logs or imports land in the database (from the OTLP receiver or a
+// `wizardflow db import`). Each change bumps a generation that live useApi
+// calls depend on. Same pacing as the replay viewer's live traces
+// (traceWatcher.ts): fast while data arrives, slow once quiet, paused while
+// the tab is hidden.
+const POLL_FAST_MS = 2_000;
+const POLL_SLOW_MS = 15_000;
+const SLOWDOWN_AFTER_MS = 60_000;
+
+let dataVersion: string | null = null;
+let generation = 0;
+let lastChangeMs = 0;
+let timer: ReturnType<typeof setTimeout> | null = null;
+const listeners = new Set<() => void>();
+
+async function pollVersion() {
+  timer = null;
+  try {
+    const next = (await fetchApi<{ dataVersion: string }>(apiPath("version"))).dataVersion;
+    if (next !== dataVersion) {
+      // The first answer is only the baseline: the views just fetched.
+      if (dataVersion !== null) {
+        generation += 1;
+        lastChangeMs = Date.now();
+        listeners.forEach((listener) => listener());
+      }
+      dataVersion = next;
+    }
+  } catch {
+    // The server is gone or restarting: keep what is shown, try again later.
+  }
+  schedulePoll();
+}
+
+function schedulePoll() {
+  if (timer !== null || listeners.size === 0 || document.hidden) return;
+  const quiet = Date.now() - lastChangeMs > SLOWDOWN_AFTER_MS;
+  timer = setTimeout(pollVersion, quiet ? POLL_SLOW_MS : POLL_FAST_MS);
+}
+
+function onVisibilityChange() {
+  if (timer !== null) clearTimeout(timer);
+  timer = null;
+  if (!document.hidden) void pollVersion(); // catch up at once on return
+}
+
+function subscribeToData(listener: () => void): () => void {
+  listeners.add(listener);
+  if (listeners.size === 1) {
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    if (dataVersion === null) void pollVersion();
+    else schedulePoll();
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size > 0) return;
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
+}
+
+const subscribeToNothing = () => () => {};
+
+function useDataGeneration(enabled: boolean): number {
+  return useSyncExternalStore(
+    enabled ? subscribeToData : subscribeToNothing,
+    () => (enabled ? generation : 0),
+    () => 0
+  );
 }
 
 // --- nanosecond strings ------------------------------------------------------

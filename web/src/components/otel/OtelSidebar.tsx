@@ -15,6 +15,8 @@ import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrow
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
+import { LivePulse } from "@/components/AppHeader";
+import type { ApiReceiver } from "@/types/otelstore";
 import { setDisplayPrefs, useDisplayPrefs } from "@/utils/otelDisplay";
 import { goTo, otelHref, type OtelRoute } from "@/utils/otelRoute";
 
@@ -27,10 +29,12 @@ import { goTo, otelHref, type OtelRoute } from "@/utils/otelRoute";
 export default function OtelSidebar({
   route,
   dbPath,
+  receiver,
   replay = false,
 }: {
   route: OtelRoute;
   dbPath?: string;
+  receiver?: ApiReceiver;
   replay?: boolean;
 }) {
   const { mode, systemMode, setMode } = useColorScheme();
@@ -209,9 +213,10 @@ export default function OtelSidebar({
           borderTop: 1,
           borderColor: "divider",
           display: "flex",
+          flexDirection: folded ? "column" : "row",
           alignItems: "center",
           justifyContent: "center",
-          gap: 1,
+          gap: folded ? 0.5 : 1,
         }}
       >
         {!folded && dbPath && (
@@ -227,6 +232,18 @@ export default function OtelSidebar({
             >
               {dbPath.split(/[\\/]/).slice(-2).join("/")}
             </Typography>
+          </Tooltip>
+        )}
+        {receiver?.enabled && (
+          <Tooltip title={`Receiving OTLP at ${receiver.endpoint}`} placement={folded ? "right" : "top"}>
+            <Box
+              component="button"
+              onClick={() => goTo({ view: "settings", project: route.project, sec: "live" })}
+              aria-label="Live receiver settings"
+              sx={{ display: "flex", p: 0.75, border: 0, bgcolor: "transparent", cursor: "pointer" }}
+            >
+              <LivePulse />
+            </Box>
           </Tooltip>
         )}
         <Tooltip

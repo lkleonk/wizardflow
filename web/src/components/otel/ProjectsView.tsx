@@ -92,7 +92,7 @@ function compact(n: number): string {
 }
 
 export default function ProjectsView() {
-  const { data: projects, error, loading } = useApi<ApiProject[]>(apiPath("projects"));
+  const { data: projects, error, loading } = useApi<ApiProject[]>(apiPath("projects"), { live: true });
   if (error) return <LoadError error={error} />;
   if (loading || !projects) return <Loading />;
   if (projects.length === 0) {

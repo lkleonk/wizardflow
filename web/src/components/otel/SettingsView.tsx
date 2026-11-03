@@ -11,7 +11,6 @@ import ListItemText from "@mui/material/ListItemText";
 import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
 import Select from "@mui/material/Select";
-import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
@@ -25,11 +24,12 @@ import type {
   ApiMappingSaved,
   ApiMeta,
   ApiProject,
+  ApiReceiver,
   ApiSettings,
   AttributeMapping,
   MappingConcept,
 } from "@/types/otelstore";
-import { apiPath, sendApi, useApi } from "@/utils/otelApi";
+import { apiPath, formatNsDateTime, sendApi, useApi } from "@/utils/otelApi";
 import {
   isAttributeKey,
   setDisplayPrefs,
@@ -67,7 +67,7 @@ export default function SettingsView({ route, meta }: { route: OtelRoute; meta: 
         {section === "mapping" && <MappingSection route={route} />}
         {section === "display" && <DisplaySection />}
         {section === "data" && <DataSection meta={meta} />}
-        {section === "live" && <LiveSection />}
+        {section === "live" && <LiveSection receiver={meta.receiver} />}
       </Box>
     </Box>
   );
@@ -637,7 +637,7 @@ function Command({ children }: { children: React.ReactNode }) {
 }
 
 function DataSection({ meta }: { meta: ApiMeta }) {
-  const projects = useApi<ApiProject[]>(apiPath("projects"));
+  const projects = useApi<ApiProject[]>(apiPath("projects"), { live: true });
   const totals = (projects.data ?? []).reduce(
     (sum, p) => ({ traces: sum.traces + p.traceCount, spans: sum.spans + p.spanCount, logs: sum.logs + p.logCount }),
     { traces: 0, spans: 0, logs: 0 }
@@ -679,27 +679,58 @@ function DataSection({ meta }: { meta: ApiMeta }) {
 
 // --- live receiver -----------------------------------------------------------
 
-function LiveSection() {
+function LiveSection({ receiver }: { receiver: ApiReceiver }) {
+  if (!receiver.enabled) {
+    return (
+      <>
+        <SectionHead title="Live receiver" sub="Receive OTLP over HTTP while wizardflow serve runs, so apps send traces and logs here directly.">
+          <Chip label="off" size="small" variant="outlined" />
+        </SectionHead>
+        <Typography sx={{ fontSize: 13, color: "text.secondary" }}>
+          Restart the dashboard with the receiver on. It listens on 4318, the standard OTLP/HTTP port:
+        </Typography>
+        <Command>wizardflow serve --otlp</Command>
+        <Typography sx={{ fontSize: 13, color: "text.secondary", mt: 2 }}>
+          Use <Mono sx={{ fontSize: 12.5 }}>--otlp-port</Mono> if a Collector already runs there.
+        </Typography>
+      </>
+    );
+  }
   return (
     <>
-      <SectionHead title="Live receiver" sub="Accept OTLP over HTTP while wizardflow serve runs, so apps send traces here directly.">
-        <Chip label="later" size="small" variant="outlined" />
+      <SectionHead title="Live receiver" sub="Apps send OTLP here while wizardflow serve runs. New data shows up on every page within a few seconds.">
+        <Chip label="receiving" size="small" color="success" variant="outlined" />
       </SectionHead>
-      <Alert severity="info" sx={{ mb: 2 }}>
-        Not built yet. Until then, export to a file (for example with the Collector&apos;s file exporter) and import it.
-      </Alert>
-      <Box sx={{ opacity: 0.55 }} aria-disabled>
-        <SettingRow label="Enabled" hint="Planned as wizardflow serve --otlp.">
-          <Switch disabled />
-        </SettingRow>
-        <SettingRow label="Port" hint="4318 is the OTLP/HTTP default.">
-          <Mono>4318</Mono>
-        </SettingRow>
-        <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: "text.secondary", textTransform: "uppercase", letterSpacing: 0.5, mt: 3 }}>
-          Then point your app here
-        </Typography>
-        <Command>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318</Command>
-      </Box>
+      <SettingRow label="Endpoint" hint="POST /v1/traces and /v1/logs, as protobuf or JSON, optionally gzipped.">
+        <Mono sx={{ fontSize: 12.5 }}>{receiver.endpoint}</Mono>
+      </SettingRow>
+      <SettingRow label="Received" hint="Since this wizardflow serve started.">
+        <Mono sx={{ fontSize: 12.5 }}>
+          {receiver.requests} requests · {receiver.spans} spans · {receiver.logs} logs
+          {receiver.rejected > 0 && ` · ${receiver.rejected} rejected`}
+        </Mono>
+      </SettingRow>
+      <SettingRow label="Last request">
+        <Mono sx={{ fontSize: 12.5 }}>
+          {receiver.lastReceivedNs ? formatNsDateTime(receiver.lastReceivedNs) : "none yet"}
+        </Mono>
+      </SettingRow>
+      {receiver.lastError && (
+        <Alert severity="warning" sx={{ mt: 2 }}>
+          Last refused request: {receiver.lastError}
+        </Alert>
+      )}
+      <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: "text.secondary", textTransform: "uppercase", letterSpacing: 0.5, mt: 3 }}>
+        Point your app here
+      </Typography>
+      <Typography sx={{ fontSize: 13, color: "text.secondary", mt: 0.5 }}>
+        Any OpenTelemetry SDK reads this variable. Python apps need the OTLP/HTTP exporter (opentelemetry-exporter-otlp-proto-http).
+      </Typography>
+      <Command>OTEL_EXPORTER_OTLP_ENDPOINT={receiver.endpoint}</Command>
+      <Typography sx={{ fontSize: 13, color: "text.secondary", mt: 2 }}>
+        Metrics are not stored. If your app exports them too, turn them off to keep its log quiet:
+      </Typography>
+      <Command>OTEL_METRICS_EXPORTER=none</Command>
     </>
   );
 }

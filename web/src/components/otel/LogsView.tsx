@@ -40,7 +40,8 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
       correlation: route.corr,
       q: route.q,
       limit,
-    })
+    }),
+    { live: true }
   );
   const [query, setQuery] = useDebouncedQuery(route);
   const [shown, setShown] = useState<{ key: string; items: ApiLog[] } | null>(null);
