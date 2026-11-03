@@ -193,7 +193,7 @@ def _export(monkeypatch, tmp_path, bridge, steps):
     }
     return export_trace_chain(
         TraceChain(trace, (tmp_path / "run.jsonl",), False),
-        ExportOptions(endpoint="http://collector"),
+        ExportOptions(endpoint="http://collector", exporter="otel-sdk"),
     )
 
 

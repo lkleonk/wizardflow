@@ -18,8 +18,9 @@ locally with `wizardflow ui`.
   observability account.
 - **Replay it anywhere.** Use the bundled local viewer or the fully client-side
   hosted viewer.
-- **Zero runtime dependencies.** The base SDK is pure Python and requires no
-  daemon or framework.
+- **Zero runtime dependencies.** The package is pure Python and requires no
+  daemon or framework. Recording, OTLP export of a finished run, and the local
+  dashboard with its OTLP receiver all use only the standard library.
 - **Explicit by design.** Your code chooses which node executions and values
   enter the trace.
 - **OpenTelemetry is optional.** The same node executions can also be projected
@@ -89,7 +90,8 @@ wizardflow.end_message("msg-1")
 
 ## Optional OpenTelemetry export
 
-Install the optional OTel packages directly:
+Live export while recording joins your application's OpenTelemetry tracing, so
+it uses the OTel packages. Install them directly:
 
 ```bash
 pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
@@ -132,7 +134,8 @@ Content export is enabled by default when OTel export is enabled, with
 receiver should only get metadata. See the
 [OpenTelemetry guide](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/opentelemetry.md)
 for provider ownership, GenAI mappings, content controls, graph events, and
-independent JSONL/OTel lifecycles. Existing artifacts can be exported later:
+independent JSONL/OTel lifecycles. Existing artifacts can be exported later,
+without any OTel packages:
 
 ```bash
 wizardflow otel export run.jsonl --endpoint http://localhost:4318/v1/traces
@@ -180,6 +183,7 @@ wizardflow html run.jsonl -o run.html
 wizardflow json run.jsonl -o run.json
 wizardflow db import traces.otlp.jsonl   # OTLP JSON into the local database
 wizardflow serve                     # OTel dashboard over that database
+wizardflow serve --otlp              # ...that also receives OTLP from apps on :4318
 ```
 
 All commands read both WizardFlow JSONL and the single-document JSON form. See

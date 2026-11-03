@@ -9,9 +9,13 @@ Everything stays on your machine. The data lives in one SQLite file, and the
 dashboard is served by a standard-library HTTP server bundled with the package.
 It needs no extra dependencies, collector, or account.
 
+Data gets in two ways: import OTLP files, or let your apps send OTLP to the
+dashboard's receiver while it runs.
+
 ```bash
 wizardflow db import traces.otlp.jsonl   # load OTLP JSON into the database
 wizardflow serve                          # open the dashboard
+wizardflow serve --otlp                   # ...and receive OTLP from apps on :4318
 ```
 
 ## The database
@@ -62,17 +66,52 @@ default database and opens the dashboard on its project.
 
 ```bash
 wizardflow serve [--db PATH] [--host 127.0.0.1] [--port 0] [--no-open]
+                 [--otlp] [--otlp-port 4318]
 ```
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--db` | `./.wizardflow/wizardflow.db` | Database file; created if missing |
-| `--host` | `127.0.0.1` | Interface to bind |
-| `--port` | `0` | Port to bind; zero asks the OS for a free port |
+| `--host` | `127.0.0.1` | Interface to bind, for the dashboard and the receiver |
+| `--port` | `0` | Dashboard port; zero asks the OS for a free port |
 | `--no-open` | off | Print the URL instead of opening a browser |
+| `--otlp` | off | Also run the [live receiver](#live-receiver) |
+| `--otlp-port` | `4318` | Receiver port, the OTLP/HTTP standard |
 
-The dashboard is at `http://127.0.0.1:PORT/otel`. You can import while it runs:
-reload the page to see the new data.
+The dashboard is at `http://127.0.0.1:PORT/otel`. New data, from the receiver
+or a `db import` while it runs, shows up on its own: open pages check for it
+every 2 seconds, or every 15 once nothing has arrived for a minute, and pause
+while the tab is hidden.
+
+## Live receiver
+
+With `--otlp`, `wizardflow serve` also accepts OTLP over HTTP, so an app sends
+its traces and logs straight into the database. Point the app's OpenTelemetry
+SDK at it:
+
+```bash
+wizardflow serve --otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 python my_app.py
+```
+
+- **Routes:** `POST /v1/traces` and `POST /v1/logs`, each as protobuf (what
+  the OTel SDKs send by default) or JSON, optionally gzipped. Metrics are not
+  stored and answer 404; set `OTEL_METRICS_EXPORTER=none` if your app exports
+  them, to keep its log quiet.
+- **Python apps** need the OTel SDK's OTLP/HTTP exporter
+  (`opentelemetry-exporter-otlp-proto-http`); gRPC on port 4317 is not
+  supported.
+- **Same import as files:** projects, dedup, and the attribute mapping work as
+  for `db import`. A span sent twice is stored once, so exporter retries are
+  safe. Spans without a valid trace or span id are refused and reported back
+  to the exporter as rejected.
+- **A taken port** (a Collector running on 4318, say) stops `serve` with an
+  error; pick another with `--otlp-port`.
+- **Your own runs** can go there too, with no OTel packages:
+  `wizardflow otel export run.jsonl --endpoint http://127.0.0.1:4318/v1/traces`.
+
+Settings → Live receiver shows the endpoint and what arrived since `serve`
+started, and the sidebar shows a green dot while the receiver runs.
 
 ## Pages
 
@@ -174,15 +213,15 @@ priority order, and the first key a span has wins.
 **Data and import.** The database path, schema version, contents, size, and
 the import commands.
 
-**Live receiver.** Planned: receiving OTLP over HTTP while `wizardflow serve`
-runs. Until then, export to a file (for example with the Collector's file
-exporter) and import it.
+**Live receiver.** The receiver's endpoint, the requests, spans and logs it
+received since `serve` started, and the last refused request. Without
+`--otlp`, it shows how to turn the receiver on.
 
 ## Safety
 
 The server binds to `127.0.0.1` by default and reads the database through
-read-only connections. The only writes are mapping changes from Settings, and
-the server accepts them only:
+read-only connections. The dashboard's only writes are mapping changes from
+Settings, and the server accepts them only:
 
 - from a local host name, as `Host` (`localhost`, `127.0.0.1`, `::1`);
 - from a local `Origin`, if one is sent;
@@ -190,6 +229,12 @@ the server accepts them only:
 
 This keeps other websites in your browser from changing your settings.
 
+The live receiver writes too, by design: it accepts OTLP from any program that
+can reach its port. On `127.0.0.1` that is your own machine. It still refuses
+requests that come from web pages (an `Origin` header that isn't local), and
+on a loopback address also a `Host` that isn't local. A body may be up to
+20 MiB, before and after gzip.
+
 If you bind to another interface with `--host`, anyone who can reach that
-interface can read your data. Settings stay changeable only from the machine
-itself.
+interface can read your data, and with `--otlp` also send data into it.
+Settings stay changeable only from the machine itself.

@@ -1,20 +1,24 @@
 """``wizardflow serve``: the bundled UI plus an API over the local OTel store.
 
 Read-only apart from the settings writes (the attribute mapping), which are
-accepted from this machine only."""
+accepted from this machine only. With ``--otlp``, a second listener receives
+OTLP from apps (:mod:`wizardflow.receiver`)."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import sqlite3
+import sys
+import threading
 import webbrowser
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit, urlparse
 
+from .receiver import Receiver, make_receiver_handler
 from .store import open_store, projection
 from .store import queries, settings
 
@@ -23,7 +27,7 @@ DASHBOARD_ROUTE = "/otel"
 
 
 def make_serve_handler(
-    *, ui_dir: Path, db_path: Path, version: str
+    *, ui_dir: Path, db_path: Path, version: str, receiver: Optional[Receiver] = None
 ) -> "type[SimpleHTTPRequestHandler]":
     class WizardFlowServeHandler(SimpleHTTPRequestHandler):
         def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -65,7 +69,9 @@ def make_serve_handler(
             except sqlite3.Error as exc:
                 self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": f"database unavailable: {exc}"})
                 return
-            self._answer(con, lambda: _route(con, path, query, str(db_path), version))
+            self._answer(
+                con, lambda: _route(con, path, query, str(db_path), version, receiver)
+            )
 
         def _write(self, method: str) -> None:
             parts = urlsplit(self.path)
@@ -149,12 +155,23 @@ def make_serve_handler(
 
 
 def _route(
-    con: sqlite3.Connection, path: str, query: Dict[str, Any], db_path: str, version: str
+    con: sqlite3.Connection,
+    path: str,
+    query: Dict[str, Any],
+    db_path: str,
+    version: str,
+    receiver: Optional[Receiver] = None,
 ) -> Any:
     one: Callable[[str], Optional[str]] = lambda key: (query.get(key) or [None])[0]
     rest = path[len(API_PREFIX):].strip("/")
     if rest == "meta":
-        return queries.meta(con, db_path=db_path, version=version)
+        meta = queries.meta(con, db_path=db_path, version=version)
+        meta["receiver"] = receiver.info() if receiver else {"enabled": False}
+        if receiver:
+            meta["capabilities"].append("otlp-receiver")
+        return meta
+    if rest == "version":
+        return queries.data_version(con)
     if rest == "projects":
         return queries.list_projects(con)
     filters = lambda: dict(  # noqa: E731 - the trace list's shared filters
@@ -273,19 +290,67 @@ def run_serve(
     open_browser: bool,
     version: str,
     project: Optional[str] = None,
+    otlp_port: Optional[int] = None,
 ) -> int:
     # Creates and migrates the store up front, so requests only ever read.
     open_store(db_path).close()
-    handler = make_serve_handler(ui_dir=ui_dir, db_path=db_path, version=version)
-    with ThreadingHTTPServer((host, port), handler) as server:
-        url = dashboard_url(host=host, port=server.server_port, project=project)
-        print(f"Database: {db_path}")
-        print(f"WizardFlow dashboard: {url}")
-        print("Press Ctrl+C to stop.")
-        if open_browser:
-            webbrowser.open(url)
-        try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            print()
+    receiver_server: Optional[ThreadingHTTPServer] = None
+    receiver: Optional[Receiver] = None
+    if otlp_port is not None:
+        receiver_server, receiver = start_receiver(db_path, host=host, port=otlp_port)
+    handler = make_serve_handler(
+        ui_dir=ui_dir, db_path=db_path, version=version, receiver=receiver
+    )
+    try:
+        with ThreadingHTTPServer((host, port), handler) as server:
+            url = dashboard_url(host=host, port=server.server_port, project=project)
+            print(f"Database: {db_path}")
+            print(f"WizardFlow dashboard: {url}")
+            if receiver is not None:
+                print(f"OTLP receiver: {receiver.endpoint}  (/v1/traces, /v1/logs)")
+                print(f"  Point your app at it: OTEL_EXPORTER_OTLP_ENDPOINT={receiver.endpoint}")
+            print("Press Ctrl+C to stop.")
+            if open_browser:
+                webbrowser.open(url)
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                print()
+    finally:
+        if receiver_server is not None and receiver is not None:
+            receiver_server.shutdown()
+            receiver_server.server_close()
+            receiver.close()
     return 0
+
+
+class ReceiverPortError(OSError):
+    """The OTLP port is taken; the message says what to do."""
+
+
+class _ExclusiveServer(ThreadingHTTPServer):
+    # A fixed, well-known port must fail when taken. HTTPServer sets
+    # SO_REUSEADDR, which on Windows lets a second process bind a port in
+    # use, so the receiver would silently share 4318 with a Collector.
+    # Elsewhere it only skips TIME_WAIT after a restart, which is wanted.
+    allow_reuse_address = sys.platform != "win32"
+    allow_reuse_port = False
+
+
+def start_receiver(
+    db_path: Path, *, host: str, port: int
+) -> Tuple[ThreadingHTTPServer, Receiver]:
+    """Listen for OTLP on ``port`` (0: a free one) in a background thread."""
+    receiver = Receiver(db_path, host=host, port=port)
+    try:
+        server = _ExclusiveServer((host, port), make_receiver_handler(receiver))
+    except OSError as exc:
+        receiver.close()
+        raise ReceiverPortError(
+            f"cannot listen for OTLP on {host}:{port} ({exc.strerror or exc}); is an "
+            "OTel Collector or another receiver running there? Pass --otlp-port to use "
+            "another port"
+        ) from None
+    receiver.port = server.server_port
+    threading.Thread(target=server.serve_forever, name="wizardflow-otlp", daemon=True).start()
+    return server, receiver

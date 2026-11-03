@@ -32,6 +32,7 @@ class ImportResult:
     skipped_spans: int = 0     # invalid trace / span id
     traces: int = 0            # trace slices created or updated
     projects: List[str] = field(default_factory=list)
+    import_id: Optional[int] = None
 
 
 def import_otlp_file(
@@ -66,13 +67,35 @@ def import_otlp_text(
 
     # Parse fully first, so a malformed file fails before anything is written.
     requests = list(iter_requests(text))
+    return import_requests(
+        con, requests, source=source, path=path, sha256=sha256, project=project
+    )
+
+
+def import_requests(
+    con: sqlite3.Connection,
+    requests: Iterable[Dict[str, Any]],
+    *,
+    source: str = "file",
+    path: Optional[str] = None,
+    sha256: Optional[str] = None,
+    project: Optional[str] = None,
+    import_id: Optional[int] = None,
+) -> ImportResult:
+    """Import parsed OTLP export requests in one transaction.
+
+    ``import_id`` adds to an existing ``imports`` row instead of creating
+    one: the live receiver files all requests of one ``serve`` run under a
+    single row rather than one per request.
+    """
     importer = _Importer(con, project_override=project)
     con.execute("BEGIN IMMEDIATE")
     try:
-        import_id = con.execute(
-            "INSERT INTO imports (source, path, sha256, imported_ns) VALUES (?, ?, ?, ?)",
-            (source, path, sha256, importer.now_ns),
-        ).lastrowid
+        if import_id is None:
+            import_id = con.execute(
+                "INSERT INTO imports (source, path, sha256, imported_ns) VALUES (?, ?, ?, ?)",
+                (source, path, sha256, importer.now_ns),
+            ).lastrowid
         importer.import_id = import_id
         for request in requests:
             for span in iter_spans(request):
@@ -82,9 +105,11 @@ def import_otlp_text(
         touched = importer.finish()
         result = importer.result
         result.path = path
+        result.import_id = import_id
         result.traces = len(touched)
         con.execute(
-            "UPDATE imports SET span_count = ?, log_count = ?, skipped_count = ? WHERE id = ?",
+            "UPDATE imports SET span_count = span_count + ?, log_count = log_count + ?, "
+            "skipped_count = skipped_count + ? WHERE id = ?",
             (result.spans, result.logs, result.skipped_spans, import_id),
         )
         con.execute("COMMIT")

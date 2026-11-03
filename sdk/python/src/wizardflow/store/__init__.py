@@ -1,8 +1,14 @@
-"""Local OpenTelemetry store: OTLP JSON in, SQLite on disk, read by the
-``wizardflow serve`` dashboard. Standard library only."""
+"""Local OpenTelemetry store: OTLP in (files or the live receiver), SQLite on
+disk, read by the ``wizardflow serve`` dashboard. Standard library only."""
 
 from .db import StoreError, default_db_path, open_store
-from .importer import ImportResult, import_otlp_file, import_otlp_text, rollup
+from .importer import (
+    ImportResult,
+    import_otlp_file,
+    import_otlp_text,
+    import_requests,
+    rollup,
+)
 from .otlp import OtlpFormatError
 
 __all__ = [
@@ -12,6 +18,7 @@ __all__ = [
     "default_db_path",
     "import_otlp_file",
     "import_otlp_text",
+    "import_requests",
     "open_store",
     "rollup",
 ]

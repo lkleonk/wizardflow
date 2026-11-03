@@ -114,8 +114,9 @@ do not carry them.
 
 When `--endpoint` is omitted, the command reads
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, then `OTEL_EXPORTER_OTLP_ENDPOINT`.
-See [opentelemetry.md](opentelemetry.md) for installation, privacy, and mapping
-details.
+Sending needs no OpenTelemetry packages: WizardFlow brings its own OTLP/HTTP
+exporter. See [opentelemetry.md](opentelemetry.md) for its environment
+variables, privacy, and mapping details.
 
 ## Live traces and rotated parts
 

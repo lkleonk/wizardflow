@@ -44,7 +44,9 @@ def test_offline_export_replays_resolved_timestamps_through_shared_bridge(monkey
     }
     summary = export_trace_chain(
         TraceChain(trace, (tmp_path / "run.jsonl",), False),
-        ExportOptions(endpoint="http://collector", workflow_name="consultation"),
+        ExportOptions(
+            endpoint="http://collector", exporter="otel-sdk", workflow_name="consultation"
+        ),
     )
     assert summary.node_spans == 1 and summary.traces == 1
     assert created["trace_scope"] == "workflow"
@@ -83,6 +85,6 @@ def test_offline_export_rejects_negative_node_interval(monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="endTimestamp precedes timestamp"):
         export_trace_chain(
             TraceChain(trace, (tmp_path / "run.jsonl",), False),
-            ExportOptions(endpoint="http://collector"),
+            ExportOptions(endpoint="http://collector", exporter="otel-sdk"),
         )
     assert bridge.calls[-1][0] == "close"

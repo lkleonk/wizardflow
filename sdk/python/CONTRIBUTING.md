@@ -26,6 +26,23 @@ The tests pin the emitted schema shape and the recording semantics (step
 folding, completed-only persistence, append-only durability, `id=` targeting,
 unknown-node fast-fail, …).
 
+### OTLP protobuf and the OTel packages
+
+WizardFlow encodes and decodes OTLP protobuf itself (`src/wizardflow/otlp_proto.py`),
+so neither `protobuf` nor `opentelemetry-proto` is a dependency. The tests check
+it against the official classes, and compare the built-in exporter with the
+OTel SDK's. Those tests skip without the packages; install them to run
+everything:
+
+```bash
+pip install opentelemetry-sdk opentelemetry-proto opentelemetry-exporter-otlp-proto-http
+```
+
+To compare the two exporters by hand, `wizardflow otel export` takes a hidden
+`--exporter otel-sdk` flag that sends through the OTel SDK instead of the
+built-in exporter (default `--exporter builtin`). Point both at
+`wizardflow serve --otlp` and compare what arrives.
+
 ## Schema contract
 
 The JSONL this SDK serializes to is defined by `src/types/agenttrace.ts` in the

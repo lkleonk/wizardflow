@@ -85,6 +85,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 export_graph=args.export_graph,
                 graph_max_bytes=args.graph_max_bytes,
                 current_part_only=args.current_part_only,
+                exporter=args.exporter,
             )
         if args.command == "serve":
             return run_serve(
@@ -92,6 +93,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 host=args.host,
                 port=args.port,
                 open_browser=not args.no_open,
+                otlp_port=args.otlp_port if args.otlp else None,
             )
         if args.command == "db" and args.db_command == "import":
             return run_db_import(files=args.files, db=args.db, project=args.project)
@@ -288,6 +290,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Export only the named part instead of discovering its rotation chain.",
     )
+    # Maintainers only: send through the OpenTelemetry SDK instead, to compare
+    # it with the built-in exporter. Not in --help.
+    otel_export.add_argument(
+        "--exporter", choices=("builtin", "otel-sdk"), default="builtin", help=argparse.SUPPRESS
+    )
 
     # Shared by every command that uses the local OTel database.
     db_option = argparse.ArgumentParser(add_help=False)
@@ -307,6 +314,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument(
         "--no-open", action="store_true", help="Print the URL without opening a browser."
+    )
+    serve.add_argument(
+        "--otlp",
+        action="store_true",
+        help="Also receive OTLP/HTTP from apps (POST /v1/traces, /v1/logs) into the database.",
+    )
+    serve.add_argument(
+        "--otlp-port",
+        type=int,
+        default=4318,
+        help="Port for the OTLP receiver (default: 4318, the OTLP/HTTP standard port).",
     )
 
     db = subparsers.add_parser("db", help="Manage the local OTel database.")
@@ -352,6 +370,7 @@ def run_otel_export(
     current_part_only: bool,
     workflow_name: Optional[str] = None,
     out: Optional[str] = None,
+    exporter: str = "builtin",
 ) -> int:
     """Export a durable WizardFlow artifact to an OTLP endpoint or an OTLP JSON file."""
     trace_path = _resolve_trace_path(trace=trace, path=None)
@@ -380,6 +399,7 @@ def run_otel_export(
                 content_max_bytes=content_max_bytes,
                 export_graph=export_graph,
                 graph_max_bytes=graph_max_bytes,
+                exporter=exporter,
             ),
         )
     except (OSError, TraceFormatError, RuntimeError, ValueError) as exc:
@@ -421,8 +441,9 @@ def run_serve(
     port: int,
     open_browser: bool,
     project: Optional[str] = None,
+    otlp_port: Optional[int] = None,
 ) -> int:
-    from .serve import run_serve as serve_dashboard
+    from .serve import ReceiverPortError, run_serve as serve_dashboard
 
     db_path = _db_path(db)
     try:
@@ -434,8 +455,9 @@ def run_serve(
             open_browser=open_browser,
             version=_package_version(),
             project=project,
+            otlp_port=otlp_port,
         )
-    except StoreError as exc:
+    except (StoreError, ReceiverPortError) as exc:
         raise WizardFlowCliError(str(exc)) from exc
 
 

@@ -143,7 +143,10 @@ def test_file_export_matches_the_real_otel_sdk(tmp_path, monkeypatch):
         return OTelBridge(provider.get_tracer("wizardflow"), trace_api=trace_api, **options)
 
     monkeypatch.setattr("wizardflow.otel_file_exporter.create_otel_bridge", sdk_bridge)
-    export_trace_chain(_chain(tmp_path), ExportOptions(endpoint="http://unused", export_graph=True))
+    export_trace_chain(
+        _chain(tmp_path),
+        ExportOptions(endpoint="http://unused", exporter="otel-sdk", export_graph=True),
+    )
     out = tmp_path / "run.otlp.jsonl"
     export_trace_chain(_chain(tmp_path), ExportOptions(out=out, export_graph=True))
 

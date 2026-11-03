@@ -21,13 +21,24 @@ from .otel_mapping import (
     DEFAULT_GRAPH_MAX_BYTES,
     NODE_KINDS,
 )
-from .otlp_writer import SpanRecorder, write_otlp_json
+from .otlp_http import env_resource_attributes, send_trace_requests
+from .otlp_writer import SpanRecorder, build_trace_requests, write_otlp_json
 from .reader import TraceChain
+
+
+EXPORTERS = ("builtin", "otel-sdk")
+# Spans per request to an endpoint, the OTel SDK's default batch size.
+ENDPOINT_BATCH_SPANS = 512
 
 
 @dataclass(frozen=True)
 class ExportOptions:
-    """Exactly one target: an OTLP/HTTP ``endpoint`` or an ``out`` file."""
+    """Exactly one target: an OTLP/HTTP ``endpoint`` or an ``out`` file.
+
+    ``exporter`` picks how an endpoint is reached: ``builtin`` (the standard
+    library, the default) or ``otel-sdk`` (the OpenTelemetry SDK and its
+    OTLP/HTTP exporter, kept to compare the two side by side).
+    """
 
     endpoint: Optional[str] = None
     out: Optional[Path] = None
@@ -37,6 +48,7 @@ class ExportOptions:
     content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES
     export_graph: bool = False
     graph_max_bytes: int = DEFAULT_GRAPH_MAX_BYTES
+    exporter: str = "builtin"
 
 
 @dataclass(frozen=True)
@@ -55,6 +67,8 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
         raise ValueError("OTel byte limits must be positive")
     if (options.endpoint is None) == (options.out is None):
         raise ValueError("export needs exactly one target: an endpoint or an output file")
+    if options.exporter not in EXPORTERS:
+        raise ValueError(f"unknown exporter: {options.exporter!r}")
 
     trace = unit.trace
     graph = trace.get("graph", {})
@@ -81,8 +95,10 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
             "wizardflow.export.source_sealed": unit.sealed,
         },
     )
-    # A file needs no OTel packages: the same bridge drives a span recorder.
-    recorder = SpanRecorder() if options.out is not None else None
+    # No OTel packages unless asked for: the same bridge drives a span
+    # recorder, whose spans are then written to the file or sent.
+    use_sdk = options.out is None and options.exporter == "otel-sdk"
+    recorder = None if use_sdk else SpanRecorder()
     if recorder is not None:
         bridge = OTelBridge(recorder, trace_api=recorder, **bridge_options)
     else:
@@ -159,6 +175,17 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
             resource_attributes=_file_resource(trace.get("name")),
             scope_version=_package_version(),
         )
+    elif recorder is not None and options.endpoint is not None:
+        trace_count = len({span.trace_id for span in recorder.finished})
+        send_trace_requests(
+            build_trace_requests(
+                recorder.finished,
+                resource_attributes=_endpoint_resource(trace.get("name")),
+                scope_version=_package_version(),
+                max_spans=ENDPOINT_BATCH_SPANS,
+            ),
+            options.endpoint,
+        )
     return ExportSummary(
         len(unit.parts), len(messages), span_count, trace_count, unit.sealed
     )
@@ -173,6 +200,16 @@ def _file_resource(trace_name: Optional[str]) -> Dict[str, Any]:
         "telemetry.sdk.language": "python",
         "service.name": trace_name or "wizardflow",
     }
+    if trace_name:
+        attributes[PROJECT_NAME_RESOURCE] = trace_name
+    return attributes
+
+
+def _endpoint_resource(trace_name: Optional[str]) -> Dict[str, Any]:
+    """The file resource, with ``OTEL_RESOURCE_ATTRIBUTES`` and
+    ``OTEL_SERVICE_NAME`` applied as the OTel SDK would. The project name
+    still wins: it is what the export was asked to file the run under."""
+    attributes = {**_file_resource(trace_name), **env_resource_attributes()}
     if trace_name:
         attributes[PROJECT_NAME_RESOURCE] = trace_name
     return attributes
@@ -198,4 +235,4 @@ def _timestamp_key(value: str) -> float:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
-__all__ = ["ExportOptions", "ExportSummary", "export_trace_chain"]
+__all__ = ["EXPORTERS", "ExportOptions", "ExportSummary", "export_trace_chain"]

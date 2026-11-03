@@ -59,6 +59,21 @@ def meta(con: sqlite3.Connection, *, db_path: str, version: str) -> Dict[str, An
     }
 
 
+def data_version(con: sqlite3.Connection) -> Dict[str, str]:
+    """A token that changes whenever spans, logs or imports are added.
+
+    The dashboard polls it every few seconds to refresh while the receiver
+    or a ``db import`` writes, so it reads only rowid maxima (an index seek
+    each). Duplicates that an import skips don't change it, nor need to.
+    """
+    spans, logs, imports = con.execute(
+        "SELECT (SELECT coalesce(max(id), 0) FROM spans), "
+        "(SELECT coalesce(max(id), 0) FROM logs), "
+        "(SELECT coalesce(max(id), 0) FROM imports)"
+    ).fetchone()
+    return {"dataVersion": f"{spans}.{logs}.{imports}"}
+
+
 # --------------------------------------------------------------------------- projects
 
 

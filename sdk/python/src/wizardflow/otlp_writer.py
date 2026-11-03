@@ -1,15 +1,17 @@
-"""Write OTLP JSON files without the OpenTelemetry packages.
+"""Build OTLP requests for a recorded run without the OpenTelemetry packages.
 
-``wizardflow otel export --out`` replays a recorded run offline: no live
+``wizardflow otel export`` (``--out`` and ``--endpoint``) replays a recorded
+run offline: no live
 context to join, no sampling, no batching. So instead of the OTel SDK, the
 shared :class:`~wizardflow.otel.OTelBridge` drives a tiny recorder that
 implements the few tracer calls it makes, and the finished spans are
 serialized here. The span semantics stay exactly those of live export,
 because the bridge and ``otel_mapping`` are the same code.
 
-The output is the OTel Collector file-exporter format: one
+A file gets the OTel Collector file-exporter format: one
 ``ExportTraceServiceRequest`` per line (one line per trace here), with
-lowercase hex ids and nanosecond times as strings.
+lowercase hex ids and nanosecond times as strings. An endpoint gets the same
+requests as protobuf, via :mod:`wizardflow.otlp_http`.
 """
 
 from __future__ import annotations
@@ -155,6 +157,45 @@ class SpanRecorder:
         return contextlib.nullcontext(span)
 
 
+def build_trace_requests(
+    spans: Sequence[RecordedSpan],
+    *,
+    resource_attributes: Mapping[str, Any],
+    scope_version: str,
+    max_spans: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Group ``spans`` into OTLP JSON export requests, a trace never split.
+
+    Without ``max_spans`` there is one request per trace (a file's lines);
+    with it, whole traces are packed into requests of up to that many spans
+    (an endpoint's batches). A bigger trace goes alone.
+    """
+    by_trace: Dict[str, List[RecordedSpan]] = {}
+    for span in sorted(spans, key=lambda s: (s.start_time, s.parent_span_id is not None)):
+        by_trace.setdefault(span.trace_id, []).append(span)
+    batches: List[List[RecordedSpan]] = []
+    for trace_spans in by_trace.values():
+        if (
+            max_spans is not None
+            and batches
+            and len(batches[-1]) + len(trace_spans) <= max_spans
+        ):
+            batches[-1].extend(trace_spans)
+        else:
+            batches.append(list(trace_spans))
+    resource = {"attributes": encode_attributes(resource_attributes)}
+    scope = {"name": SCOPE_NAME, "version": scope_version}
+    return [
+        {
+            "resourceSpans": [{
+                "resource": resource,
+                "scopeSpans": [{"scope": scope, "spans": [_span(s) for s in batch]}],
+            }]
+        }
+        for batch in batches
+    ]
+
+
 def write_otlp_json(
     spans: Sequence[RecordedSpan],
     path: Path,
@@ -167,25 +208,17 @@ def write_otlp_json(
     Written to a temporary file first, so an interrupted export never leaves a
     half-written file behind for an importer to pick up.
     """
-    by_trace: Dict[str, List[RecordedSpan]] = {}
-    for span in sorted(spans, key=lambda s: (s.start_time, s.parent_span_id is not None)):
-        by_trace.setdefault(span.trace_id, []).append(span)
-    resource = {"attributes": encode_attributes(resource_attributes)}
-    scope = {"name": SCOPE_NAME, "version": scope_version}
+    requests = build_trace_requests(
+        spans, resource_attributes=resource_attributes, scope_version=scope_version
+    )
     path = Path(path)
     tmp = path.with_name(f".{path.name}.tmp")
     with tmp.open("w", encoding="utf-8", newline="\n") as handle:
-        for trace_spans in by_trace.values():
-            request = {
-                "resourceSpans": [{
-                    "resource": resource,
-                    "scopeSpans": [{"scope": scope, "spans": [_span(s) for s in trace_spans]}],
-                }]
-            }
+        for request in requests:
             handle.write(json.dumps(request, ensure_ascii=False, separators=(",", ":")))
             handle.write("\n")
     os.replace(tmp, path)
-    return len(by_trace)
+    return len(requests)
 
 
 def _span(span: RecordedSpan) -> Dict[str, Any]:

@@ -12,8 +12,10 @@ Existing JSONL artifacts can also be projected later with the offline exporter.
 
 ## Installation
 
-The base `wizardflow` package remains dependency-free. Install OTel packages
-directly when enabling export:
+The `wizardflow` package has no dependencies, and exporting a recorded run
+(`wizardflow otel export`, to an endpoint or a file) needs no OTel packages
+either. Live export while recording does: it joins your application's
+OpenTelemetry tracing, so install the OTel packages directly when enabling it:
 
 ```bash
 pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
@@ -48,10 +50,24 @@ wizardflow otel export run.jsonl --export-graph
 ```
 
 The endpoint may instead come from `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or
-from `OTEL_EXPORTER_OTLP_ENDPOINT` with `/v1/traces` appended. Standard OTel
-header environment variables configure authentication. The offline command
-always owns and shuts down a private provider; it never changes the global
-tracer provider.
+from `OTEL_EXPORTER_OTLP_ENDPOINT` with `/v1/traces` appended.
+
+The command sends with WizardFlow's own OTLP/HTTP exporter, built on the
+standard library: protobuf bodies, the encoding every OTLP receiver accepts,
+in batches of up to 512 spans. It reads the OTel SDK's environment variables,
+the `TRACES_` form first:
+
+| Variable | Effect |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` / `OTEL_EXPORTER_OTLP_HEADERS` | Request headers, `key=value,key2=value2` (for authentication) |
+| `OTEL_EXPORTER_OTLP_TRACES_COMPRESSION` / `OTEL_EXPORTER_OTLP_COMPRESSION` | `gzip` or `none` (default) |
+| `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` / `OTEL_EXPORTER_OTLP_TIMEOUT` | Seconds per request (default 10) |
+| `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME` | Added to the resource; the project name still comes from the run |
+
+Like the OTel SDK, it retries HTTP 429, 502, 503 and 504 with a growing pause
+(honoring `Retry-After`). It fails when the endpoint refuses a request or
+reports rejected spans. The command never touches your application's tracer
+provider.
 
 ## Configuration
 
