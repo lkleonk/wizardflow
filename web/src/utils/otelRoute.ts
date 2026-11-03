@@ -35,7 +35,7 @@ const VIEWS: OtelView[] = ["projects", "traces", "trace", "logs", "settings"];
 const KINDS: TraceKind[] = ["all", "wizardflow", "genai", "otel"];
 const CORRELATIONS: LogCorrelation[] = ["all", "with", "without"];
 const RANGES: TimeRange[] = ["1h", "24h", "7d", "all"];
-const SECTIONS: SettingsSection[] = ["mapping", "display", "data", "live"];
+const SECTIONS: SettingsSection[] = ["display", "mapping", "data", "live"];
 
 function oneOf<T extends string>(value: string | null, options: T[]): T | undefined {
   return value && (options as string[]).includes(value) ? (value as T) : undefined;
@@ -85,7 +85,7 @@ export function otelHref(route: OtelRoute): string {
   }
   if ((route.view === "traces" || route.view === "logs") && route.q) query.set("q", route.q);
   if (route.view === "settings") {
-    if (route.sec && route.sec !== "mapping") query.set("sec", route.sec);
+    if (route.sec && route.sec !== "display") query.set("sec", route.sec);
     if (route.scope) query.set("scope", route.scope);
   }
   const text = query.toString();

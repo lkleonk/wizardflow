@@ -41,14 +41,14 @@ import { goTo, type OtelRoute, type SettingsSection } from "@/utils/otelRoute";
 import { LoadError, Loading, Mono } from "./OtelBits";
 
 const SECTIONS: [SettingsSection, string][] = [
-  ["mapping", "Attribute mapping"],
   ["display", "Display"],
+  ["mapping", "Attribute mapping"],
   ["data", "Data and import"],
   ["live", "Live receiver"],
 ];
 
 export default function SettingsView({ route, meta }: { route: OtelRoute; meta: ApiMeta }) {
-  const section = route.sec ?? "mapping";
+  const section = route.sec ?? "display";
   return (
     <Box sx={{ display: "flex", gap: 3, p: { xs: 1.5, sm: 2 }, flexWrap: { xs: "wrap", md: "nowrap" } }}>
       <List dense sx={{ width: { xs: "100%", md: 200 }, flex: "none", p: 0 }} aria-label="Settings sections">
