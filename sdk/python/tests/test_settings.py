@@ -107,6 +107,9 @@ def test_coverage_counts_what_the_saved_mapping_matches(con):
     assert coverage["node"]["matched"] == 0
     save_mapping(con, None, {"payloads": ["tool.*"]})
     assert mapping_coverage(con, None)["payloads"]["matched"] == 1
+    # Node kind counts node spans only: the AGENT root has a kind but no node.
+    save_mapping(con, "bot", {"node": ["tool.name"]})
+    assert mapping_coverage(con, "bot")["node_kind"] == {"matched": 0, "total": 1, "unit": "node spans"}
 
 
 def test_conversation_groups_newest_first_with_ungrouped_last(con):

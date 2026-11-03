@@ -211,7 +211,13 @@ def mapping_coverage(con: sqlite3.Connection, project: Optional[str]) -> Dict[st
             "matched": one(f"SELECT count(*) FROM traces t WHERE {scope} AND t.flags & {FLAG_WIZARDFLOW}"),
             "total": traces, "unit": "traces",
         },
-        "node_kind": {"matched": column("node_kind"), "total": node_spans, "unit": "node spans"},
+        "node_kind": {
+            "matched": one(
+                f"SELECT count(*) FROM spans s JOIN traces t ON t.id = s.trace_row "
+                f"WHERE {scope} AND s.node_id IS NOT NULL AND s.node_kind IS NOT NULL"
+            ),
+            "total": node_spans, "unit": "node spans",
+        },
         "model": {"matched": column("model"), "total": spans, "unit": "spans"},
         "input_tokens": {"matched": column("input_tokens"), "total": spans, "unit": "spans"},
         "output_tokens": {"matched": column("output_tokens"), "total": spans, "unit": "spans"},
