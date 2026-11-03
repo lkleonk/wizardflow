@@ -5,7 +5,7 @@ into a portable WizardFlow JSONL file that you can replay as an interactive
 graph, inspect with ordinary tools, or attach to a bug report.
 
 Drop the file into [getwizardflow.com](https://getwizardflow.com) and it is
-processed entirely in the browser—nothing is uploaded. You can also replay it
+processed entirely in the browser, so nothing is uploaded. You can also replay it
 locally with `wizardflow ui`.
 
 ![WizardFlow replaying an agent run](https://raw.githubusercontent.com/lkleonk/wizardflow/main/sdk/python/assets/demo.gif)
@@ -116,9 +116,9 @@ with trace.workflow() as run:               # one workflow = one OTel trace
 trace.close_otel()
 ```
 
-`otel_attributes` sets exact keys on the workflow's root span — e.g.
-`session.id` groups traces into Phoenix sessions, `langfuse.session.id` into
-Langfuse sessions.
+`otel_attributes` sets exact keys on the workflow's root span. For example,
+`session.id` groups traces into Phoenix sessions, and `langfuse.session.id`
+into Langfuse sessions.
 
 Generic logs can optionally choose an exact application-owned span attribute
 without changing their JSONL/UI label:

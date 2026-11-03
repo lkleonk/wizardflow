@@ -51,9 +51,9 @@ target the most recently initialized client.
 ### Error handling: `on_error`
 
 Tracing should never break the app it traces. By default
-(`on_error="warn"`), a runtime usage error — an unknown node id,
+(`on_error="warn"`), a runtime usage error (an unknown node id,
 `end_message` on an unknown message, an invalid OTel attribute, a trace file
-that can't be written — is logged once on Python's `wizardflow` logger at
+that can't be written) is logged once on Python's `wizardflow` logger at
 warning level and the bad call is dropped. The same error repeated in a loop
 is logged only the first time.
 
@@ -102,7 +102,7 @@ on. The argument always wins over the variable.
 
 ## Messages and node executions
 
-A message is one unit of work, usually one user turn through the graph — one
+A message is one unit of work, usually one user turn through the graph: one
 workflow execution. The simplest way to record one is the workflow context
 manager, which generates the message ID and ends the message when the block
 exits:
@@ -122,8 +122,8 @@ with trace.workflow() as run:
 `run.message_id` exposes the generated ID for correlation. `set_info()` may be
 called any number of times inside the block: a `title` replaces the previous
 one, `meta` and `otel_attributes` merge. Leaving the block is the completion
-signal — also when the body raises, in which case the message is still written
-and the exception propagates. Workflows cannot be nested in the same execution
+signal, also when the body raises: the message is still written and the
+exception propagates. Workflows cannot be nested in the same execution
 context; separate threads and asyncio tasks each run their own.
 
 When your integration already owns an execution ID, pass it yourself. The ID
@@ -250,7 +250,7 @@ protected. Prefer `log_input()`, `log_output()`, `log_usage()`, and
 `log_model_parameters()` whenever the data has one of those known meanings.
 
 `log_input()` and `log_output()` also accept `otel_attribute`. For them it is
-additive — the value keeps its automatic `gen_ai.*` mapping and is additionally
+additive: the value keeps its automatic `gen_ai.*` mapping and is also
 exported under your key, without a second JSONL payload:
 
 ```python
@@ -291,7 +291,7 @@ Keep message metadata flat and scalar. Large or structured values belong in
 node payloads. Inside `trace.workflow()`, supply the same values with
 `run.set_info(title=..., meta=...)`.
 
-Both forms also accept `otel_attributes` — exact OTel keys for the workflow's
+Both forms also accept `otel_attributes`: exact OTel keys for the workflow's
 root span, such as `session.id` or `user.id`. They are OTel-only and never
 written to JSONL; see [opentelemetry.md](opentelemetry.md#application-attributes-on-the-workflow-root).
 

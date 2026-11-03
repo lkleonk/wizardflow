@@ -88,8 +88,8 @@ npm run build
 ```
 
 The app is configured for static export (`output: "export"` in
-`next.config.ts`), so the build emits a fully static site to `out/` — no server
-runtime is required. Set `NEXT_PUBLIC_SITE_URL` at build time to override the
+`next.config.ts`), so the build emits a fully static site to `out/` and needs no
+server runtime. Set `NEXT_PUBLIC_SITE_URL` at build time to override the
 default origin used for canonical/OG/sitemap URLs.
 
 Set `NEXT_PUBLIC_WIZARDFLOW_TARGET=local` for SDK/local UI builds. The default

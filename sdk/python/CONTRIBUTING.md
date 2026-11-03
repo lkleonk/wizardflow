@@ -29,8 +29,8 @@ unknown-node fast-fail, …).
 ## Schema contract
 
 The JSONL this SDK serializes to is defined by `src/types/agenttrace.ts` in the
-monorepo frontend — that TypeScript type (including the `header` / `message` /
-`seal` record types) is the schema of record. Change it and the serializer
+monorepo frontend. That TypeScript type, including the `header` / `message` /
+`seal` record types, is the schema of record. Change it and the serializer
 (`src/wizardflow/client.py`) plus the reader (`src/wizardflow/reader.py`) and
 their tests must change in lockstep; they must not drift.
 

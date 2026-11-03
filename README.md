@@ -18,15 +18,17 @@ WizardFlow has two halves that share one file format (`AgentTrace` JSONL):
 
 ## Why WizardFlow?
 
-- **The trace is a file.** No server, no account, no infra — recording a run
-  produces a `.jsonl` you can commit, diff, grep, or attach to a bug report.
+- **The trace is a file.** Recording a run produces a `.jsonl` you can commit,
+  diff, grep, or attach to a bug report. It needs no server, account, or
+  infrastructure.
 - **Anyone can replay it.** Drop the file into
-  [getwizardflow.com](https://getwizardflow.com) — no Python, no install; the
-  viewer is fully client-side, so nothing is uploaded.
+  [getwizardflow.com](https://getwizardflow.com), without installing Python or
+  anything else. The viewer runs entirely in the browser, so nothing is
+  uploaded.
 - **Small, zero-dependency API.** Scope a node execution, record the values you
   care about, and end the message when its run through the graph is complete.
 - **Explicit by design.** You place every recording call, so a trace contains
-  exactly what you chose to record — nothing more.
+  exactly what you chose to record and nothing more.
 
 ## Quickstart
 
