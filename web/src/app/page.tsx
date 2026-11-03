@@ -19,8 +19,8 @@ import DemoExplainerToast, {
   type DemoToastState,
 } from "@/components/DemoExplainerToast";
 import EmptyCanvas from "@/components/EmptyCanvas";
-import { TraceLoadError, TraceLoadingCanvas } from "@/components/TracePendingCanvas";
-import { clearTracePending } from "@/components/TracePendingScript";
+import { TraceLoadError } from "@/components/TracePendingCanvas";
+import { clearTracePending, isTracePending } from "@/components/TracePendingScript";
 import ExampleGallery from "@/components/ExampleGallery";
 import FooterLinks from "@/components/FooterLinks";
 import GraphCanvas from "@/components/GraphCanvas";
@@ -804,6 +804,8 @@ export default function Home() {
         }
       } catch (error) {
         if (!cancelled) {
+          // On success the cover waits for the graph to paint (effect below).
+          clearTracePending();
           loadedTraceUrlRef.current = null;
           if (getSavedFlow()) {
             // Stepping to another part: the current part stays on screen.
@@ -815,10 +817,7 @@ export default function Home() {
           }
         }
       } finally {
-        if (!cancelled) {
-          setIsLoadingUrlTrace(false);
-          clearTracePending();
-        }
+        if (!cancelled) setIsLoadingUrlTrace(false);
       }
     }
 
@@ -831,6 +830,20 @@ export default function Home() {
       }
     };
   }, [handleLoadTrace, partRequest]);
+
+  // The first-paint cover (TracePendingScript) comes off only once the loaded
+  // trace is on screen: a few frames give React Flow time to measure the
+  // nodes and fit the view, so the reveal shows the finished graph instead of
+  // it settling into place.
+  useEffect(() => {
+    if (!hasFlow || isLoadingUrlTrace || !isTracePending()) return;
+    let frames = 3;
+    let raf = requestAnimationFrame(function tick() {
+      if (--frames > 0) raf = requestAnimationFrame(tick);
+      else clearTracePending();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [hasFlow, isLoadingUrlTrace]);
 
   // Shareable demo deep link: `/?example=<gallery id>` loads a bundled example
   // and autoplays it, so a link in a post lands on a running replay with no
@@ -1058,7 +1071,7 @@ export default function Home() {
       }}
     >
       {/* Only over a flow already on screen (stepping to another part): a
-          first load shows TraceLoadingCanvas in the graph pane instead. */}
+          first load is behind TracePendingScript's full-screen cover. */}
       <Backdrop
         open={isLoadingUrlTrace && hasFlow}
         sx={{
@@ -1206,18 +1219,12 @@ export default function Home() {
           ) : urlTraceError ? (
             <TraceLoadError message={urlTraceError} />
           ) : (
-            <>
-              {/* Both are rendered; globals.css shows the loading one while a
-                  `?trace=` URL loads, from the very first paint. */}
-              <TraceLoadingCanvas />
-              <Box className="wf-empty-canvas" sx={{ height: "100%" }}>
-                <EmptyCanvas
-                  onUploadLoad={handleUploadLoad}
-                  onOpenGallery={() => setGalleryOpen(true)}
-                  showExamples={chrome.examples}
-                />
-              </Box>
-            </>
+            // Under the first-paint cover while a `?trace=` URL loads.
+            <EmptyCanvas
+              onUploadLoad={handleUploadLoad}
+              onOpenGallery={() => setGalleryOpen(true)}
+              showExamples={chrome.examples}
+            />
           )}
         </Paper>
         {inspector.open && (

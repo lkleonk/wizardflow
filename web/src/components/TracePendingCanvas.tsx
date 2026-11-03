@@ -1,6 +1,5 @@
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import CircularProgress from "@mui/material/CircularProgress";
 import Typography from "@mui/material/Typography";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutlineOutlined";
@@ -17,20 +16,6 @@ const centered = {
   p: 3,
   textAlign: "center",
 } as const;
-
-/**
- * The graph pane while a `?trace=` URL loads. Rendered next to EmptyCanvas;
- * CSS (`.wf-trace-loading` in globals.css) shows one or the other, so the
- * right one is on screen before the page's JavaScript has even started.
- */
-export function TraceLoadingCanvas() {
-  return (
-    <Box className="wf-trace-loading" role="status" sx={{ ...centered, color: "text.secondary" }}>
-      <CircularProgress size={28} aria-hidden />
-      <Typography color="text.secondary">Opening graph replay…</Typography>
-    </Box>
-  );
-}
 
 /** The graph pane when a `?trace=` URL couldn't be loaded. */
 export function TraceLoadError({ message }: { message: string }) {
