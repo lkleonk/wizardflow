@@ -12,7 +12,10 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PushPinIcon from "@mui/icons-material/PushPin";
+import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
 import { nodeColorForKind } from "@/theme/muiTheme";
 import {
   TraceFlag,
@@ -29,8 +32,9 @@ import {
   nsDiff,
   useApi,
 } from "@/utils/otelApi";
+import { keyMatches, setDisplayPrefs, useDisplayPrefs, type DisplayPrefs } from "@/utils/otelDisplay";
 import { goTo, otelHref, replayHref, type OtelRoute } from "@/utils/otelRoute";
-import { LoadError, Loading, Mono, SeverityChip, TraceBadges } from "./OtelBits";
+import { LoadError, Loading, Mono, SeverityChip, TraceBadges, graphSource } from "./OtelBits";
 
 const MONO = "var(--font-geist-mono), monospace";
 const KIND_NAMES = ["unspecified", "internal", "server", "client", "producer", "consumer"];
@@ -574,27 +578,99 @@ const GROUPS: [string, (key: string) => boolean][] = [
 ];
 const MESSAGE_KEYS = ["gen_ai.input.messages", "gen_ai.output.messages"];
 
-function groupAttributes(attributes: Attributes): [string, [string, string, unknown][]][] {
-  const groups = new Map<string, [string, string, unknown][]>();
-  for (const [key, value] of Object.entries(attributes)) {
+/** [full key, key as shown, value]: pins always refer to the full key. */
+type Entry = [string, string, unknown];
+
+/**
+ * The Attributes tab, top to bottom: pinned keys (in pin order), the prefix
+ * groups, then the hidden keys collapsed. Pins and hidden keys come from
+ * Settings → Display; a trailing * matches a prefix.
+ */
+function layoutAttributes(
+  attributes: Attributes,
+  prefs: DisplayPrefs
+): { pinned: Entry[]; groups: [string, Entry[]][]; hidden: Entry[] } {
+  const all = Object.entries(attributes);
+  const pinned: Entry[] = [];
+  for (const pattern of prefs.pins) {
+    for (const [key, value] of all) {
+      if (keyMatches(key, pattern) && !pinned.some(([k]) => k === key)) pinned.push([key, key, value]);
+    }
+  }
+  const isPinned = (key: string) => pinned.some(([k]) => k === key);
+  const hidden: Entry[] = [];
+  const groups = new Map<string, Entry[]>();
+  for (const [key, value] of all) {
+    if (isPinned(key)) continue;
+    if (prefs.hidden.some((pattern) => keyMatches(key, pattern))) {
+      hidden.push([key, key, value]);
+      continue;
+    }
     if (MESSAGE_KEYS.includes(key)) continue;
     const [name] = GROUPS.find(([, match]) => match(key))!;
     const shown = name === "WizardFlow payloads" ? key.slice("wizardflow.payload.".length) : key;
     groups.set(name, [...(groups.get(name) ?? []), [key, shown, value]]);
   }
-  return GROUPS.map(([name]) => [name, groups.get(name) ?? []] as [string, [string, string, unknown][]]).filter(
-    ([, list]) => list.length > 0
+  const order = (list: Entry[]) =>
+    prefs.attrOrder === "az" ? [...list].sort((a, b) => a[1].localeCompare(b[1])) : list;
+  return {
+    pinned,
+    groups: GROUPS.map(([name]) => [name, order(groups.get(name) ?? [])] as [string, Entry[]]).filter(
+      ([, list]) => list.length > 0
+    ),
+    hidden: order(hidden),
+  };
+}
+
+function PinButton({ attributeKey, pins }: { attributeKey: string; pins: string[] }) {
+  const exact = pins.includes(attributeKey);
+  const viaPrefix = !exact && pins.some((pattern) => keyMatches(attributeKey, pattern));
+  if (viaPrefix) {
+    return (
+      <Tooltip title="Pinned by a prefix rule; edit it in Settings → Display">
+        <PushPinIcon sx={{ fontSize: 14, color: "text.disabled", mt: 0.25 }} />
+      </Tooltip>
+    );
+  }
+  return (
+    <Tooltip title={exact ? "Unpin" : "Pin to the top for every span"}>
+      <IconButton
+        size="small"
+        aria-label={`${exact ? "Unpin" : "Pin"} ${attributeKey}`}
+        onClick={() =>
+          setDisplayPrefs({ pins: exact ? pins.filter((p) => p !== attributeKey) : [...pins, attributeKey] })
+        }
+        sx={{
+          p: 0.25,
+          alignSelf: "start",
+          color: exact ? "secondary.main" : "text.disabled",
+          opacity: exact ? 1 : 0,
+          ".kv-row:hover &, &:focus-visible": { opacity: 1 },
+        }}
+      >
+        {exact ? <PushPinIcon sx={{ fontSize: 14 }} /> : <PushPinOutlinedIcon sx={{ fontSize: 14 }} />}
+      </IconButton>
+    </Tooltip>
   );
 }
 
-function KeyValues({ entries }: { entries: [string, string, unknown][] }) {
+function KeyValues({ entries, pins }: { entries: Entry[]; pins?: string[] }) {
+  const pinnable = pins !== undefined;
   return (
-    <Box component="dl" sx={{ m: 0, display: "grid", gridTemplateColumns: "minmax(120px, 40%) minmax(0, 1fr)", gap: "2px 10px" }}>
+    <Box
+      component="dl"
+      sx={{
+        m: 0,
+        display: "grid",
+        gridTemplateColumns: `minmax(120px, 40%) minmax(0, 1fr)${pinnable ? " auto" : ""}`,
+        gap: "2px 10px",
+      }}
+    >
       {entries.map(([key, shown, value]) => {
         const text = typeof value === "string" ? value : JSON.stringify(value);
         const long = text.length > 90;
         return (
-          <Box key={key} sx={{ display: "contents" }}>
+          <Box key={key} className="kv-row" sx={{ display: "contents" }}>
             <Box component="dt" title={key} sx={{ fontFamily: MONO, fontSize: 12.5, color: "text.secondary", overflowWrap: "anywhere" }}>
               {shown}
             </Box>
@@ -611,6 +687,7 @@ function KeyValues({ entries }: { entries: [string, string, unknown][] }) {
             >
               {text}
             </Box>
+            {pinnable && <PinButton attributeKey={key} pins={pins} />}
           </Box>
         );
       })}
@@ -618,11 +695,16 @@ function KeyValues({ entries }: { entries: [string, string, unknown][] }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
     <Box sx={{ mb: 2 }}>
       <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: "text.secondary", textTransform: "uppercase", letterSpacing: 0.5, mb: 0.5 }}>
         {title}
+        {note && (
+          <Box component="span" sx={{ textTransform: "none", letterSpacing: 0, fontWeight: 400, ml: 1, color: "text.disabled" }}>
+            {note}
+          </Box>
+        )}
       </Typography>
       {children}
     </Box>
@@ -691,6 +773,9 @@ function SpanInspector({
   const resource = detail.resources[String(span.resourceId)];
   const model = span.attributes["gen_ai.request.model"];
   const status = ["Unset", "OK", "Error"][span.statusCode] ?? "Unset";
+  const prefs = useDisplayPrefs();
+  const layout = layoutAttributes(span.attributes, prefs);
+  const [showHidden, setShowHidden] = useState(false);
 
   return (
     <Box>
@@ -727,6 +812,9 @@ function SpanInspector({
                   <Mono>{detail.trace.conversationId}</Mono>
                 </>
               )}
+              <Box component="span" sx={{ display: "block", fontSize: 11.5, color: "text.secondary" }}>
+                {graphSource(detail.trace.flags)}
+              </Box>
             </Typography>
             <Button size="small" variant="outlined" color="secondary" startIcon={<PlayArrowIcon />} href={replay}>
               Replay
@@ -747,11 +835,29 @@ function SpanInspector({
       <Box sx={{ p: 2 }}>
         {current === "attrs" && (
           <>
-            {groupAttributes(span.attributes).map(([name, entries]) => (
+            {layout.pinned.length > 0 && (
+              <Section title="Pinned" note="edit in Settings → Display">
+                <KeyValues entries={layout.pinned} pins={prefs.pins} />
+              </Section>
+            )}
+            {layout.groups.map(([name, entries]) => (
               <Section key={name} title={name}>
-                <KeyValues entries={entries} />
+                <KeyValues entries={entries} pins={prefs.pins} />
               </Section>
             ))}
+            {layout.hidden.length > 0 && (
+              <Box sx={{ mb: 2 }}>
+                <Button
+                  size="small"
+                  startIcon={showHidden ? <ExpandMoreIcon /> : <ChevronRightIcon />}
+                  onClick={() => setShowHidden(!showHidden)}
+                  sx={{ textTransform: "none", color: "text.secondary", ml: -0.75 }}
+                >
+                  {layout.hidden.length} hidden
+                </Button>
+                {showHidden && <KeyValues entries={layout.hidden} pins={prefs.pins} />}
+              </Box>
+            )}
             {Object.keys(span.attributes).length === 0 && (
               <Typography sx={{ color: "text.secondary", fontSize: 13, mb: 2 }}>
                 No attributes on this span. Its details may be in Events and Logs.

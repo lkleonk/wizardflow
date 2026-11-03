@@ -17,10 +17,26 @@ export class ApiError extends Error {
 const API_ORIGIN = process.env.NEXT_PUBLIC_WIZARDFLOW_API ?? "";
 
 export async function fetchApi<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(API_ORIGIN + path, {
-    signal,
-    headers: { Accept: "application/json" },
-  });
+  return readResponse<T>(
+    await fetch(API_ORIGIN + path, { signal, headers: { Accept: "application/json" } })
+  );
+}
+
+/** A settings write (PUT with a JSON body, or DELETE). */
+export async function sendApi<T>(method: "PUT" | "DELETE", path: string, body?: unknown): Promise<T> {
+  return readResponse<T>(
+    await fetch(API_ORIGIN + path, {
+      method,
+      headers: {
+        Accept: "application/json",
+        ...(body !== undefined && { "Content-Type": "application/json" }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  );
+}
+
+async function readResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try {
@@ -112,6 +128,15 @@ export function formatNsDateTime(ns: string): string {
     minute: "2-digit",
     second: "2-digit",
   });
+}
+
+/** Unix ns string → "3m ago", "5h ago", "2d ago"; relative to `nowMs`. */
+export function formatNsAgo(ns: string, nowMs: number = Date.now()): string {
+  const seconds = Math.round((nowMs - nsToMs(ns)) / 1000);
+  if (seconds < 60) return `${Math.max(0, seconds)}s ago`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
+  if (seconds < 86_400) return `${Math.round(seconds / 3600)}h ago`;
+  return `${Math.round(seconds / 86_400)}d ago`;
 }
 
 /** Unix ns string → "14:30:05.123". */

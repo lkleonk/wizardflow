@@ -19,6 +19,7 @@ import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import FormatListBulletedIcon from "@mui/icons-material/FormatListBulleted";
 import NotesIcon from "@mui/icons-material/Notes";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import type { ApiMeta, ApiProject } from "@/types/otelstore";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
@@ -27,6 +28,7 @@ import { goTo, parseOtelRoute, type OtelRoute } from "@/utils/otelRoute";
 import { EmptyState, Loading, Mono } from "./OtelBits";
 import LogsView from "./LogsView";
 import ProjectsView from "./ProjectsView";
+import SettingsView from "./SettingsView";
 import TraceView from "./TraceView";
 import TracesView from "./TracesView";
 
@@ -58,15 +60,16 @@ export default function OtelApp() {
       <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <Header route={route} projects={projects.data ?? []} />
         <Box sx={{ flex: 1, minHeight: 0, overflow: route.view === "trace" ? "hidden" : "auto", display: "flex", flexDirection: "column" }}>
-          <Content route={route} />
+          <Content route={route} meta={meta.data} />
         </Box>
       </Box>
     </Box>
   );
 }
 
-function Content({ route }: { route: OtelRoute }) {
+function Content({ route, meta }: { route: OtelRoute; meta: ApiMeta }) {
   const { project, trace } = route;
+  if (route.view === "settings") return <SettingsView route={route} meta={meta} />;
   if (route.view === "trace" && project && trace) return <TraceView key={trace} route={{ ...route, project, trace }} />;
   if (route.view === "logs" && project) return <LogsView route={{ ...route, project }} />;
   if ((route.view === "traces" || route.view === "trace") && project) return <TracesView route={{ ...route, project }} />;
@@ -76,7 +79,7 @@ function Content({ route }: { route: OtelRoute }) {
 const VIEW_LABELS: Record<string, string> = { traces: "Traces", trace: "Traces", logs: "Logs" };
 
 function Header({ route, projects }: { route: OtelRoute; projects: ApiProject[] }) {
-  const inProject = route.view !== "projects" && route.project;
+  const inProject = route.view !== "projects" && route.view !== "settings" && route.project;
   return (
     <Box
       sx={{
@@ -91,13 +94,14 @@ function Header({ route, projects }: { route: OtelRoute; projects: ApiProject[] 
       }}
     >
       <Breadcrumbs aria-label="Breadcrumb" sx={{ flex: 1, minWidth: 0, "& ol": { flexWrap: "nowrap" } }}>
-        {inProject ? (
+        {inProject || route.view === "settings" ? (
           <Link component="button" underline="hover" color="text.secondary" onClick={() => goTo({ view: "projects" })}>
             All projects
           </Link>
         ) : (
           <Typography sx={{ fontWeight: 650 }}>All projects</Typography>
         )}
+        {route.view === "settings" && <Typography sx={{ fontWeight: 650 }}>Settings</Typography>}
         {inProject && (
           <Select
             size="small"
@@ -140,6 +144,7 @@ function Header({ route, projects }: { route: OtelRoute; projects: ApiProject[] 
 function Sidebar({ route, dbPath }: { route: OtelRoute; dbPath: string }) {
   const { mode, systemMode, setMode } = useColorScheme();
   const isDark = (mode === "system" ? systemMode : mode) !== "light";
+  // Settings keeps the project in the URL, so its nav stays and "back" works.
   const project = route.view !== "projects" ? route.project : undefined;
   const active = route.view === "trace" ? "traces" : route.view;
   return (
@@ -192,6 +197,16 @@ function Sidebar({ route, dbPath }: { route: OtelRoute; dbPath: string }) {
             <UploadFileIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText primary="Open a JSONL file" />
+        </ListItemButton>
+        <ListItemButton
+          selected={active === "settings"}
+          onClick={() => goTo({ view: "settings", project: route.project, scope: project })}
+          sx={{ borderRadius: 1.5 }}
+        >
+          <ListItemIcon sx={{ minWidth: 32 }}>
+            <SettingsOutlinedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Settings" />
         </ListItemButton>
       </List>
       <Box sx={{ mt: "auto", px: 2, py: 1.5, borderTop: 1, borderColor: "divider", display: "flex", alignItems: "center", gap: 1 }}>

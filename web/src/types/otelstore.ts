@@ -24,8 +24,21 @@ export type ApiMeta = {
   schemaVersion: number;
   latestSchemaVersion: number;
   dbPath: string;
+  /** The database file plus its write-ahead log. */
+  dbSizeBytes: number;
   wizardflowVersion: string;
   capabilities: string[];
+};
+
+/** Traces started per slot, oldest first; the last slot ends at `endNs`. */
+export type ApiActivity = {
+  endNs: string;
+  slotNs: string;
+  /** "now", or "last" when the data is older than the window (an old dump). */
+  anchor: "now" | "last";
+  traces: number[];
+  /** Of those, traces with an error span. */
+  errors: number[];
 };
 
 export type ApiProject = {
@@ -40,7 +53,71 @@ export type ApiProject = {
   /** OR of the GENAI / WIZARDFLOW bits over the project's traces. */
   flags: number;
   services: string[];
+  activity: ApiActivity;
 };
+
+/** One row of /api/traces/groups: the traces sharing a conversation id. */
+export type ApiConversationGroup = {
+  /** null: the traces without a conversation, listed last. */
+  conversationId: string | null;
+  traceCount: number;
+  replayableCount: number;
+  firstNs: string;
+  lastStartNs: string;
+  lastEndNs: string;
+  spanCount: number;
+  logCount: number;
+  errorTraceCount: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  model: string | null;
+  /** OR of the GENAI / WIZARDFLOW / TOPOLOGY bits over the group. */
+  flags: number;
+};
+
+/** /api/conversations: replayable conversations, newest activity first. */
+export type ApiConversation = {
+  conversationId: string;
+  executions: number;
+  firstNs: string;
+  lastNs: string;
+};
+
+export type MappingConcept =
+  | "project"
+  | "execution"
+  | "conversation"
+  | "user"
+  | "node"
+  | "node_kind"
+  | "model"
+  | "input_tokens"
+  | "output_tokens"
+  | "input"
+  | "output"
+  | "payloads";
+
+export type AttributeMapping = Partial<Record<MappingConcept, string[]>>;
+
+export type ApiSettings = {
+  mapping: {
+    defaults: AttributeMapping;
+    /** Per project name: only the concepts that differ from the defaults. */
+    overrides: Record<string, AttributeMapping>;
+  };
+  settings: Record<string, unknown>;
+};
+
+/** PUT / DELETE /api/settings/mapping. */
+export type ApiMappingSaved = ApiSettings & {
+  reindexed: { traces: number; replayable: number };
+};
+
+/** /api/settings/coverage: what the saved mapping matches in the stored data. */
+export type ApiCoverage = Record<
+  MappingConcept,
+  { matched: number; total: number | null; unit: string }
+>;
 
 export type ApiTrace = {
   traceId: string;

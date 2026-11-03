@@ -2,9 +2,12 @@
 // so links, reload and the back button work. Not path segments: a static
 // export can't pre-render one page per trace id.
 
-export type OtelView = "projects" | "traces" | "trace" | "logs";
+import type { TimeRange } from "./otelDisplay";
+
+export type OtelView = "projects" | "traces" | "trace" | "logs" | "settings";
 export type TraceKind = "all" | "wizardflow" | "genai" | "otel";
 export type LogCorrelation = "all" | "with" | "without";
+export type SettingsSection = "mapping" | "display" | "data" | "live";
 
 export type OtelRoute = {
   view: OtelView;
@@ -15,22 +18,33 @@ export type OtelRoute = {
   kind?: TraceKind;
   errors?: boolean;
   q?: string;
+  /** Traces: group by conversation. */
+  group?: "conversation";
+  /** Traces: started within; unset = the display preference. */
+  range?: TimeRange;
   /** Logs: minimum severity number. */
   sev?: number;
   corr?: LogCorrelation;
+  /** Settings: the open section. */
+  sec?: SettingsSection;
+  /** Settings → mapping: which project's overrides; unset = the defaults. */
+  scope?: string;
 };
 
-const VIEWS: OtelView[] = ["projects", "traces", "trace", "logs"];
+const VIEWS: OtelView[] = ["projects", "traces", "trace", "logs", "settings"];
 const KINDS: TraceKind[] = ["all", "wizardflow", "genai", "otel"];
 const CORRELATIONS: LogCorrelation[] = ["all", "with", "without"];
+const RANGES: TimeRange[] = ["1h", "24h", "7d", "all"];
+const SECTIONS: SettingsSection[] = ["mapping", "display", "data", "live"];
+
+function oneOf<T extends string>(value: string | null, options: T[]): T | undefined {
+  return value && (options as string[]).includes(value) ? (value as T) : undefined;
+}
 
 export function parseOtelRoute(params: URLSearchParams): OtelRoute {
   const project = params.get("project") || undefined;
-  const rawView = params.get("view") as OtelView | null;
   // A project without a view opens its traces; nothing opens the overview.
-  const view = rawView && VIEWS.includes(rawView) ? rawView : project ? "traces" : "projects";
-  const kind = params.get("kind") as TraceKind | null;
-  const corr = params.get("corr") as LogCorrelation | null;
+  const view = oneOf(params.get("view"), VIEWS) ?? (project ? "traces" : "projects");
   const sev = Number(params.get("sev"));
   return {
     view,
@@ -38,11 +52,15 @@ export function parseOtelRoute(params: URLSearchParams): OtelRoute {
     trace: params.get("trace") || undefined,
     span: params.get("span") || undefined,
     tab: params.get("tab") || undefined,
-    kind: kind && KINDS.includes(kind) ? kind : undefined,
+    kind: oneOf(params.get("kind"), KINDS),
     errors: params.get("errors") === "1" || undefined,
     q: params.get("q") || undefined,
+    group: params.get("group") === "conversation" ? "conversation" : undefined,
+    range: oneOf(params.get("range"), RANGES),
     sev: Number.isFinite(sev) && sev > 0 ? sev : undefined,
-    corr: corr && CORRELATIONS.includes(corr) ? corr : undefined,
+    corr: oneOf(params.get("corr"), CORRELATIONS),
+    sec: oneOf(params.get("sec"), SECTIONS),
+    scope: params.get("scope") || undefined,
   };
 }
 
@@ -58,12 +76,18 @@ export function otelHref(route: OtelRoute): string {
   if (route.view === "traces") {
     if (route.kind && route.kind !== "all") query.set("kind", route.kind);
     if (route.errors) query.set("errors", "1");
+    if (route.group) query.set("group", route.group);
+    if (route.range) query.set("range", route.range);
   }
   if (route.view === "logs") {
     if (route.sev) query.set("sev", String(route.sev));
     if (route.corr && route.corr !== "all") query.set("corr", route.corr);
   }
   if ((route.view === "traces" || route.view === "logs") && route.q) query.set("q", route.q);
+  if (route.view === "settings") {
+    if (route.sec && route.sec !== "mapping") query.set("sec", route.sec);
+    if (route.scope) query.set("scope", route.scope);
+  }
   const text = query.toString();
   return `/otel${text ? `?${text}` : ""}`;
 }
@@ -89,7 +113,7 @@ export function replayHref({
   back,
 }: {
   project: string;
-  traceId: string;
+  traceId?: string;
   conversationId?: string | null;
   name?: string | null;
   back: string;
@@ -97,7 +121,7 @@ export function replayHref({
   const projectQuery = `?project=${encodeURIComponent(project)}`;
   const source = conversationId
     ? `/api/conversations/${encodeURIComponent(conversationId)}/agenttrace${projectQuery}`
-    : `/api/traces/${encodeURIComponent(traceId)}/agenttrace${projectQuery}`;
+    : `/api/traces/${encodeURIComponent(traceId ?? "")}/agenttrace${projectQuery}`;
   const query = new URLSearchParams({ trace: source, from: "otel", back });
   if (name) query.set("traceName", name);
   return `/?${query.toString()}`;

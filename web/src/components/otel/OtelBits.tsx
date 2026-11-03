@@ -16,7 +16,7 @@ export function TraceBadges({ flags }: { flags: number }) {
   return (
     <Box component="span" sx={{ display: "inline-flex", gap: 0.5, flexWrap: "wrap", verticalAlign: "middle" }}>
       {wizardflow && (
-        <Tooltip title="Has graph nodes (attribute mapping → Node), so it can be replayed in WizardFlow">
+        <Tooltip title={`Has graph nodes (attribute mapping → Node), so it can be replayed in WizardFlow. ${graphSource(flags)}`}>
           <Chip label="WizardFlow" size="small" color="secondary" variant="outlined" sx={chipSx} />
         </Tooltip>
       )}
@@ -43,6 +43,14 @@ export function TraceBadges({ flags }: { flags: number }) {
       )}
     </Box>
   );
+}
+
+/** Where the replay's graph comes from: the same wording as the projection's
+ * `meta.graph` (sdk/python/src/wizardflow/store/projection.py). */
+export function graphSource(flags: number): string {
+  return (flags & TraceFlag.TOPOLOGY) !== 0
+    ? "Graph recorded by WizardFlow."
+    : "No recorded graph: edges are inferred from the run order.";
 }
 
 const SEVERITY_COLOR: Record<SeverityLevel, "default" | "info" | "warning" | "error"> = {
