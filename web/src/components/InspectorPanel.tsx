@@ -260,7 +260,7 @@ function ExecutionTiming({
         {visit.deltaMs !== undefined ? formatInterval(visit.deltaMs) : "—"}
       </Typography>
       <Typography variant="caption" component="div">
-        Since message start:{" "}
+        Since workflow execution start:{" "}
         {visit.elapsedMs !== undefined ? formatInterval(visit.elapsedMs) : "—"}
       </Typography>
     </Box>
@@ -814,7 +814,7 @@ const TIMING_MODE_INFO = [
   [
     "auto_closed",
     "Auto-closed",
-    "execution was started explicitly but closed when the message ended.",
+    "execution was started explicitly but closed when the workflow execution ended.",
   ],
   ["unknown", "Unknown", "the trace does not record how timing was obtained."],
 ] as const;

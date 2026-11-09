@@ -454,7 +454,7 @@ function TraceRow({
       hover
       sx={{ cursor: "pointer" }}
       onClick={() =>
-        goTo({ view: "trace", project: route.project, trace: trace.traceId, span: trace.rootSpanId ?? undefined })
+        goTo({ view: "trace", project: route.project, trace: trace.traceId, span: trace.rootSpanId ?? undefined, back })
       }
     >
       <TableCell padding="checkbox">
@@ -521,6 +521,7 @@ function TraceRow({
               conversationId: trace.conversationId,
               name: trace.conversationId ?? trace.name,
               back,
+              at: { traceId: trace.traceId },
             })}
           />
         )}
@@ -560,7 +561,7 @@ function ConversationPicker({ project, back }: { project: string; back: string }
         slotProps={{ paper: { sx: { maxHeight: 420, minWidth: 280 } } }}
       >
         <Typography sx={{ px: 2, py: 0.75, fontSize: 12, color: "text.secondary", maxWidth: 320 }}>
-          Pick a conversation. Its executions become the messages of the graph replay.
+          Pick a conversation. Its executions play one by one in the graph replay.
         </Typography>
         {data.map((conversation) => (
           <MenuItem

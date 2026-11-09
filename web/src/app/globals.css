@@ -82,12 +82,27 @@ body > div:first-child {
   transition: opacity 180ms ease, visibility 0s linear 180ms;
 }
 
-/* A replay from the dashboard keeps its sidebar rail (64px, from md up)
-   uncovered. */
+/* A replay from the dashboard keeps its sidebar (from md up) uncovered: 176px,
+   or 64px folded. */
 @media (min-width: 900px) {
   html[data-from-dashboard] .wf-trace-cover {
+    left: 176px;
+  }
+  html[data-from-dashboard][data-sidebar-folded] .wf-trace-cover {
     left: 64px;
   }
+}
+
+/* That sidebar's first frame, before React is up (see OtelSidebar.tsx). */
+html[data-sidebar-folded] .wf-rail-unfolded,
+html:not([data-sidebar-folded]) .wf-rail-folded {
+  display: none !important;
+}
+.wf-rail-project:empty::before {
+  content: var(--wf-rail-project, "\00a0");
+}
+.wf-rail-db:empty::before {
+  content: var(--wf-rail-db, "\00a0");
 }
 
 html:not([data-from-dashboard]) .wf-dashboard-rail {

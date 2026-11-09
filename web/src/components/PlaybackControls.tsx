@@ -264,7 +264,7 @@ function TimeReadouts({
           Δ {deltaMs !== undefined ? formatDuration(deltaMs) : "—"}
         </Box>
       </Tooltip>
-      <Tooltip title="Elapsed since message start" placement="top">
+      <Tooltip title="Elapsed since workflow execution start" placement="top">
         <Box component="span" sx={{ ...readoutSx, color: "primary.main" }}>
           Σ {elapsedMs !== undefined ? formatDuration(elapsedMs) : "—"}
         </Box>
@@ -292,16 +292,16 @@ export default function PlaybackControls({
   const atEnd = stepIndex >= stepCount - 1;
   const playbackModeLabel =
     playbackMode === "stop-at-message-end"
-      ? "Stop at message end"
+      ? "Stop at execution end"
       : playbackMode === "repeat-message"
-        ? "Repeat current message"
-        : "Play next message";
+        ? "Repeat current execution"
+        : "Play next execution";
   const playbackModeToggleLabel =
     playbackMode === "stop-at-message-end"
-      ? "Switch to play next message"
+      ? "Switch to play next execution"
       : playbackMode === "play-next-message"
-        ? "Switch to repeat current message"
-        : "Switch to stop at message end";
+        ? "Switch to repeat current execution"
+        : "Switch to stop at execution end";
   const playbackSpeedLabel = formatPlaybackSpeed(playbackSpeed);
   const nextPlaybackSpeedLabel = formatPlaybackSpeed(
     nextPlaybackSpeed(playbackSpeed)

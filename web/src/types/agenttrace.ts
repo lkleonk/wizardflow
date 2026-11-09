@@ -59,6 +59,11 @@ export type AgentTraceMessage = {
    * large structured data belongs in payloads.
    */
   meta?: Record<string, string | number | boolean>;
+  /**
+   * The OTel trace this execution came from. Set only by the dashboard's
+   * projection (store/projection.py); the SDK's JSONL writer never emits it.
+   */
+  otelTraceId?: string;
   steps: AgentTraceStep[];
 };
 
@@ -86,6 +91,8 @@ export type AgentTraceStep = {
    * unknown; readers must not assume an exact runtime in that case.
    */
   timingMode?: "explicit" | "inferred" | "auto_closed";
+  /** The OTel span of this node visit. Projection-only, like `otelTraceId`. */
+  otelSpanId?: string;
   payloads: AgentTracePayload[];
 };
 

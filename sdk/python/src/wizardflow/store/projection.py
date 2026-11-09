@@ -141,7 +141,7 @@ def _project(
                 continue
             executions.setdefault(span[8] or trace_id, []).append(span)
         for message_id, node_spans in executions.items():
-            messages.append(_message(message_id, node_spans, root, root_attrs, mapping))
+            messages.append(_message(message_id, trace_id, node_spans, root, root_attrs, mapping))
 
     messages.sort(key=lambda m: m["steps"][0]["timestamp"] if m["steps"] else "")
     graph, graph_source = _graph(graph_event, messages)
@@ -167,13 +167,14 @@ def _project(
 
 def _message(
     message_id: str,
+    trace_id: str,
     node_spans: List[Tuple[Any, ...]],
     root: Optional[Tuple[Any, ...]],
     root_attrs: Dict[str, Any],
     mapping: Mapping,
 ) -> Dict[str, Any]:
     steps = []
-    for n, (_sid, _parent, _name, start, end, attrs_json, node_id, node_kind, _exec,
+    for n, (span_id, _parent, _name, start, end, attrs_json, node_id, node_kind, _exec,
             in_tokens, out_tokens) in enumerate(node_spans, start=1):
         attrs = json.loads(attrs_json)
         step: Dict[str, Any] = {
@@ -183,12 +184,14 @@ def _message(
             "endTimestamp": _iso(end),
             "timingMode": "explicit",
             "payloads": _payloads(attrs, mapping, in_tokens, out_tokens),
+            # Links the step back to its span: Graph ↔ Spans keeps the position.
+            "otelSpanId": span_id,
         }
         kind = _kind(node_kind)
         if kind != "generic":
             step["kind"] = kind
         steps.append(step)
-    message: Dict[str, Any] = {"id": message_id, "steps": steps}
+    message: Dict[str, Any] = {"id": message_id, "otelTraceId": trace_id, "steps": steps}
     # The workflow root carries the execution's title and metadata, but only
     # when it is this execution's own root (one trace per execution).
     if root is not None and root_attrs.get("wizardflow.message.id") in (None, message_id):

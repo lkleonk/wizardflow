@@ -22,7 +22,7 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://getwizardflow.com";
 
 const description =
   "WizardFlow is a browser-based viewer for agent runs. Upload a trace " +
-  "file to replay an agent flow step by step — message timeline, ordered " +
+  "file to replay an agent flow step by step — execution timeline, ordered " +
   "node execution, live graph activity, and full payload inspection. " +
   "Everything runs locally; no data leaves your browser.";
 

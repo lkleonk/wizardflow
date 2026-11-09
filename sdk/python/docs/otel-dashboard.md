@@ -133,7 +133,9 @@ whole conversation as one run.
 right. The span details show attributes (grouped by namespace), chat
 messages, events, correlated logs, and the resource.
 
-- The span tree folds away (‹) or resizes by dragging the gap.
+- The header shows the conversation and which execution this is, with ‹ › to
+  step through the conversation.
+- The span tree folds away («) or resizes by dragging the gap.
 - Span dots take the colour their node has in graph replay. Error spans are
   red.
 - Pin an attribute with its pin icon to show it first on every span.
@@ -155,8 +157,9 @@ whether a record belongs to a trace, and search their text.
 ## Graph replay
 
 A trace with graph nodes shows a **Graph replay** button on its root span and
-on every node span. Graph replay plays the run back node by node, in the same
-viewer as `wizardflow ui`, and the dashboard's sidebar stays beside it.
+on every node span, and it opens on that execution and node. Graph replay plays
+the run back node by node, in the same viewer as `wizardflow ui`, and the
+dashboard's sidebar stays beside it, folded or not as you left it.
 
 The graph comes from one of two places, and the trace page says which:
 

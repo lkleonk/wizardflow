@@ -129,7 +129,7 @@ function searchTrace(
           messageId: message.id,
           messageIndex: m,
           kind: "message-label",
-          sourceLabel: "message title",
+          sourceLabel: "execution title",
           snippet: makeSnippet(label, labelIndex, needle.length),
         })
       ) {
@@ -146,7 +146,7 @@ function searchTrace(
           messageId: message.id,
           messageIndex: m,
           kind: "message-meta",
-          sourceLabel: "message meta",
+          sourceLabel: "execution meta",
           snippet: makeSnippet(text, index, needle.length),
         })
       ) {

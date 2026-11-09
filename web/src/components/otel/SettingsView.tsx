@@ -91,7 +91,7 @@ function SectionHead({ title, sub, children }: { title: string; sub: string; chi
 
 const CONCEPTS: { id: MappingConcept; label: string; hint: string; global?: boolean }[] = [
   { id: "project", label: "Project", hint: "Groups traces into projects. Read from resource attributes; a change applies to later imports.", global: true },
-  { id: "execution", label: "Workflow execution", hint: "One message in graph replay. Falls back to the trace." },
+  { id: "execution", label: "Workflow execution", hint: "One chip on the graph replay timeline. Falls back to the trace." },
   { id: "conversation", label: "Conversation", hint: "Joins executions into one graph replay." },
   { id: "user", label: "User", hint: "Shown on traces." },
   { id: "node", label: "Node", hint: "A step on the WizardFlow graph. Enables graph replay." },

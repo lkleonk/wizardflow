@@ -150,7 +150,7 @@ export default function ExampleGallery({
                   color="text.disabled"
                   sx={{ mt: "auto", fontVariantNumeric: "tabular-nums" }}
                 >
-                  {flow.pattern} · {flow.messageCount} msg · {flow.nodeCount} nodes
+                  {flow.pattern} · {flow.messageCount} exec ·{flow.nodeCount} nodes
                 </Typography>
               </ButtonBase>
             );

@@ -385,6 +385,36 @@ def get_trace(con: sqlite3.Connection, project: str, trace_id: str) -> Dict[str,
         "resources": {str(k): v for k, v in resources.items()},
         "logs": logs,
         "otherSlices": other_slices,
+        "conversation": _conversation_position(con, pid, trace),
+    }
+
+
+def _conversation_position(
+    con: sqlite3.Connection, pid: int, trace: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Where a trace sits in its conversation, for "Execution 3 of 7".
+
+    A replayable trace counts only replayable ones, so the number matches its
+    chip in graph replay; any other trace counts the whole conversation.
+    """
+    conversation = trace["conversationId"]
+    if conversation is None:
+        return None
+    required = trace["flags"] & FLAG_WIZARDFLOW
+    ids = [
+        trace_id
+        for (trace_id,) in con.execute(
+            "SELECT trace_id FROM traces WHERE project_id = ? AND conversation_id = ? "
+            "AND flags & ? = ? ORDER BY start_ns, id",
+            (pid, conversation, required, required),
+        )
+    ]
+    index = ids.index(trace["traceId"])
+    return {
+        "position": index + 1,
+        "total": len(ids),
+        "prevTraceId": ids[index - 1] if index > 0 else None,
+        "nextTraceId": ids[index + 1] if index + 1 < len(ids) else None,
     }
 
 

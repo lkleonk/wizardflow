@@ -13,6 +13,8 @@ import Typography from "@mui/material/Typography";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
+import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PushPinIcon from "@mui/icons-material/PushPin";
 import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
@@ -20,6 +22,7 @@ import { nodeColorAt, nodeColorForKind } from "@/theme/muiTheme";
 import {
   TraceFlag,
   type ApiLog,
+  type ApiProject,
   type ApiSpan,
   type ApiTraceDetail,
   type Attributes,
@@ -34,6 +37,7 @@ import {
 } from "@/utils/otelApi";
 import { keyMatches, setDisplayPrefs, useDisplayPrefs, type DisplayPrefs } from "@/utils/otelDisplay";
 import { goTo, otelHref, replayHref, type OtelRoute } from "@/utils/otelRoute";
+import OtelHeader from "./OtelHeader";
 import { LoadError, Loading, Mono, SeverityChip, TraceBadges, graphSource } from "./OtelBits";
 
 const MONO = "var(--font-geist-mono), monospace";
@@ -123,24 +127,34 @@ function flattenTree(spans: ApiSpan[]): Row[] {
 
 export default function TraceView({
   route,
+  projects,
 }: {
   route: OtelRoute & { project: string; trace: string };
+  projects: ApiProject[];
 }) {
   const { data, error, loading } = useApi<ApiTraceDetail>(
     apiPath(`traces/${encodeURIComponent(route.trace)}`, { project: route.project }),
     { live: true }
   );
-  if (error) return <LoadError error={error} />;
-  if (loading || !data) return <Loading />;
-  return <TraceDetail detail={data} route={route} />;
+  if (error || loading || !data) {
+    return (
+      <>
+        <OtelHeader route={route} projects={projects} />
+        {error ? <LoadError error={error} /> : <Loading />}
+      </>
+    );
+  }
+  return <TraceDetail detail={data} route={route} projects={projects} />;
 }
 
 function TraceDetail({
   detail,
   route,
+  projects,
 }: {
   detail: ApiTraceDetail;
   route: OtelRoute & { project: string; trace: string };
+  projects: ApiProject[];
 }) {
   const { trace, spans } = detail;
   const rows = flattenTree(spans);
@@ -155,10 +169,12 @@ function TraceDetail({
     conversationId: trace.conversationId,
     name: trace.conversationId ?? trace.name,
     back,
+    at: { traceId: trace.traceId, spanId: selected?.spanId },
   });
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+    <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1, overflow: "hidden" }}>
+      <OtelHeader route={route} projects={projects} trail={traceTrail(detail, route.project, route.back)} />
       <TraceHeader detail={detail} />
       {detail.otherSlices.length > 0 && (
         <Alert severity="info" sx={{ mx: 2, mb: 1, py: 0 }}>
@@ -199,6 +215,57 @@ function TraceDetail({
       />
     </Box>
   );
+}
+
+/** Crumbs after "Traces": the conversation, then which execution this is. */
+function traceTrail(detail: ApiTraceDetail, project: string, back?: string): React.ReactNode[] {
+  const { trace, conversation } = detail;
+  if (!trace.conversationId) {
+    return [<Mono key="id" sx={{ fontWeight: 650 }}>{trace.traceId.slice(0, 12)}…</Mono>];
+  }
+  const crumbs: React.ReactNode[] = [
+    <Mono
+      key="conversation"
+      sx={{
+        display: "inline-block",
+        maxWidth: 180,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        verticalAlign: "bottom",
+        color: "text.secondary",
+      }}
+    >
+      <span title={trace.conversationId}>{trace.conversationId}</span>
+    </Mono>,
+  ];
+  if (conversation && conversation.total > 1) {
+    const step = (label: string, traceId: string | null, icon: React.ReactNode) => (
+      <Tooltip title={traceId ? `${label} execution` : ""}>
+        <span>
+          <IconButton
+            size="small"
+            disabled={!traceId}
+            onClick={() => traceId && goTo({ view: "trace", project, trace: traceId, back })}
+            aria-label={`${label} execution`}
+            sx={{ p: 0.25 }}
+          >
+            {icon}
+          </IconButton>
+        </span>
+      </Tooltip>
+    );
+    crumbs.push(
+      <Box key="execution" sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, whiteSpace: "nowrap" }}>
+        <Typography component="span" sx={{ fontWeight: 650 }}>
+          Execution {conversation.position} of {conversation.total}
+        </Typography>
+        {step("Previous", conversation.prevTraceId, <ChevronLeftIcon fontSize="small" />)}
+        {step("Next", conversation.nextTraceId, <ChevronRightIcon fontSize="small" />)}
+      </Box>
+    );
+  }
+  return crumbs;
 }
 
 function TraceHeader({ detail }: { detail: ApiTraceDetail }) {
@@ -284,7 +351,7 @@ function readTreeWidth(): number | null {
 /**
  * Span tree | inspector, with a draggable divider. The width is a per-browser
  * display preference; a one-span trace starts with a narrow tree, since the
- * content is in the inspector. Dragging to the far left (or ⟨) collapses the
+ * content is in the inspector. Dragging to the far left (or «) collapses the
  * tree to a strip, for this trace only: the next trace opens with its tree.
  */
 function SplitPane({
@@ -379,7 +446,7 @@ function SplitPane({
       >
         <Tooltip title="Show the span tree">
           <IconButton size="small" onClick={() => setCollapsed(false)} aria-label="Show the span tree">
-            <ChevronRightIcon fontSize="small" />
+            <KeyboardDoubleArrowRightIcon fontSize="small" />
           </IconButton>
         </Tooltip>
         <Typography sx={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: 11.5, color: "text.secondary" }}>
@@ -406,7 +473,7 @@ function SplitPane({
             // Small enough that its hover circle stays inside the 28px header.
             sx={{ display: { xs: "none", md: "inline-flex" }, position: "absolute", top: 0, left: 4, zIndex: 2, p: 0.25 }}
           >
-            <ChevronLeftIcon fontSize="small" />
+            <KeyboardDoubleArrowLeftIcon fontSize="small" />
           </IconButton>
         </Tooltip>
         {left}

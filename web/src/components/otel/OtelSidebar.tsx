@@ -1,3 +1,4 @@
+import { useEffect, useSyncExternalStore } from "react";
 import Box from "@mui/material/Box";
 import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
@@ -20,27 +21,74 @@ import type { ApiReceiver } from "@/types/otelstore";
 import { setDisplayPrefs, useDisplayPrefs } from "@/utils/otelDisplay";
 import { goTo, otelHref, type OtelRoute } from "@/utils/otelRoute";
 
-/**
- * The dashboard's sidebar. Graph replay (`replay`) shows it too, always folded
- * to the rail and without the fold toggle; it keeps the color mode toggle
- * (AppHeader hides its own beside it), and links back into the dashboard
- * instead of routing in place.
- */
-export default function OtelSidebar({
-  route,
-  dbPath,
-  receiver,
-  replay = false,
-}: {
+type SidebarProps = {
   route: OtelRoute;
   dbPath?: string;
   receiver?: ApiReceiver;
   replay?: boolean;
-}) {
+};
+
+const subscribeToNothing = () => () => {};
+// TracePendingScript reads this key too.
+const DB_LABEL_KEY = "wf-otel-db-label";
+
+/**
+ * The dashboard's sidebar. Graph replay (`replay`) shows it too, folded or not
+ * by the same preference; it keeps the color mode toggle (AppHeader hides its
+ * own beside it), and links back into the dashboard instead of routing in
+ * place.
+ *
+ * The replay is a separate static page, painted before any JavaScript runs, and
+ * must look exactly like the dashboard's sidebar from that first frame. Its
+ * HTML holds both foldings, and globals.css shows the right one from attributes
+ * TracePendingScript sets before first paint; the same script supplies the
+ * project and database labels as CSS variables.
+ */
+export default function OtelSidebar(props: SidebarProps) {
+  const prefs = useDisplayPrefs();
+  const folded = prefs.sidebarFolded;
+  const hydrated = useSyncExternalStore(subscribeToNothing, () => true, () => false);
+  const { replay } = props;
+  // Mirrors the fold once React knows it; the loading cover's edge reads it.
+  useEffect(() => {
+    if (replay && hydrated) {
+      document.documentElement.toggleAttribute("data-sidebar-folded", folded);
+    }
+  }, [replay, hydrated, folded]);
+  if (replay && !hydrated) {
+    return (
+      <>
+        <Box className="wf-rail-unfolded" sx={{ display: "flex" }}>
+          <SidebarBody {...props} folded={false} />
+        </Box>
+        <Box className="wf-rail-folded" sx={{ display: "flex" }}>
+          <SidebarBody {...props} folded />
+        </Box>
+      </>
+    );
+  }
+  return <SidebarBody {...props} folded={folded} />;
+}
+
+function SidebarBody({
+  route,
+  dbPath,
+  receiver,
+  replay = false,
+  folded,
+}: SidebarProps & { folded: boolean }) {
   const { mode, systemMode, setMode } = useColorScheme();
   const isDark = (mode === "system" ? systemMode : mode) !== "light";
-  const prefs = useDisplayPrefs();
-  const folded = replay || prefs.sidebarFolded;
+  const dbLabel = dbPath?.split(/[\\/]/).slice(-2).join("/");
+  // Remembered so the next replay can show it in its first frame.
+  useEffect(() => {
+    if (!dbLabel) return;
+    try {
+      window.localStorage.setItem(DB_LABEL_KEY, dbLabel);
+    } catch {
+      // storage unavailable: the label just appears a moment later
+    }
+  }, [dbLabel]);
   // In place inside the dashboard; a page load from the replay viewer.
   const go = (to: OtelRoute) =>
     replay
@@ -48,7 +96,9 @@ export default function OtelSidebar({
       : { onClick: () => goTo(to) };
   // Settings keeps the project in the URL, so its nav stays and "back" works.
   const project = route.view !== "projects" ? route.project : undefined;
-  const active = route.view === "trace" ? "traces" : route.view;
+  // The replay is only ever opened from a project's traces. Decided here and
+  // not from `route`, which the static first frame doesn't have yet.
+  const active = replay || route.view === "trace" ? "traces" : route.view;
   const item = {
     borderRadius: 1,
     minHeight: 32,
@@ -101,7 +151,9 @@ export default function OtelSidebar({
             <Box
               component="a"
               href={otelHref({ view: "projects" })}
-              sx={{ display: "flex", p: 0.5 }}
+              // Negative margin: the hit area must not make this row taller
+              // than the dashboard's.
+              sx={{ display: "flex", p: 0.5, m: -0.5 }}
             >
               <Box
                 component="img"
@@ -124,30 +176,29 @@ export default function OtelSidebar({
             WizardFlow
           </Typography>
         )}
-        {!replay && (
-          <Tooltip
-            title={folded ? "Expand the sidebar" : "Fold the sidebar"}
-            placement="right"
+        <Tooltip
+          title={folded ? "Expand the sidebar" : "Fold the sidebar"}
+          placement="right"
+        >
+          <IconButton
+            size="small"
+            onClick={() => setDisplayPrefs({ sidebarFolded: !folded })}
+            aria-label={folded ? "Expand the sidebar" : "Fold the sidebar"}
           >
-            <IconButton
-              size="small"
-              onClick={() => setDisplayPrefs({ sidebarFolded: !folded })}
-              aria-label={folded ? "Expand the sidebar" : "Fold the sidebar"}
-            >
-              {folded ? (
-                <KeyboardDoubleArrowRightIcon fontSize="small" />
-              ) : (
-                <KeyboardDoubleArrowLeftIcon fontSize="small" />
-              )}
-            </IconButton>
-          </Tooltip>
-        )}
+            {folded ? (
+              <KeyboardDoubleArrowRightIcon fontSize="small" />
+            ) : (
+              <KeyboardDoubleArrowLeftIcon fontSize="small" />
+            )}
+          </IconButton>
+        </Tooltip>
       </Box>
-      {project && (
+      {(project || replay) && (
         <>
-          <Tooltip title={folded ? project : ""} placement="right">
+          <Tooltip title={folded ? (project ?? "") : ""} placement="right">
             <Typography
               noWrap
+              className="wf-rail-project"
               sx={{
                 px: folded ? 0.75 : 2,
                 pt: 0.5,
@@ -219,10 +270,11 @@ export default function OtelSidebar({
           gap: folded ? 0.5 : 1,
         }}
       >
-        {!folded && dbPath && (
-          <Tooltip title={dbPath}>
+        {!folded && (dbPath || replay) && (
+          <Tooltip title={dbPath ?? ""}>
             <Typography
               noWrap
+              className="wf-rail-db"
               sx={{
                 flex: 1,
                 fontSize: 11.5,
@@ -230,7 +282,7 @@ export default function OtelSidebar({
                 fontFamily: "var(--font-geist-mono), monospace",
               }}
             >
-              {dbPath.split(/[\\/]/).slice(-2).join("/")}
+              {dbLabel}
             </Typography>
           </Tooltip>
         )}
@@ -238,7 +290,11 @@ export default function OtelSidebar({
           <Tooltip title={`Receiving OTLP at ${receiver.endpoint}`} placement={folded ? "right" : "top"}>
             <Box
               component="button"
-              onClick={() => goTo({ view: "settings", project: route.project, sec: "live" })}
+              onClick={() => {
+                const live: OtelRoute = { view: "settings", project: route.project, sec: "live" };
+                if (replay) window.location.assign(otelHref(live));
+                else goTo(live);
+              }}
               aria-label="Live receiver settings"
               sx={{ display: "flex", p: 0.75, border: 0, bgcolor: "transparent", cursor: "pointer" }}
             >

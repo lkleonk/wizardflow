@@ -205,4 +205,12 @@ export type ApiTraceDetail = {
   logs: ApiLog[];
   /** The same trace id in other projects (a distributed trace). */
   otherSlices: { project: string; spanCount: number; rootSpanName: string | null }[];
+  /** Where this trace sits in its conversation; null without a conversation. */
+  conversation: {
+    /** 1-based, oldest first. A replayable trace counts only replayable ones. */
+    position: number;
+    total: number;
+    prevTraceId: string | null;
+    nextTraceId: string | null;
+  } | null;
 };

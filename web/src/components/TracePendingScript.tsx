@@ -14,10 +14,16 @@
 // has a `trace` param too, and nothing there would ever lift the cover. A
 // replay opened from the dashboard (`from=otel`) is marked too, so its
 // sidebar shows and the cover leaves it uncovered, both from the first frame.
+// That sidebar's fold and labels are set here too, before React is up (see
+// OtelSidebar.tsx); the storage keys are otelDisplay.ts's and OtelSidebar's.
 const MARK_PENDING_TRACE = `(function(){try{
 var p=window.location.pathname,q=new URLSearchParams(window.location.search),h=document.documentElement;
 if(p!=='/'&&p!=='/index.html')return;
-if(q.get('from')==='otel')h.setAttribute('data-from-dashboard','');
+if(q.get('from')==='otel'){h.setAttribute('data-from-dashboard','');
+try{var b=q.get('back')||'',pr=new URLSearchParams(b.split('?')[1]||'').get('project'),db=localStorage.getItem('wf-otel-db-label');
+if(pr)h.style.setProperty('--wf-rail-project',JSON.stringify(pr));
+if(db)h.style.setProperty('--wf-rail-db',JSON.stringify(db));
+if(JSON.parse(localStorage.getItem('wf-otel-display')||'{}').sidebarFolded)h.setAttribute('data-sidebar-folded','');}catch(e){}}
 if(q.get('trace'))h.setAttribute('data-trace-pending','');
 }catch(e){}})();`;
 

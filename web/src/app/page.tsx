@@ -39,6 +39,8 @@ import TutorialDialog from "@/components/TutorialDialog";
 import WelcomeDialog from "@/components/WelcomeDialog";
 import { emptyTrace, exampleFlows, type ExampleFlow } from "@/data";
 import type { AgentTraceFile } from "@/types/agenttrace";
+import type { ApiMeta } from "@/types/otelstore";
+import { apiPath, useApi } from "@/utils/otelApi";
 import {
   getSavedFlow,
   getServerSavedFlow,
@@ -64,7 +66,12 @@ import {
 import { withUniqueLabels } from "@/utils/payloadLabels";
 import { parseAgentTrace } from "@/utils/agentTraceFile";
 import { useDashboardBackHref, useViewerChrome } from "@/utils/viewerContext";
-import { parseOtelRoute } from "@/utils/otelRoute";
+import {
+  locateReplayTarget,
+  parseOtelRoute,
+  parseReplayTarget,
+  type ReplayTarget,
+} from "@/utils/otelRoute";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 import OtelSidebar from "@/components/otel/OtelSidebar";
 import {
@@ -174,6 +181,9 @@ export default function Home() {
   // Set when a flow is loaded with `autoplay` (examples); consumed by the
   // render-time reset below so playback starts the moment the flow lands.
   const [pendingAutoplay, setPendingAutoplay] = useState(false);
+  // Set when a dashboard link names a position (`?otelTrace=` / `?otelSpan=`);
+  // consumed by the same reset, so the first frame is already on that chip.
+  const [pendingReveal, setPendingReveal] = useState<ReplayTarget | null>(null);
   const exampleParamHandledRef = useRef(false);
 
   const disableGraphArrangeMode = useCallback(() => {
@@ -195,6 +205,9 @@ export default function Home() {
   const dashboardRoute = parseOtelRoute(
     new URLSearchParams(dashboardBackHref?.split("?")[1] ?? "")
   );
+  const dashboardMeta = useApi<ApiMeta>(dashboardBackHref ? apiPath("meta") : null, {
+    live: true,
+  });
 
   // The welcome dialog shows until the user makes their first choice this
   // session (then it's remembered), and never while a saved flow is loaded.
@@ -298,9 +311,13 @@ export default function Home() {
         );
       }
     } else {
-      setSelectedMessageId(trace.messages[0]?.id);
-      setCurrentStepIndex(0);
-      setSelectedNodeId(orderedSteps(trace.messages[0])[0]?.nodeId);
+      const reveal = pendingReveal && locateReplayTarget(trace.messages, pendingReveal);
+      if (pendingReveal) setPendingReveal(null);
+      const startMessage = reveal?.message ?? trace.messages[0];
+      const startStep = reveal?.stepIndex ?? 0;
+      setSelectedMessageId(startMessage?.id);
+      setCurrentStepIndex(startStep);
+      setSelectedNodeId(orderedSteps(startMessage)[startStep]?.nodeId);
       setIsPlaying(pendingAutoplay);
       if (pendingAutoplay) setPendingAutoplay(false);
       setGraphArrangeMode(false);
@@ -676,6 +693,11 @@ export default function Home() {
   // status slot and the divider before the action icons.
   const isServedTrace = activeTraceHref !== null;
 
+  const dashboardView = {
+    executionIndex: Math.max(0, currentMessageIndex),
+    executionCount: trace.messages.length,
+  };
+
   const goToPart = useCallback(
     (name: string) => {
       if (!activeTraceHref) return;
@@ -793,6 +815,9 @@ export default function Home() {
         }
         if (cancelled) return;
 
+        // Before the load, in the same batch, like `pendingAutoplay`. A part
+        // switch keeps its own start: the position named a different file.
+        setPendingReveal(partRequest ? null : parseReplayTarget(params));
         handleLoadTrace(withName(parsed));
         // Remember where it came from, so `meta.prevPart` / `meta.nextPart`
         // can be resolved into sibling URLs for the header's part controls.
@@ -1079,7 +1104,12 @@ export default function Home() {
           loading cover instead of under it. */}
       {!isHostedWizardFlow && (
         <Box className="wf-dashboard-rail" sx={{ display: "flex" }}>
-          <OtelSidebar route={dashboardRoute} replay />
+          <OtelSidebar
+            route={dashboardRoute}
+            dbPath={dashboardMeta.data?.dbPath}
+            receiver={dashboardMeta.data?.receiver}
+            replay
+          />
         </Box>
       )}
       <Box
@@ -1193,6 +1223,7 @@ export default function Home() {
           isServedTrace={isServedTrace}
           isLiveWatching={isLiveWatching}
           partLinks={partLinks}
+          dashboardView={dashboardView}
           onGoToPart={goToPart}
           onClearFlow={handleDropFlow}
           onOpenGallery={() => setGalleryOpen(true)}
@@ -1343,13 +1374,16 @@ export default function Home() {
             pb: { xs: "env(safe-area-inset-bottom)", sm: 0 },
           }}
         >
-          <MessageTimeline
-            messages={trace.messages}
-            selectedMessageId={selectedMessageId}
-            onSelectMessage={handleSelectMessage}
-            newMessageCount={newLiveMessageCount}
-            onJumpToNewest={handleJumpToNewest}
-          />
+          {/* With one execution there is nothing to choose between. */}
+          {trace.messages.length !== 1 && (
+            <MessageTimeline
+              messages={trace.messages}
+              selectedMessageId={selectedMessageId}
+              onSelectMessage={handleSelectMessage}
+              newMessageCount={newLiveMessageCount}
+              onJumpToNewest={handleJumpToNewest}
+            />
+          )}
           <PlaybackControls
             stepIndex={currentStepIndex}
             stepCount={stepCount}

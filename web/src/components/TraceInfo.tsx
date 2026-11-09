@@ -65,7 +65,7 @@ export default function TraceInfo({ trace }: TraceInfoProps) {
           <InfoRow label="Schema" value={`v${trace.version}`} />
           <InfoRow
             label="Graph"
-            value={`${messageCount} messages · ${nodeCount} nodes · ${edgeCount} edges`}
+            value={`${messageCount} executions ·${nodeCount} nodes · ${edgeCount} edges`}
           />
           {trace.meta &&
             Object.entries(trace.meta)

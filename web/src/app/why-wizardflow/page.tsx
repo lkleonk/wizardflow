@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 const comparison = [
   ["Primary artifact", "Portable JSONL file", "Stored platform trace"],
   ["Core interaction", "Graph and replay", "Search and analysis"],
-  ["Replay unit", "One message", "Usually a trace"],
+  ["Replay unit", "One workflow execution", "Usually a trace"],
   ["Standalone sharing", "Send one file", "Varies by platform"],
   ["OpenTelemetry export", "Optional OTLP traces", "Often built in"],
   ["Fleet-wide monitoring", "Not the focus", "Core capability"],
@@ -56,9 +56,9 @@ export default function WhyWizardFlowPage() {
             </article>
             <article className={styles.featureCard}>
               <p className={styles.featureKicker}>Visual</p>
-              <h3>Per-message graph replay</h3>
+              <h3>Per-execution graph replay</h3>
               <p>
-                Follow each message through the nodes it visited, with timing
+                Follow each execution through the nodes it visited, with timing
                 and payloads synchronized as the run advances.
               </p>
             </article>
@@ -99,11 +99,11 @@ export default function WhyWizardFlowPage() {
         <section className={styles.section}>
           <h2>A visual replay anyone can follow</h2>
           <p>
-            WizardFlow shows the agent&rsquo;s graph and replays one message at a
-            time through the nodes it visited. The graph, message timeline, and
-            node inspector remain synchronized as the run advances, making the
-            execution understandable without requiring someone to read raw logs
-            or interpret a span list.
+            WizardFlow shows the agent&rsquo;s graph and replays one workflow
+            execution at a time through the nodes it visited. The graph,
+            execution timeline, and node inspector remain synchronized as the
+            run advances, making the run understandable without requiring
+            someone to read raw logs or interpret a span list.
           </p>
           <div className={styles.playerSketch} aria-label="Example flow replay">
             <div>planner &rarr; retriever &rarr; writer</div>
@@ -117,7 +117,7 @@ export default function WhyWizardFlowPage() {
           </div>
           <p>
             Play, pause, change speed, step through nodes, and move between
-            messages with controls that feel like a familiar music player.
+            executions with controls that feel like a familiar music player.
           </p>
         </section>
 
@@ -181,8 +181,8 @@ export default function WhyWizardFlowPage() {
           <h2>File-first, with optional OpenTelemetry export</h2>
           <p>
             The JSONL trace remains the durable, transport-neutral source of
-            truth. It preserves the graph, messages, node executions, timing,
-            and recorded payloads without tying the artifact to an
+            truth. It preserves the graph, workflow executions, node executions,
+            timing, and recorded payloads without tying the artifact to an
             observability vendor.
           </p>
           <p>

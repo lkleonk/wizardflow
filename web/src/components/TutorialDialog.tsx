@@ -26,7 +26,7 @@ const logValuesExample = `with trace.node(message_id, "generator") as node:
     response = ...
     node.log_output(response)
 
-# Finalize the message, write it to disk, and return the trace file path.
+# Finalize the execution, write it to disk, and return the trace file path.
 trace_path = trace.end_message(message_id)`;
 
 const otelInstallExample = `pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http`;
@@ -41,7 +41,7 @@ const otelExample = `trace = wizardflow.init_from_langgraph(
     otel_trace_scope="message",
 )
 
-# Record messages as above, then flush WizardFlow-owned OTel resources.
+# Record executions as above, then flush WizardFlow-owned OTel resources.
 trace.close_otel()`;
 
 type TutorialDialogProps = {
@@ -149,8 +149,8 @@ export default function TutorialDialog({
             color="text.secondary"
             sx={{ lineHeight: 1.7 }}
           >
-            WizardFlow records your graph one message at a time and writes a
-            replayable JSONL file. OpenTelemetry export is also available.
+            WizardFlow records your graph one workflow execution at a time and
+            writes a replayable JSONL file. OpenTelemetry export is also available.
           </Typography>
           {onWatchDemo && (
             <Button
@@ -196,7 +196,7 @@ export default function TutorialDialog({
           </Box>
           <Box sx={{ display: "grid", gap: 0.75 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              3. Record a message
+              3. Record a workflow execution
             </Typography>
             <CodeBlock>{logValuesExample}</CodeBlock>
             <Typography
@@ -384,7 +384,7 @@ export default function TutorialDialog({
                   <Box component="code">name</Box> becomes the project name for
                   a private OTLP provider. Use{" "}
                   <Box component="code">otel_trace_scope=&quot;message&quot;</Box>{" "}
-                  for one isolated trace per message, or omit it to keep the
+                  for one isolated trace per workflow execution, or omit it to keep the
                   backward-compatible recording-wide trace.
                 </Typography>
                 <Typography

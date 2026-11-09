@@ -9,6 +9,7 @@ import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
+import Link from "@mui/material/Link";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -31,6 +32,7 @@ import TraceUploader, { useTraceFilePicker } from "@/components/TraceUploader";
 import LocalDataDialog from "@/components/LocalDataDialog";
 import type { AgentTraceFile } from "@/types/agenttrace";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
+import { otelHref } from "@/utils/otelRoute";
 import { useDashboardBackHref, useViewerChrome } from "@/utils/viewerContext";
 
 // Controls that move into the overflow menu on phones.
@@ -43,6 +45,11 @@ export type PartLinks = {
   index: number;
 };
 
+export type DashboardReplayView = {
+  executionIndex: number;
+  executionCount: number;
+};
+
 type AppHeaderProps = {
   trace: AgentTraceFile;
   /** Whether a flow is actually loaded (an empty canvas can't be searched). */
@@ -53,6 +60,8 @@ type AppHeaderProps = {
   isServedTrace: boolean;
   isLiveWatching: boolean;
   partLinks: PartLinks | null;
+  /** Position for a replay opened from the dashboard; ignored elsewhere. */
+  dashboardView?: DashboardReplayView;
   onGoToPart: (name: string) => void;
   onClearFlow: () => void;
   onOpenGallery: () => void;
@@ -103,7 +112,7 @@ function LiveStatusDot({ watching }: { watching: boolean }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", px: 0.75 }}>
       {watching ? (
-        <Tooltip title="Live — watching the trace file for new messages">
+        <Tooltip title="Live — watching the trace file for new executions">
           <Box
             role="status"
             aria-label="Watching trace for updates"
@@ -182,6 +191,75 @@ function PartNavigator({
   );
 }
 
+// A replay opened from the dashboard: the same trail as the dashboard's trace
+// page (project / conversation / which execution) instead of the product name.
+function DashboardTrail({
+  trace,
+  view,
+}: {
+  trace: AgentTraceFile;
+  view: DashboardReplayView;
+}) {
+  const project = typeof trace.meta?.project === "string" ? trace.meta.project : undefined;
+  const conversation =
+    typeof trace.meta?.conversationId === "string" ? trace.meta.conversationId : undefined;
+  const middle = conversation ?? (view.executionCount <= 1 ? trace.name : undefined);
+  const separator = (
+    <Typography component="span" color="text.secondary">
+      /
+    </Typography>
+  );
+  return (
+    // Centered against the back arrow; the crumbs share a baseline inside.
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "baseline",
+        alignSelf: "center",
+        gap: 1,
+        minWidth: 0,
+        overflow: "hidden",
+      }}
+    >
+      {project && (
+        <Link
+          href={otelHref({ view: "traces", project })}
+          underline="hover"
+          color="text.secondary"
+          noWrap
+          sx={{ flexShrink: 0, maxWidth: 200 }}
+        >
+          {project}
+        </Link>
+      )}
+      {project && middle && separator}
+      {middle && (
+        <Typography
+          component="span"
+          color="text.secondary"
+          noWrap
+          title={middle}
+          sx={{
+            minWidth: 0,
+            fontFamily: "var(--font-geist-mono), monospace",
+            fontSize: 13,
+          }}
+        >
+          {middle}
+        </Typography>
+      )}
+      {view.executionCount > 1 && (
+        <>
+          {separator}
+          <Typography component="span" noWrap sx={{ flexShrink: 0, fontWeight: 650 }}>
+            Execution {view.executionIndex + 1} of {view.executionCount}
+          </Typography>
+        </>
+      )}
+    </Box>
+  );
+}
+
 export default function AppHeader({
   trace,
   hasFlow,
@@ -189,6 +267,7 @@ export default function AppHeader({
   isServedTrace,
   isLiveWatching,
   partLinks,
+  dashboardView,
   onGoToPart,
   onClearFlow,
   onOpenGallery,
@@ -266,30 +345,36 @@ export default function AppHeader({
               </IconButton>
             </Tooltip>
           )}
-          <Typography
-            variant="h6"
-            sx={{ flexShrink: 0, fontWeight: 600, letterSpacing: -0.2 }}
-          >
-            WizardFlow
-          </Typography>
-          {trace.name && (
+          {context === "from-dashboard" && dashboardView ? (
+            <DashboardTrail trace={trace} view={dashboardView} />
+          ) : (
             <>
-              <Typography component="span" color="text.secondary">
-                /
-              </Typography>
               <Typography
-                component="span"
-                color="text.secondary"
-                noWrap
-                title={trace.name}
-                sx={{
-                  minWidth: 0,
-                  fontFamily: "var(--font-geist-mono), monospace",
-                  fontSize: 13,
-                }}
+                variant="h6"
+                sx={{ flexShrink: 0, fontWeight: 600, letterSpacing: -0.2 }}
               >
-                {trace.name}
+                WizardFlow
               </Typography>
+              {trace.name && (
+                <>
+                  <Typography component="span" color="text.secondary">
+                    /
+                  </Typography>
+                  <Typography
+                    component="span"
+                    color="text.secondary"
+                    noWrap
+                    title={trace.name}
+                    sx={{
+                      minWidth: 0,
+                      fontFamily: "var(--font-geist-mono), monospace",
+                      fontSize: 13,
+                    }}
+                  >
+                    {trace.name}
+                  </Typography>
+                </>
+              )}
             </>
           )}
         </Box>

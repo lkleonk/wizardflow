@@ -349,16 +349,16 @@ export default function MessageTimeline({
         pl: { xs: 0.25, sm: 0.75 },
       }}
     >
-      {/* Strip label and density toggle as one control: clicking "MESSAGES ⇕"
+      {/* Strip label and density toggle as one control: clicking "EXECUTIONS ⇕"
           expands/compacts the chips. The text is hidden on phones where chip
           space is scarce; the icon alone remains the toggle there. */}
       <Tooltip
-        title={expanded ? "Compact messages" : "Show message details"}
+        title={expanded ? "Compact executions" : "Show execution details"}
         placement="top"
       >
         <ButtonBase
           onClick={() => setTimelineExpanded(!expanded)}
-          aria-label={expanded ? "Compact messages" : "Show message details"}
+          aria-label={expanded ? "Compact executions" : "Show execution details"}
           sx={{
             display: "flex",
             alignItems: "center",
@@ -380,7 +380,7 @@ export default function MessageTimeline({
             variant="overline"
             sx={{ display: { xs: "none", sm: "block" }, lineHeight: 1 }}
           >
-            Messages
+            Executions
           </Typography>
           {expanded ? (
             <UnfoldLessIcon sx={{ fontSize: 16 }} />

@@ -2,7 +2,9 @@
 // so links, reload and the back button work. Not path segments: a static
 // export can't pre-render one page per trace id.
 
+import type { AgentTraceMessage } from "@/types/agenttrace";
 import type { TimeRange } from "./otelDisplay";
+import { orderedSteps } from "./traceSelectors";
 
 export type OtelView = "projects" | "traces" | "trace" | "logs" | "settings";
 export type TraceKind = "all" | "wizardflow" | "genai" | "otel";
@@ -29,6 +31,8 @@ export type OtelRoute = {
   sec?: SettingsSection;
   /** Settings → mapping: which project's overrides; unset = the defaults. */
   scope?: string;
+  /** Trace: the list it was opened from, filters included. */
+  back?: string;
 };
 
 const VIEWS: OtelView[] = ["projects", "traces", "trace", "logs", "settings"];
@@ -46,6 +50,7 @@ export function parseOtelRoute(params: URLSearchParams): OtelRoute {
   // A project without a view opens its traces; nothing opens the overview.
   const view = oneOf(params.get("view"), VIEWS) ?? (project ? "traces" : "projects");
   const sev = Number(params.get("sev"));
+  const back = params.get("back");
   return {
     view,
     project,
@@ -61,6 +66,8 @@ export function parseOtelRoute(params: URLSearchParams): OtelRoute {
     corr: oneOf(params.get("corr"), CORRELATIONS),
     sec: oneOf(params.get("sec"), SECTIONS),
     scope: params.get("scope") || undefined,
+    // Only ever back into the dashboard: never an arbitrary URL from a link.
+    back: back?.startsWith("/otel") ? back : undefined,
   };
 }
 
@@ -72,6 +79,7 @@ export function otelHref(route: OtelRoute): string {
     if (route.trace) query.set("trace", route.trace);
     if (route.span) query.set("span", route.span);
     if (route.tab) query.set("tab", route.tab);
+    if (route.back) query.set("back", route.back);
   }
   if (route.view === "traces") {
     if (route.kind && route.kind !== "all") query.set("kind", route.kind);
@@ -100,10 +108,43 @@ export function goTo(route: OtelRoute, { replace = false } = {}): void {
   else window.history.pushState(null, "", href);
 }
 
+/** goTo for a dashboard URL that is already built, like `OtelRoute.back`. */
+export function goToHref(href: string): void {
+  window.history.pushState(null, "", href);
+}
+
+/** The execution (and optionally node visit) a replay should open on. */
+export type ReplayTarget = { traceId?: string; spanId?: string };
+
+export function parseReplayTarget(params: URLSearchParams): ReplayTarget | null {
+  const traceId = params.get("otelTrace") || undefined;
+  const spanId = params.get("otelSpan") || undefined;
+  return traceId || spanId ? { traceId, spanId } : null;
+}
+
+/**
+ * Find a target in a loaded replay: the exact node visit when the span is a
+ * step, else the start of the trace's execution, else null. One trace can hold
+ * several executions, so the span is tried first.
+ */
+export function locateReplayTarget(
+  messages: AgentTraceMessage[],
+  { traceId, spanId }: ReplayTarget
+): { message: AgentTraceMessage; stepIndex: number } | null {
+  if (spanId) {
+    for (const message of messages) {
+      const stepIndex = orderedSteps(message).findIndex((step) => step.otelSpanId === spanId);
+      if (stepIndex >= 0) return { message, stepIndex };
+    }
+  }
+  const message = traceId ? messages.find((m) => m.otelTraceId === traceId) : undefined;
+  return message ? { message, stepIndex: 0 } : null;
+}
+
 /**
  * The classic viewer URL replaying a trace or conversation from the database.
  * `back` returns to where the user came from; `from=otel` trims the viewer's
- * chrome (see utils/viewerContext.ts).
+ * chrome (see utils/viewerContext.ts); `at` picks the chip and node it opens on.
  */
 export function replayHref({
   project,
@@ -111,12 +152,14 @@ export function replayHref({
   conversationId,
   name,
   back,
+  at,
 }: {
   project: string;
   traceId?: string;
   conversationId?: string | null;
   name?: string | null;
   back: string;
+  at?: ReplayTarget;
 }): string {
   const projectQuery = `?project=${encodeURIComponent(project)}`;
   const source = conversationId
@@ -124,5 +167,7 @@ export function replayHref({
     : `/api/traces/${encodeURIComponent(traceId ?? "")}/agenttrace${projectQuery}`;
   const query = new URLSearchParams({ trace: source, from: "otel", back });
   if (name) query.set("traceName", name);
+  if (at?.traceId) query.set("otelTrace", at.traceId);
+  if (at?.spanId) query.set("otelSpan", at.spanId);
   return `/?${query.toString()}`;
 }

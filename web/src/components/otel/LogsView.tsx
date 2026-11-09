@@ -137,6 +137,7 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
                             trace: log.traceId!,
                             span: log.spanId ?? undefined,
                             tab: "logs",
+                            back: otelHref(route),
                           })
                         }
                         sx={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 12 }}

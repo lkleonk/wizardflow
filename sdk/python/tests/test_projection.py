@@ -14,7 +14,7 @@ from wizardflow.reader import TraceChain
 from wizardflow.serve import make_serve_handler
 from wizardflow.store import import_otlp_file, import_otlp_text, open_store
 from wizardflow.store.projection import list_conversations, project_conversation, project_trace
-from wizardflow.store.queries import QueryError
+from wizardflow.store.queries import QueryError, get_trace
 
 GRAPH = {
     "nodes": [{"id": "classifier"}, {"id": "search"}, {"id": "retriever"}, {"id": "advisor"}],
@@ -177,6 +177,54 @@ def test_conversation_replays_its_executions_as_messages_with_inferred_graph(tmp
     }
     assert replay["messages"][0]["steps"][1]["kind"] == "llm"  # OpenInference LLM → llm
     assert replay["messages"][0]["label"] == "invoke_workflow"
+    con.close()
+
+
+def test_messages_and_steps_link_back_to_their_trace_and_span(tmp_path):
+    con = _conversation_store(tmp_path)
+    first, second = project_conversation(con, "bot", "chat-1")["messages"]
+    assert (first["otelTraceId"], second["otelTraceId"]) == ("1" * 32, "2" * 32)
+    assert [s["otelSpanId"] for s in second["steps"]] == ["21" * 8, "22" * 8]
+    con.close()
+
+
+def test_one_trace_with_several_executions_links_each_step_to_its_span(tmp_path):
+    con = _store_from_export(tmp_path, trace_scope="recording")
+    (trace_id,) = _trace_ids(con)
+    messages = project_trace(con, "student-advisor", trace_id)["messages"]
+    assert {m["otelTraceId"] for m in messages} == {trace_id}
+    span_ids = [s["otelSpanId"] for m in messages for s in m["steps"]]
+    assert len(span_ids) == len(set(span_ids)) == 5
+    con.close()
+
+
+def test_conversation_position_counts_what_the_replay_shows(tmp_path):
+    con = _conversation_store(tmp_path)
+    plain = "4" * 32
+    import_otlp_text(con, lines(traces_request(
+        [span("41" * 8, trace_id=plain, name="GET /health", start=3_000, end=3_010,
+              attributes={"session.id": "chat-1"})],
+        service="bot",
+    )))
+    assert get_trace(con, "bot", "1" * 32)["conversation"] == {
+        "position": 1, "total": 2, "prevTraceId": None, "nextTraceId": "2" * 32,
+    }
+    assert get_trace(con, "bot", "2" * 32)["conversation"] == {
+        "position": 2, "total": 2, "prevTraceId": "1" * 32, "nextTraceId": None,
+    }
+    # A trace the replay can't show still steps through its whole conversation.
+    assert get_trace(con, "bot", plain)["conversation"] == {
+        "position": 2, "total": 3, "prevTraceId": "1" * 32, "nextTraceId": "2" * 32,
+    }
+    assert get_trace(con, "bot", "3" * 32)["conversation"]["total"] == 1
+    con.close()
+
+
+def test_trace_without_a_conversation_has_no_position(tmp_path):
+    con = open_store(tmp_path / "wf.db")
+    trace_id = "5" * 32
+    import_otlp_text(con, lines(traces_request([span("51" * 8, trace_id=trace_id, name="run")], service="bot")))
+    assert get_trace(con, "bot", trace_id)["conversation"] is None
     con.close()
 
 

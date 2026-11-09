@@ -60,7 +60,7 @@ export default function OpengraphImage() {
               maxWidth: 860,
             }}
           >
-            Replay and inspect agent flows — message timeline, node steps, live
+            Replay and inspect agent flows — execution timeline, node steps, live
             graph activity, and payload inspection.
           </div>
         </div>
