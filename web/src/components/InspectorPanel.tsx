@@ -14,6 +14,7 @@ import Tab from "@mui/material/Tab";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
 import CallMadeOutlinedIcon from "@mui/icons-material/CallMadeOutlined";
 import CallReceivedOutlinedIcon from "@mui/icons-material/CallReceivedOutlined";
 import CloseFullscreenOutlinedIcon from "@mui/icons-material/CloseFullscreenOutlined";
@@ -23,6 +24,7 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import OpenInFullOutlinedIcon from "@mui/icons-material/OpenInFullOutlined";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
+import { TOOLTIP_TIMING } from "@/theme/muiTheme";
 import { formatClock, formatDate, formatDuration } from "@/utils/formatTime";
 import {
   getInspectorCompactView,
@@ -60,6 +62,8 @@ export type InspectorVisit = {
   /** Secondary context derived from the ordered message steps. */
   deltaMs?: number;
   elapsedMs?: number;
+  /** This visit's span in the waterfall; only in a replay from the dashboard. */
+  spanHref?: string;
 };
 
 type InspectorPanelProps = {
@@ -303,6 +307,30 @@ function ExecutionTiming({
           {duration !== undefined ? ` · ${formatInterval(duration)}` : ""}
         </Typography>
       </Box>
+      {visit.spanHref && (
+        <Tooltip
+          title="Leave graph replay and see this step on the span timeline"
+          {...TOOLTIP_TIMING.explain}
+        >
+          <Button
+            size="small"
+            href={visit.spanHref}
+            startIcon={<ListAltOutlinedIcon sx={{ fontSize: "14px !important" }} />}
+            variant="outlined"
+            sx={{
+              ml: "auto",
+              flexShrink: 0,
+              textTransform: "none",
+              whiteSpace: "nowrap",
+              py: 0.125,
+              px: 1,
+              "& .MuiButton-startIcon": { mr: 0.5, ml: 0 },
+            }}
+          >
+            Span timeline
+          </Button>
+        </Tooltip>
+      )}
     </Box>
   );
 }

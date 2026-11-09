@@ -7,6 +7,7 @@ from .importer import (
     import_otlp_file,
     import_otlp_text,
     import_requests,
+    is_imported,
     rollup,
 )
 from .otlp import OtlpFormatError
@@ -19,6 +20,7 @@ __all__ = [
     "import_otlp_file",
     "import_otlp_text",
     "import_requests",
+    "is_imported",
     "open_store",
     "rollup",
 ]

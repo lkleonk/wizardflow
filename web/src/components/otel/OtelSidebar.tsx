@@ -16,7 +16,7 @@ import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrow
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
-import { LivePulse } from "@/components/AppHeader";
+import { LivePulse } from "@/components/LiveDot";
 import type { ApiReceiver } from "@/types/otelstore";
 import { setDisplayPrefs, useDisplayPrefs } from "@/utils/otelDisplay";
 import { goTo, otelHref, type OtelRoute } from "@/utils/otelRoute";
@@ -29,8 +29,17 @@ type SidebarProps = {
 };
 
 const subscribeToNothing = () => () => {};
-// TracePendingScript reads this key too.
+// TracePendingScript reads these keys too.
 const DB_LABEL_KEY = "wf-otel-db-label";
+const RECEIVER_KEY = "wf-otel-receiver";
+
+function remember(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // storage unavailable: the detail just appears a moment later
+  }
+}
 
 /**
  * The dashboard's sidebar. Graph replay (`replay`) shows it too, folded or not
@@ -38,9 +47,10 @@ const DB_LABEL_KEY = "wf-otel-db-label";
  * own beside it), and links back into the dashboard instead of routing in
  * place.
  *
- * The replay is a separate static page, painted before any JavaScript runs, and
- * must look exactly like the dashboard's sidebar from that first frame. Its
- * HTML holds both foldings, and globals.css shows the right one from attributes
+ * The replay and /otel are separate static pages, painted before any
+ * JavaScript runs, and the sidebar must look the same across a move between
+ * them. So the static HTML (`replay` here, also used by OtelFirstFrame) holds
+ * both foldings, and globals.css shows the right one from attributes
  * TracePendingScript sets before first paint; the same script supplies the
  * project and database labels as CSS variables.
  */
@@ -80,15 +90,14 @@ function SidebarBody({
   const { mode, systemMode, setMode } = useColorScheme();
   const isDark = (mode === "system" ? systemMode : mode) !== "light";
   const dbLabel = dbPath?.split(/[\\/]/).slice(-2).join("/");
-  // Remembered so the next replay can show it in its first frame.
+  // Remembered so the next page can show them in its first frame.
   useEffect(() => {
-    if (!dbLabel) return;
-    try {
-      window.localStorage.setItem(DB_LABEL_KEY, dbLabel);
-    } catch {
-      // storage unavailable: the label just appears a moment later
-    }
+    if (dbLabel) remember(DB_LABEL_KEY, dbLabel);
   }, [dbLabel]);
+  const receiverOn = receiver?.enabled;
+  useEffect(() => {
+    if (receiverOn !== undefined) remember(RECEIVER_KEY, receiverOn ? "1" : "0");
+  }, [receiverOn]);
   // In place inside the dashboard; a page load from the replay viewer.
   const go = (to: OtelRoute) =>
     replay
@@ -194,7 +203,7 @@ function SidebarBody({
         </Tooltip>
       </Box>
       {(project || replay) && (
-        <>
+        <Box className={replay ? "wf-rail-project-section" : undefined}>
           <Tooltip title={folded ? (project ?? "") : ""} placement="right">
             <Typography
               noWrap
@@ -241,7 +250,7 @@ function SidebarBody({
               </ListItemButton>
             ))}
           </List>
-        </>
+        </Box>
       )}
       <Divider sx={{ mx: 1.5, my: 0.5 }} />
       <List dense sx={{ px: 0.75 }}>
@@ -270,7 +279,7 @@ function SidebarBody({
           gap: folded ? 0.5 : 1,
         }}
       >
-        {!folded && (dbPath || replay) && (
+        {!folded && (
           <Tooltip title={dbPath ?? ""}>
             <Typography
               noWrap
@@ -285,6 +294,14 @@ function SidebarBody({
               {dbLabel}
             </Typography>
           </Tooltip>
+        )}
+        {/* Until the server has answered: the dot as it was last time. */}
+        {receiver === undefined && (
+          <Box className="wf-rail-live-slot">
+            <Box sx={{ display: "flex", p: 0.75 }}>
+              <LivePulse />
+            </Box>
+          </Box>
         )}
         {receiver?.enabled && (
           <Tooltip title={`Receiving OTLP at ${receiver.endpoint}`} placement={folded ? "right" : "top"}>

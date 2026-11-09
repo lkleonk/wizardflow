@@ -6,7 +6,11 @@ from types import SimpleNamespace
 import pytest
 
 from wizardflow.otel import OTelBridge, OTelConfigurationError, create_otel_bridge
-from wizardflow.otel_mapping import map_graph_event, map_node_attributes
+from wizardflow.otel_mapping import (
+    map_graph_event,
+    map_node_attributes,
+    split_otel_attributes,
+)
 
 
 class Span:
@@ -453,6 +457,31 @@ def test_workflow_scope_creates_independent_roots_for_overlapping_messages():
     }
     assert root1.end_time is None
     assert node1.end_time is None
+
+
+@pytest.mark.parametrize("scope", ["workflow", "recording"])
+def test_run_meta_goes_on_each_root_and_changes_on_reinit(scope):
+    tracer = Tracer()
+    bridge = OTelBridge(tracer, trace_scope=scope)
+    at = "2026-09-15T10:00:00.000Z"
+
+    bridge.start_run(at, "agent", [], [], {"description": "first"})
+    bridge.start_workflow("m1", at)
+    assert json.loads(tracer.spans[0].attributes["wizardflow.trace.metadata"]) == {
+        "description": "first"
+    }
+
+    bridge.reinit_run(at, at, "agent", [], [], {"description": "second"})
+    bridge.start_workflow("m2", at)
+    assert json.loads(tracer.spans[-1].attributes["wizardflow.trace.metadata"]) == {
+        "description": "second"
+    }
+
+
+def test_run_meta_key_is_protected_on_workflow_roots():
+    valid, errors = split_otel_attributes({"wizardflow.trace.metadata": "x", "team": "a"})
+    assert valid == {"team": "a"}
+    assert len(errors) == 1 and "protected" in errors[0]
 
 
 def test_close_flushes_private_provider_only_and_is_idempotent():

@@ -21,6 +21,7 @@ from .otel_mapping import (
     DEFAULT_GRAPH_MAX_BYTES,
     map_graph_event,
     map_node_attributes,
+    map_run_attributes,
     map_workflow_attributes,
     map_workflow_result_attributes,
     workflow_span_name,
@@ -104,6 +105,7 @@ class OTelBridge:
         self._workflow_roots: Dict[str, Tuple[Any, Any]] = {}
         self._warned_recording_attributes = False
         self._trace_name: Optional[str] = None
+        self._run_attributes: Dict[str, Any] = {}
         self._nodes: Tuple[Mapping[str, Any], ...] = ()
         self._edges: Tuple[Mapping[str, Any], ...] = ()
         self._spans: Dict[Tuple[str, str], Any] = {}
@@ -147,15 +149,21 @@ class OTelBridge:
         trace_name: Optional[str],
         nodes: Iterable[Mapping[str, Any]],
         edges: Iterable[Mapping[str, Any]],
+        meta: Optional[Mapping[str, Any]] = None,
     ) -> None:
         with self._lock:
             self._closed = False
             self._trace_name = trace_name
             self._nodes = tuple(nodes)
             self._edges = tuple(edges)
+            self._run_attributes = map_run_attributes(
+                meta=meta,
+                include_content=self._include_content,
+                content_max_bytes=self._content_max_bytes,
+            )
             if self._trace_scope == "workflow":
                 return
-            attributes: Dict[str, Any] = dict(self._root_attributes)
+            attributes: Dict[str, Any] = {**self._root_attributes, **self._run_attributes}
             if trace_name is not None:
                 attributes["wizardflow.trace.name"] = trace_name
             self._run_span = self._tracer.start_span(
@@ -174,11 +182,12 @@ class OTelBridge:
         trace_name: Optional[str],
         nodes: Iterable[Mapping[str, Any]],
         edges: Iterable[Mapping[str, Any]],
+        meta: Optional[Mapping[str, Any]] = None,
     ) -> None:
         with self._lock:
             if self._trace_scope == "recording":
                 self._end_run(end_timestamp)
-            self.start_run(start_timestamp, trace_name, nodes, edges)
+            self.start_run(start_timestamp, trace_name, nodes, edges, meta)
 
     def _start_workflow_root(self, message_id: str, timestamp: str) -> Any:
         """The single builder for workflow roots (live, low-level and offline)."""
@@ -187,6 +196,7 @@ class OTelBridge:
             return root[1]
         attributes: Dict[str, Any] = {
             **self._root_attributes,
+            **self._run_attributes,
             **map_workflow_attributes(
                 message_id=message_id,
                 workflow_name=self._workflow_name,

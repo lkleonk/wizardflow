@@ -202,6 +202,7 @@ gen_ai.workflow.name = "consultation"              # only with otel_workflow_nam
 wizardflow.message.id = <generated or caller-provided message id>
 wizardflow.message.title = "Degree consultation"   # when a title is supplied
 wizardflow.message.metadata = <deterministic JSON> # when meta is supplied
+wizardflow.trace.metadata = <deterministic JSON>   # init() description and meta
 <otel_attributes>                                  # init-level, then per-workflow
 ```
 
@@ -293,7 +294,8 @@ trace.end_message(message_id, otel_attributes={"session.id": chat_id})
   surrounding whitespace or control characters). The keys WizardFlow sets on
   the root are protected: `gen_ai.operation.name`, `gen_ai.workflow.name`,
   `wizardflow.message.id`, `wizardflow.message.title`,
-  `wizardflow.message.metadata`, plus the node identity keys.
+  `wizardflow.message.metadata`, `wizardflow.trace.metadata`, plus the node
+  identity keys.
 - Values must be `str`, `bool`, `int`, `float`, or a non-empty list of one of
   those types. Invalid entries are dropped with a warning, or raise with
   `on_error="raise"`. Either way the valid entries are kept and the message
@@ -312,7 +314,9 @@ trace.end_message(message_id, otel_attributes={"session.id": chat_id})
 
 `meta` stays separate: it is exported as one bounded JSON value,
 `wizardflow.message.metadata`, and its keys are never turned into attribute
-names.
+names. The run's `init()` / `reinit()` `description` and `meta` work the same
+way, as `wizardflow.trace.metadata` on every root span, so the local dashboard
+shows them on the root span's Attributes tab.
 
 ## GenAI semantic projection
 
@@ -427,7 +431,7 @@ disabled:
 - scalar generic logs still export;
 - usage and compatible model parameters still export as metadata;
 - the workflow root keeps its title, but omits the `meta` JSON
-  (`wizardflow.message.metadata`);
+  (`wizardflow.message.metadata`) and the run's (`wizardflow.trace.metadata`);
 - `otel_attributes` still export, since the application chose them.
 
 Only export content to a receiving system appropriate for the data. Exported

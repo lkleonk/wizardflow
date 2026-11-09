@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
+import { clearCrumbsFirstFrame } from "@/components/TracePendingScript";
 import type { ApiMeta, ApiProject } from "@/types/otelstore";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 import { apiPath, useApi } from "@/utils/otelApi";
@@ -25,6 +27,10 @@ export default function OtelApp() {
   const route = parseOtelRoute(new URLSearchParams(params.toString()));
   const meta = useApi<ApiMeta>(isHostedWizardFlow ? null : apiPath("meta"), { live: true });
   const projects = useApi<ApiProject[]>(meta.data ? apiPath("projects") : null, { live: true });
+  const failed = Boolean(meta.error);
+  useEffect(() => {
+    if (failed) clearCrumbsFirstFrame();
+  }, [failed]);
 
   if (isHostedWizardFlow || meta.error) {
     return (
@@ -35,7 +41,16 @@ export default function OtelApp() {
       </EmptyState>
     );
   }
-  if (!meta.data) return <Loading />;
+  if (!meta.data) {
+    return (
+      <Box sx={{ display: "flex", height: "100dvh", minHeight: 0, bgcolor: "background.default" }}>
+        <OtelSidebar route={route} />
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Loading />
+        </Box>
+      </Box>
+    );
+  }
   const { project, trace } = route;
   const projectList = projects.data ?? [];
 

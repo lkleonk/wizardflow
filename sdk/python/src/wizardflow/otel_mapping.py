@@ -77,6 +77,7 @@ _ROOT_PROTECTED_ATTRIBUTE_KEYS = _PROTECTED_ATTRIBUTE_KEYS | frozenset(
         "gen_ai.workflow.name",
         "wizardflow.message.title",
         "wizardflow.message.metadata",
+        "wizardflow.trace.metadata",
     }
 )
 WORKFLOW_OPERATION = "invoke_workflow"
@@ -178,6 +179,23 @@ def map_workflow_attributes(
         attributes["gen_ai.workflow.name"] = workflow_name
     if trace_name is not None:
         attributes["wizardflow.trace.name"] = trace_name
+    return attributes
+
+
+def map_run_attributes(
+    *,
+    meta: Optional[Mapping[str, Any]],
+    include_content: bool = True,
+    content_max_bytes: int = DEFAULT_CONTENT_MAX_BYTES,
+) -> Dict[str, Any]:
+    """The run's own ``meta`` (with its description), for every root span.
+
+    One bounded JSON value that follows the content switch, like an
+    execution's ``meta``.
+    """
+    attributes: Dict[str, Any] = {}
+    if meta and include_content:
+        _put_content(attributes, "wizardflow.trace.metadata", dict(meta), content_max_bytes)
     return attributes
 
 

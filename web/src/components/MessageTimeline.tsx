@@ -8,6 +8,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
+import { TOOLTIP_TIMING } from "@/theme/muiTheme";
 import type { AgentTraceMessage } from "@/types/agenttrace";
 import { messageInputText } from "@/utils/traceSelectors";
 import {
@@ -32,7 +33,6 @@ type MessageTimelineProps = {
 
 const PREVIEW_MAX = 24;
 const TOOLTIP_META_VALUE_MAX = 160;
-const MESSAGE_TOOLTIP_ENTER_DELAY = 1_200;
 // How far from the strip's right edge still counts as "parked at the end".
 // Wide enough to cover the strip's right padding, which scrollIntoView leaves
 // behind when it aligns the last chip.
@@ -181,8 +181,7 @@ function ExpandedMessageCard({
     <Tooltip
       title={tooltipTitle}
       placement="top"
-      enterDelay={MESSAGE_TOOLTIP_ENTER_DELAY}
-      enterNextDelay={MESSAGE_TOOLTIP_ENTER_DELAY}
+      {...TOOLTIP_TIMING.passive}
       disableInteractive
     >
       <Box

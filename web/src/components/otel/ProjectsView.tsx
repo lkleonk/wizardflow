@@ -98,10 +98,8 @@ export default function ProjectsView() {
   if (projects.length === 0) {
     return (
       <EmptyState title="No data yet">
-        Import an OTLP JSON file: <Mono>wizardflow db import FILE</Mono>
-        <br />
-        Your own WizardFlow runs first become one with{" "}
-        <Mono>wizardflow otel export run.jsonl --out run.otlp.jsonl</Mono>
+        Import a WizardFlow run or an OTLP JSON file:{" "}
+        <Mono>wizardflow db import run.jsonl</Mono>
       </EmptyState>
     );
   }

@@ -9,13 +9,12 @@ Everything stays on your machine. The data lives in one SQLite file, and the
 dashboard is served by a standard-library HTTP server bundled with the package.
 It needs no extra dependencies, collector, or account.
 
-Data gets in two ways: import OTLP files, or let your apps send OTLP to the
-dashboard's receiver while it runs.
+Data gets in two ways: import your WizardFlow runs or OTLP files, or let your
+apps send OTLP to the dashboard's receiver while it runs.
 
 ```bash
-wizardflow db import traces.otlp.jsonl   # load OTLP JSON into the database
-wizardflow serve                          # open the dashboard
-wizardflow serve --otlp                   # ...and receive OTLP from apps on :4318
+wizardflow db import run.jsonl            # load a run or OTLP JSON into the database
+wizardflow serve                          # open the dashboard, receiving OTLP on :4318
 ```
 
 ## The database
@@ -32,32 +31,31 @@ wizardflow db migrate [--db PATH]
 
 | Command | What it does |
 | --- | --- |
-| `db import` | Imports OTLP JSON files: spans, span events, links, and logs. |
+| `db import` | Imports WizardFlow runs and OTLP JSON files: spans, span events, links, and logs. |
 | `db info` | Prints the schema version, file size, number of imports, and each project's traces, spans, and logs. |
 | `db migrate` | Upgrades the schema. Opening a database does this anyway, so you rarely need it. |
 
 ### What `db import` accepts
 
-OTLP JSON, as the OpenTelemetry Collector's file exporter writes it: one
-export request per line. A single pretty-printed request in one file works
-too.
+- **Your own WizardFlow runs:** a `.jsonl` run, or the single-document JSON
+  form. Each execution becomes a trace, and a run's executions are grouped as
+  one conversation named after when it started, so they replay together. They
+  carry the recorded graph, so they open in graph replay with their exact
+  topology. Naming any part of a rotated run imports all of its parts.
+- **OTLP JSON,** as the OpenTelemetry Collector's file exporter writes it: one
+  export request per line. A single pretty-printed request in one file works
+  too.
+
+The file type is detected from its content, so you can mix both in one command.
 
 - **Re-importing is safe.** A file whose contents were already imported is
-  skipped, and spans already in the database are skipped and counted.
+  skipped, and spans already in the database are skipped and counted. Importing
+  a run again after it has grown adds only the new executions.
 - **Projects:** every span and log is filed under a project. Its name comes
   from the resource: `openinference.project.name`, else `service.name`, else
   `default`. To change these keys, set the **Project** concept in Settings,
   before you import. `--project NAME` puts the whole file into one project
-  instead.
-- **Your own WizardFlow runs** become OTLP JSON first:
-
-  ```bash
-  wizardflow otel export run.jsonl --out run.otlp.jsonl
-  wizardflow db import run.otlp.jsonl
-  ```
-
-  These traces carry the recorded graph, so they open in graph replay with
-  their exact topology.
+  instead. A WizardFlow run is filed under its own name.
 
 `wizardflow ui FILE` also accepts an OTLP file: it imports the file into the
 default database and opens the dashboard on its project.
@@ -66,7 +64,7 @@ default database and opens the dashboard on its project.
 
 ```bash
 wizardflow serve [--db PATH] [--host 127.0.0.1] [--port 0] [--no-open]
-                 [--otlp] [--otlp-port 4318]
+                 [--otlp | --no-otlp] [--otlp-port 4318]
 ```
 
 | Option | Default | Meaning |
@@ -75,7 +73,7 @@ wizardflow serve [--db PATH] [--host 127.0.0.1] [--port 0] [--no-open]
 | `--host` | `127.0.0.1` | Interface to bind, for the dashboard and the receiver |
 | `--port` | `0` | Dashboard port; zero asks the OS for a free port |
 | `--no-open` | off | Print the URL instead of opening a browser |
-| `--otlp` | off | Also run the [live receiver](#live-receiver) |
+| `--otlp`, `--no-otlp` | on for a loopback `--host`, otherwise off | Run the [live receiver](#live-receiver) or not |
 | `--otlp-port` | `4318` | Receiver port, the OTLP/HTTP standard |
 
 The dashboard is at `http://127.0.0.1:PORT/otel`. New data, from the receiver
@@ -85,12 +83,13 @@ while the tab is hidden.
 
 ## Live receiver
 
-With `--otlp`, `wizardflow serve` also accepts OTLP over HTTP, so an app sends
-its traces and logs straight into the database. Point the app's OpenTelemetry
-SDK at it:
+`wizardflow serve` also accepts OTLP over HTTP, so an app sends its traces and
+logs straight into the database. This is on by default when the dashboard is
+bound to your machine only; `--no-otlp` turns it off, and with another `--host`
+you turn it on with `--otlp`. Point the app's OpenTelemetry SDK at it:
 
 ```bash
-wizardflow serve --otlp
+wizardflow serve
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 python my_app.py
 ```
 
@@ -105,8 +104,9 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 python my_app.py
   for `db import`. A span sent twice is stored once, so exporter retries are
   safe. Spans without a valid trace or span id are refused and reported back
   to the exporter as rejected.
-- **A taken port** (a Collector running on 4318, say) stops `serve` with an
-  error; pick another with `--otlp-port`.
+- **A taken port** (a Collector running on 4318, say) gives a warning, and the
+  dashboard opens without the receiver; pick another with `--otlp-port`. A port
+  you chose with `--otlp-port` that is taken stops `serve` with an error.
 - **Your own runs** can go there too, with no OTel packages:
   `wizardflow otel export run.jsonl --endpoint http://127.0.0.1:4318/v1/traces`.
 
@@ -156,10 +156,30 @@ whether a record belongs to a trace, and search their text.
 
 ## Graph replay
 
-A trace with graph nodes shows a **Graph replay** button on its root span and
-on every node span, and it opens on that execution and node. Graph replay plays
-the run back node by node, in the same viewer as `wizardflow ui`, and the
-dashboard's sidebar stays beside it, folded or not as you left it.
+A trace with graph nodes shows **Show graph** in a strip above the inspector.
+That opens the graph right under the strip, without playback: it highlights
+the selected span's node, and clicking a node selects its latest span in this
+execution.
+
+**Open graph replay**, at the top right of the span page, opens the full view
+on that execution and node. Graph replay plays the run back node by node, in
+the same viewer as `wizardflow ui`, and the dashboard's sidebar stays beside
+it, folded or not as you left it. **Open span timeline**, in the same
+corner of the replay, goes the other way, to the span of the current step. In
+the inspector, **Span timeline** does the same for one particular node visit.
+The back arrow returns to the view you came from.
+
+Search (Ctrl+K) works on both pages. In the replay it covers the whole
+conversation's payloads, titles, and meta. On the span page it covers the open
+execution's span names, attributes, events, and logs, and a result selects its
+span.
+
+The download icon in the row under the span page's breadcrumb saves the run as
+one WizardFlow file, to share or to open on getwizardflow.com. Like the replay,
+it covers the whole conversation when the execution belongs to one. It holds
+the graph, the node steps, and their payloads, but not logs or spans that
+aren't graph nodes. A graph inferred from the run order stays inferred, without
+unvisited branches.
 
 The graph comes from one of two places, and the trace page says which:
 
@@ -217,8 +237,8 @@ priority order, and the first key a span has wins.
 the import commands.
 
 **Live receiver.** The receiver's endpoint, the requests, spans and logs it
-received since `serve` started, and the last refused request. Without
-`--otlp`, it shows how to turn the receiver on.
+received since `serve` started, and the last refused request. When the receiver
+isn't running, it shows how to start it.
 
 ## Safety
 

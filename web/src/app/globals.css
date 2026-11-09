@@ -93,6 +93,55 @@ body > div:first-child {
   }
 }
 
+/* Its header stays uncovered too, so the cover fading out can't hide it. */
+html[data-from-dashboard] .wf-trace-cover {
+  top: 56px;
+}
+
+/* The header's first frame, on top of whatever is loading beneath it (see
+   OtelCrumbsFirstFrame.tsx). Starts where the sidebar ends. */
+.wf-crumbs-first-frame {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2001;
+  background: var(--mui-palette-background-default, #0b0d10);
+  pointer-events: none;
+}
+html[data-crumbs] .wf-crumbs-first-frame {
+  display: block;
+}
+@media (min-width: 900px) {
+  .wf-crumbs-first-frame {
+    left: 176px;
+  }
+  html[data-sidebar-folded] .wf-crumbs-first-frame {
+    left: 64px;
+  }
+}
+.wf-crumb-project:empty::before {
+  content: var(--wf-crumb-project, "\00a0");
+}
+.wf-crumb-conversation:empty::before {
+  content: var(--wf-crumb-conversation, "\00a0");
+}
+.wf-crumb-execution:empty::before {
+  content: var(--wf-crumb-execution, "\00a0");
+}
+/* A crumb nobody remembered goes, along with the separator before it. */
+html:not([data-crumb-conversation]) .wf-crumbs-first-frame li:has(.wf-crumb-conversation),
+html:not([data-crumb-conversation]) .wf-crumbs-first-frame li:has(+ li .wf-crumb-conversation),
+html:not([data-crumb-execution]) .wf-crumbs-first-frame li:has(.wf-crumb-execution),
+html:not([data-crumb-execution]) .wf-crumbs-first-frame li:has(+ li .wf-crumb-execution) {
+  display: none;
+}
+html[data-crumb-first] .wf-crumbs-first-frame .wf-crumb-previous,
+html[data-crumb-last] .wf-crumbs-first-frame .wf-crumb-next {
+  opacity: 0.5;
+}
+
 /* That sidebar's first frame, before React is up (see OtelSidebar.tsx). */
 html[data-sidebar-folded] .wf-rail-unfolded,
 html:not([data-sidebar-folded]) .wf-rail-folded {
@@ -103,6 +152,15 @@ html:not([data-sidebar-folded]) .wf-rail-folded {
 }
 .wf-rail-db:empty::before {
   content: var(--wf-rail-db, "\00a0");
+}
+html[data-rail-no-project] .wf-rail-project-section {
+  display: none;
+}
+.wf-rail-live-slot {
+  display: none;
+}
+html[data-rail-live] .wf-rail-live-slot {
+  display: block;
 }
 
 html:not([data-from-dashboard]) .wf-dashboard-rail {

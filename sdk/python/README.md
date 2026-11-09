@@ -181,9 +181,8 @@ wizardflow ui --latest traces/       # newest trace in a directory
 wizardflow md run.jsonl -o run.md    # Markdown export
 wizardflow html run.jsonl -o run.html
 wizardflow json run.jsonl -o run.json
-wizardflow db import traces.otlp.jsonl   # OTLP JSON into the local database
-wizardflow serve                     # OTel dashboard over that database
-wizardflow serve --otlp              # ...that also receives OTLP from apps on :4318
+wizardflow db import run.jsonl       # a run (or OTLP JSON) into the local database
+wizardflow serve                     # dashboard over that database, receiving OTLP on :4318
 ```
 
 All commands read both WizardFlow JSONL and the single-document JSON form. See

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Divider from "@mui/material/Divider";
 import ListItemIcon from "@mui/material/ListItemIcon";
@@ -9,16 +9,15 @@ import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
-import Link from "@mui/material/Link";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CloseIcon from "@mui/icons-material/Close";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
+import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import MenuIcon from "@mui/icons-material/Menu";
 import HelpCenterOutlinedIcon from "@mui/icons-material/HelpCenterOutlined";
@@ -30,9 +29,13 @@ import ViewSidebarOutlinedIcon from "@mui/icons-material/ViewSidebarOutlined";
 import TraceInfo from "@/components/TraceInfo";
 import TraceUploader, { useTraceFilePicker } from "@/components/TraceUploader";
 import LocalDataDialog from "@/components/LocalDataDialog";
+import { LiveStatusDot } from "@/components/LiveDot";
+import { rememberCrumbs } from "@/components/TracePendingScript";
+import { OtelCrumbs, executionCrumbs } from "@/components/otel/OtelHeader";
 import type { AgentTraceFile } from "@/types/agenttrace";
+import { TOOLTIP_TIMING } from "@/theme/muiTheme";
+import type { ApiProject } from "@/types/otelstore";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
-import { otelHref } from "@/utils/otelRoute";
 import { useDashboardBackHref, useViewerChrome } from "@/utils/viewerContext";
 
 // Controls that move into the overflow menu on phones.
@@ -48,6 +51,11 @@ export type PartLinks = {
 export type DashboardReplayView = {
   executionIndex: number;
   executionCount: number;
+  /** For the breadcrumb's project switcher. */
+  projects: ApiProject[];
+  onStep: (direction: -1 | 1) => void;
+  /** The current step on the span timeline; unset without a database trace. */
+  spanHref?: string;
 };
 
 type AppHeaderProps = {
@@ -75,58 +83,6 @@ type AppHeaderProps = {
   /** Any click in the header leaves the graph's arrange mode. */
   onInteract: () => void;
 };
-
-/** The pulsing green dot for "data is arriving live". */
-export function LivePulse() {
-  return (
-    <Box
-      sx={{
-        width: 8,
-        height: 8,
-        borderRadius: "50%",
-        bgcolor: "success.main",
-        "@keyframes livePulse": {
-          "0%": {
-            boxShadow: "0 0 0 0 rgba(102, 187, 106, 0.55)",
-          },
-          "70%": {
-            boxShadow: "0 0 0 6px rgba(102, 187, 106, 0)",
-          },
-          "100%": {
-            boxShadow: "0 0 0 0 rgba(102, 187, 106, 0)",
-          },
-        },
-        animation: "livePulse 2s ease-out infinite",
-        "@media (prefers-reduced-motion: reduce)": {
-          animation: "none",
-        },
-      }}
-    />
-  );
-}
-
-// The live-watch indicator, next to the file name it describes: is this part
-// still growing? The slot is kept even when the dot is out, so a rotation
-// does not shift everything beside it sideways.
-function LiveStatusDot({ watching }: { watching: boolean }) {
-  return (
-    <Box sx={{ display: "flex", alignItems: "center", px: 0.75 }}>
-      {watching ? (
-        <Tooltip title="Live — watching the trace file for new executions">
-          <Box
-            role="status"
-            aria-label="Watching trace for updates"
-            sx={{ display: "flex" }}
-          >
-            <LivePulse />
-          </Box>
-        </Tooltip>
-      ) : (
-        <Box sx={{ width: 8, height: 8 }} />
-      )}
-    </Box>
-  );
-}
 
 // Rotated trace: step between the run's part files. Only the active (last)
 // part keeps growing, so walking back is history and walking forward is
@@ -191,72 +147,46 @@ function PartNavigator({
   );
 }
 
-// A replay opened from the dashboard: the same trail as the dashboard's trace
-// page (project / conversation / which execution) instead of the product name.
-function DashboardTrail({
+// A replay opened from the dashboard: the very same breadcrumb as the span
+// page, so moving between the two keeps your bearings.
+function DashboardCrumbs({
   trace,
   view,
+  back,
+  live,
 }: {
   trace: AgentTraceFile;
   view: DashboardReplayView;
+  back: string | null;
+  live: boolean;
 }) {
   const project = typeof trace.meta?.project === "string" ? trace.meta.project : undefined;
   const conversation =
     typeof trace.meta?.conversationId === "string" ? trace.meta.conversationId : undefined;
-  const middle = conversation ?? (view.executionCount <= 1 ? trace.name : undefined);
-  const separator = (
-    <Typography component="span" color="text.secondary">
-      /
-    </Typography>
-  );
+  const { executionIndex: index, executionCount: count } = view;
+  const shownConversation = conversation ?? (count <= 1 ? trace.name : undefined);
+  const traceId = trace.messages[index]?.otelTraceId;
+  useEffect(() => {
+    if (traceId) {
+      rememberCrumbs({ traceId, conversation: shownConversation, position: index + 1, total: count });
+    }
+  }, [traceId, shownConversation, index, count]);
   return (
-    // Centered against the back arrow; the crumbs share a baseline inside.
-    <Box
-      sx={{
-        display: "flex",
-        alignItems: "baseline",
-        alignSelf: "center",
-        gap: 1,
-        minWidth: 0,
-        overflow: "hidden",
-      }}
-    >
-      {project && (
-        <Link
-          href={otelHref({ view: "traces", project })}
-          underline="hover"
-          color="text.secondary"
-          noWrap
-          sx={{ flexShrink: 0, maxWidth: 200 }}
-        >
-          {project}
-        </Link>
-      )}
-      {project && middle && separator}
-      {middle && (
-        <Typography
-          component="span"
-          color="text.secondary"
-          noWrap
-          title={middle}
-          sx={{
-            minWidth: 0,
-            fontFamily: "var(--font-geist-mono), monospace",
-            fontSize: 13,
-          }}
-        >
-          {middle}
-        </Typography>
-      )}
-      {view.executionCount > 1 && (
-        <>
-          {separator}
-          <Typography component="span" noWrap sx={{ flexShrink: 0, fontWeight: 650 }}>
-            Execution {view.executionIndex + 1} of {view.executionCount}
-          </Typography>
-        </>
-      )}
-    </Box>
+    <OtelCrumbs
+      route={{ view: "trace", project, back: back ?? undefined }}
+      projects={view.projects}
+      live={live}
+      navigate={(href) => window.location.assign(href)}
+      trail={executionCrumbs({
+        conversation: shownConversation,
+        execution: {
+          position: index + 1,
+          total: count,
+          onPrev: index > 0 ? () => view.onStep(-1) : undefined,
+          onNext: index < count - 1 ? () => view.onStep(1) : undefined,
+        },
+      })}
+    />
   );
 }
 
@@ -287,6 +217,7 @@ export default function AppHeader({
   const { context, chrome } = useViewerChrome();
   const dashboardHref = useDashboardBackHref();
   const hasGuideItems = chrome.examples || chrome.upload || chrome.tutorial;
+  const spanHref = context === "from-dashboard" && hasFlow ? dashboardView?.spanHref : undefined;
   // The menu's Upload row drives its own file input, since the header's
   // TraceUploader button is display:none at the width the menu appears at.
   const { input: traceFileInput, pick: pickTraceFile } =
@@ -309,9 +240,10 @@ export default function AppHeader({
         justifyContent: "space-between",
         gap: { xs: 0.5, sm: 1 },
         px: { xs: 1, sm: 2 },
-        py: { xs: 1, sm: 1.25 },
-        borderBottom: 1,
-        borderColor: "divider",
+        // From the dashboard: the same row as its span page, at the same height.
+        ...(context === "from-dashboard"
+          ? { minHeight: 56 }
+          : { py: { xs: 1, sm: 1.25 }, borderBottom: 1, borderColor: "divider" }),
       }}
     >
       <Box
@@ -327,26 +259,14 @@ export default function AppHeader({
         <Box
           sx={{
             display: "flex",
-            alignItems: "baseline",
+            alignItems: context === "from-dashboard" ? "center" : "baseline",
             gap: 1,
             minWidth: 0,
             overflow: "hidden",
           }}
         >
-          {context === "from-dashboard" && dashboardHref && (
-            <Tooltip title="Back to the dashboard">
-              <IconButton
-                size="small"
-                href={dashboardHref}
-                aria-label="Back to the dashboard"
-                sx={{ alignSelf: "center", ml: -0.5 }}
-              >
-                <ArrowBackIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
           {context === "from-dashboard" && dashboardView ? (
-            <DashboardTrail trace={trace} view={dashboardView} />
+            <DashboardCrumbs trace={trace} view={dashboardView} back={dashboardHref} live={isLiveWatching} />
           ) : (
             <>
               <Typography
@@ -379,9 +299,17 @@ export default function AppHeader({
           )}
         </Box>
         {/* Flow actions sit together as a tight, center-aligned cluster so the
-            info and clear icons read as a pair rather than drifting apart. */}
+            info and clear icons read as a pair rather than drifting apart.
+            Not from the dashboard: there the breadcrumb has the live dot, the
+            span page has these facts, and there's no file to clear. */}
+        {context !== "from-dashboard" && (
         <Box sx={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-          {isServedTrace && <LiveStatusDot watching={isLiveWatching} />}
+          {isServedTrace && (
+            <LiveStatusDot
+              watching={isLiveWatching}
+              title="Live — watching the trace file for new executions"
+            />
+          )}
           {partLinks && (
             <PartNavigator links={partLinks} onGoToPart={onGoToPart} />
           )}
@@ -411,6 +339,7 @@ export default function AppHeader({
             </Tooltip>
           )}
         </Box>
+        )}
       </Box>
       <Box
         sx={{
@@ -493,6 +422,25 @@ export default function AppHeader({
             <ViewSidebarOutlinedIcon fontSize="small" />
           </IconButton>
         </Tooltip>
+        {/* Last in the row: the same corner and look as "Open graph replay"
+            on the span page, so the two views mirror each other. */}
+        {spanHref && (
+          <Tooltip
+            title="Leave graph replay and see this step on the span timeline"
+            {...TOOLTIP_TIMING.explain}
+          >
+            <Button
+              size="small"
+              variant="outlined"
+              color="secondary"
+              startIcon={<ListAltOutlinedIcon />}
+              href={spanHref}
+              sx={{ ...wideOnly, whiteSpace: "nowrap" }}
+            >
+              Open span timeline
+            </Button>
+          </Tooltip>
+        )}
         {/* A phone can't fit three labeled buttons and three icons on one row,
             so the rare actions collapse in here — keeping their labels, since
             a touch screen has no hover to reveal a tooltip. Search and the
@@ -558,6 +506,14 @@ export default function AppHeader({
                 <MenuBookOutlinedIcon fontSize="small" />
               </ListItemIcon>
               <ListItemText>Tutorial</ListItemText>
+            </MenuItem>
+          )}
+          {spanHref && (
+            <MenuItem component="a" href={spanHref} onClick={closeMenu}>
+              <ListItemIcon>
+                <ListAltOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Open span timeline</ListItemText>
             </MenuItem>
           )}
           {hasGuideItems && <Divider />}

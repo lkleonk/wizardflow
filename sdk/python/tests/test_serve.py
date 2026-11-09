@@ -18,9 +18,12 @@ from otlp_builders import (
     traces_request,
 )
 from wizardflow import cli
+from wizardflow import serve as serve_module
 from wizardflow.cli import _is_otlp_file, _resolve_latest_trace, main
 from wizardflow.serve import make_serve_handler
 from wizardflow.store import import_otlp_text, open_store
+from wizardflow.store.projection import list_conversations, project_conversation, project_trace
+from wizardflow.store.queries import get_trace
 
 
 def _write(path, *requests):
@@ -74,13 +77,168 @@ def test_db_import_info_and_migrate(tmp_path, capsys):
     assert "up to date" in capsys.readouterr().out
 
 
-def test_db_import_rejects_a_wizardflow_trace(tmp_path, capsys):
+def test_db_import_rejects_a_broken_wizardflow_trace(tmp_path, capsys):
     trace = tmp_path / "run.jsonl"
     trace.write_text('{"type": "header", "version": "0.2"}\n', encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         main(["db", "import", str(trace), "--db", str(tmp_path / "wf.db")])
     assert exc.value.code == 2
-    assert "is not OTLP JSON" in capsys.readouterr().err
+    assert "is not OTLP JSON or a WizardFlow trace" in capsys.readouterr().err
+
+
+RUN_GRAPH = {"nodes": [{"id": "router"}, {"id": "answer"}], "edges": [{"source": "router", "target": "answer"}]}
+
+
+def _message(message_id, minute):
+    stamp = f"2026-10-11T10:{minute:02d}:00Z"
+    later = f"2026-10-11T10:{minute:02d}:30Z"
+    return {
+        "id": message_id,
+        "label": f"Question {message_id}",
+        "steps": [
+            {"id": f"{message_id}-s1", "nodeId": "router", "kind": "agent", "timestamp": stamp,
+             "endTimestamp": later, "payloads": [{"label": "route", "value": "faq"}]},
+            {"id": f"{message_id}-s2", "nodeId": "answer", "kind": "llm", "timestamp": later,
+             "endTimestamp": later, "payloads": []},
+        ],
+    }
+
+
+def _run(path, messages, *, name="advisor-run", meta=None, seal=None):
+    records = [{"type": "header", "version": "0.2", "name": name, "graph": RUN_GRAPH, **({"meta": meta} if meta else {})}]
+    records += [{"type": "message", **message} for message in messages]
+    if seal:
+        records.append({"type": "seal", "nextPart": seal})
+    path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    return path
+
+
+def _imported(db, *files, project=None):
+    args = ["db", "import", *map(str, files), "--db", str(db)]
+    return main(args + (["--project", project] if project else []))
+
+
+def _counts(db):
+    con = open_store(db)
+    try:
+        return (
+            con.execute("SELECT count(*) FROM traces").fetchone()[0],
+            con.execute("SELECT count(*) FROM spans").fetchone()[0],
+        )
+    finally:
+        con.close()
+
+
+def test_db_import_takes_a_wizardflow_run_directly(tmp_path, capsys):
+    db = tmp_path / "wf.db"
+    run = _run(tmp_path / "run.jsonl", [_message("m1", 0), _message("m2", 5)])
+    assert _imported(db, run) == 0
+    assert "imported 6 spans (2 traces) and 0 logs into advisor-run" in capsys.readouterr().out
+
+    con = open_store(db)
+    first = con.execute("SELECT trace_id FROM traces ORDER BY start_ns").fetchone()[0]
+    replay = project_trace(con, "advisor-run", first)
+    con.close()
+    assert replay["graph"] == RUN_GRAPH and replay["meta"]["graph"] == "recorded by WizardFlow"
+    (message,) = replay["messages"]
+    assert (message["id"], message["label"]) == ("m1", "Question m1")
+    assert [step["nodeId"] for step in message["steps"]] == ["router", "answer"]
+
+
+def test_db_import_of_the_same_run_is_a_no_op(tmp_path, capsys):
+    db = tmp_path / "wf.db"
+    run = _run(tmp_path / "run.jsonl", [_message("m1", 0)])
+    assert _imported(db, run) == 0
+    capsys.readouterr()
+    assert _imported(db, run) == 0
+    assert "already imported, skipped" in capsys.readouterr().out
+    assert _counts(db) == (1, 3)
+
+
+def test_db_import_of_a_grown_run_adds_only_what_is_new(tmp_path, capsys):
+    db = tmp_path / "wf.db"
+    path = tmp_path / "run.jsonl"
+    assert _imported(db, _run(path, [_message("m1", 0)])) == 0
+    capsys.readouterr()
+    assert _imported(db, _run(path, [_message("m1", 0), _message("m2", 5)])) == 0
+    out = capsys.readouterr().out
+    assert "imported 3 spans" in out and "3 duplicate spans skipped" in out
+    assert _counts(db) == (2, 6)
+
+
+def test_db_import_keeps_different_runs_apart(tmp_path):
+    db = tmp_path / "wf.db"
+    # Same name and message id, recorded at another time.
+    assert _imported(db, _run(tmp_path / "a.jsonl", [_message("m1", 0)])) == 0
+    assert _imported(db, _run(tmp_path / "b.jsonl", [_message("m1", 9)])) == 0
+    assert _counts(db) == (2, 6)
+
+
+def test_db_import_of_a_run_reads_all_its_parts(tmp_path, capsys):
+    db = tmp_path / "wf.db"
+    first = _run(tmp_path / "run.jsonl", [_message("m1", 0)], seal="run.part2.jsonl")
+    second = _run(tmp_path / "run.part2.jsonl", [_message("m2", 5)], meta={"part": 2, "prevPart": "run.jsonl"})
+    assert _imported(db, second) == 0
+    assert "imported 6 spans (2 traces)" in capsys.readouterr().out
+    assert _imported(db, first) == 0
+    assert "already imported, skipped" in capsys.readouterr().out
+    assert _counts(db) == (2, 6)
+
+
+def test_db_import_takes_the_single_document_form_and_a_project(tmp_path, capsys):
+    db = tmp_path / "wf.db"
+    doc = tmp_path / "run.json"
+    doc.write_text(
+        json.dumps({"version": "0.2", "name": "doc", "graph": RUN_GRAPH, "messages": [_message("m1", 0)]}),
+        encoding="utf-8",
+    )
+    assert _imported(db, doc, project="mine") == 0
+    assert "into mine" in capsys.readouterr().out
+
+
+def test_db_import_groups_a_runs_executions_into_one_conversation(tmp_path):
+    db = tmp_path / "wf.db"
+    path = tmp_path / "run.jsonl"
+    assert _imported(db, _run(path, [_message("m1", 0), _message("m2", 5)])) == 0
+    conversation = "run 2026-10-11T10:00:00Z"
+
+    con = open_store(db)
+    assert [(c["conversationId"], c["executions"]) for c in list_conversations(con, "advisor-run")] == [
+        (conversation, 2)
+    ]
+    replay = project_conversation(con, "advisor-run", conversation)
+    assert [m["id"] for m in replay["messages"]] == ["m1", "m2"]
+    assert replay["meta"]["graph"] == "recorded by WizardFlow"
+    newest = con.execute("SELECT trace_id FROM traces ORDER BY start_ns DESC").fetchone()[0]
+    assert get_trace(con, "advisor-run", newest)["conversation"]["position"] == 2
+    con.close()
+
+    # A grown run stays one conversation; another run gets its own.
+    assert _imported(db, _run(path, [_message("m1", 0), _message("m2", 5), _message("m3", 9)])) == 0
+    assert _imported(db, _run(tmp_path / "other.jsonl", [_message("m1", 30)])) == 0
+    con = open_store(db)
+    assert sorted((c["conversationId"], c["executions"]) for c in list_conversations(con, "advisor-run")) == [
+        (conversation, 3),
+        ("run 2026-10-11T10:30:00Z", 1),
+    ]
+    con.close()
+
+
+def test_otel_export_does_not_invent_a_conversation(tmp_path):
+    run = _run(tmp_path / "run.jsonl", [_message("m1", 0)])
+    out = tmp_path / "run.otlp.jsonl"
+    assert main(["otel", "export", str(run), "--out", str(out)]) == 0
+    text = out.read_text(encoding="utf-8")
+    assert "session.id" not in text and "gen_ai.conversation.id" not in text
+
+
+def test_otel_export_keeps_fresh_random_ids(tmp_path):
+    run = _run(tmp_path / "run.jsonl", [_message("m1", 0)])
+    a, b = tmp_path / "a.otlp.jsonl", tmp_path / "b.otlp.jsonl"
+    assert main(["otel", "export", str(run), "--out", str(a)]) == 0
+    assert main(["otel", "export", str(run), "--out", str(b)]) == 0
+    ids = [json.loads(p.read_text(encoding="utf-8"))["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["traceId"] for p in (a, b)]
+    assert ids[0] != ids[1]
 
 
 def test_db_info_on_missing_database_is_an_error(tmp_path, capsys):
@@ -110,6 +268,75 @@ def test_ui_on_an_otlp_file_imports_and_opens_the_dashboard(tmp_path, monkeypatc
     assert (tmp_path / ".wizardflow" / "wizardflow.db").exists()
     assert (tmp_path / ".wizardflow" / ".gitignore").exists()
     assert "imported 3 spans" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "flags, expected",
+    [
+        ([], (4318, False)),
+        (["--host", "localhost"], (4318, False)),
+        (["--host", "::1"], (4318, False)),
+        (["--otlp"], (4318, False)),
+        (["--no-otlp"], (None, False)),
+        (["--otlp-port", "5000"], (5000, True)),
+        (["--otlp-port", "0"], (0, True)),
+        # Reachable from the network: never without being asked.
+        (["--host", "0.0.0.0"], (None, False)),
+        (["--host", "192.168.1.5", "--otlp-port", "5000"], (None, False)),
+        (["--host", "0.0.0.0", "--otlp"], (4318, False)),
+    ],
+)
+def test_serve_runs_the_receiver_by_default_on_this_machine_only(monkeypatch, flags, expected):
+    calls = []
+    monkeypatch.setattr(cli, "run_serve", lambda **kw: calls.append(kw) or 0)
+    assert main(["serve", "--no-open", *flags]) == 0
+    assert (calls[0]["otlp_port"], calls[0]["otlp_required"]) == expected
+
+
+class _StoppedServer:
+    server_port = 1
+
+    def __init__(self, *_args):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def serve_forever(self):
+        raise KeyboardInterrupt
+
+
+def _serve_with_taken_port(tmp_path, monkeypatch, required):
+    def taken(*_args, **_kwargs):
+        raise serve_module.ReceiverPortError("cannot listen for OTLP on 127.0.0.1:4318")
+
+    monkeypatch.setattr(serve_module, "start_receiver", taken)
+    monkeypatch.setattr(serve_module, "ThreadingHTTPServer", _StoppedServer)
+    return serve_module.run_serve(
+        db_path=tmp_path / "wf.db",
+        ui_dir=tmp_path,
+        host="127.0.0.1",
+        port=0,
+        open_browser=False,
+        version="t",
+        otlp_port=4318,
+        otlp_required=required,
+    )
+
+
+def test_a_taken_default_port_only_warns(tmp_path, monkeypatch, capsys):
+    assert _serve_with_taken_port(tmp_path, monkeypatch, required=False) == 0
+    captured = capsys.readouterr()
+    assert "without live data" in captured.err and "cannot listen" in captured.err
+    assert "WizardFlow dashboard:" in captured.out and "OTLP receiver:" not in captured.out
+
+
+def test_a_taken_chosen_port_is_an_error(tmp_path, monkeypatch):
+    with pytest.raises(serve_module.ReceiverPortError):
+        _serve_with_taken_port(tmp_path, monkeypatch, required=True)
 
 
 # --------------------------------------------------------------------------- API

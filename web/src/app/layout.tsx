@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ColorSchemeScript from "@/components/ColorSchemeScript";
 import TracePendingScript from "@/components/TracePendingScript";
+import OtelCrumbsFirstFrame from "@/components/otel/OtelCrumbsFirstFrame";
 import Providers from "./providers";
 
 const geistSans = Geist({
@@ -91,7 +92,10 @@ export default function RootLayout({
       <body>
         <ColorSchemeScript />
         <TracePendingScript />
-        <Providers>{children}</Providers>
+        <Providers>
+          <OtelCrumbsFirstFrame />
+          {children}
+        </Providers>
       </body>
     </html>
   );

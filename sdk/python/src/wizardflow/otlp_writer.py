@@ -17,6 +17,7 @@ requests as protobuf, via :mod:`wizardflow.otlp_http`.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import secrets
@@ -67,7 +68,7 @@ class RecordedSpan:
         self._recorder = recorder
         self.name = name
         self.trace_id = trace_id
-        self.span_id = _new_id(8)
+        self.span_id = recorder.new_id(8)
         self.parent_span_id = parent_span_id
         self.kind = kind
         self.start_time = start_time
@@ -124,8 +125,19 @@ class SpanRecorder:
     Status = _Status
     StatusCode = _StatusCode
 
-    def __init__(self) -> None:
+    def __init__(self, *, id_seed: Optional[str] = None) -> None:
         self.finished: List[RecordedSpan] = []
+        self._id_seed = id_seed
+        self._ids_made = 0
+
+    def new_id(self, size: int) -> str:
+        """A random id; with ``id_seed``, the next one of a fixed sequence, so
+        recording the same input again produces the same ids."""
+        if self._id_seed is None:
+            return _new_id(size)
+        self._ids_made += 1
+        digest = hashlib.sha256(f"{self._id_seed}:{self._ids_made}".encode("utf-8"))
+        return digest.hexdigest()[: size * 2]
 
     # tracer API
     def start_span(
@@ -140,7 +152,7 @@ class SpanRecorder:
         return RecordedSpan(
             self,
             name,
-            trace_id=parent.trace_id if parent else _new_id(16),
+            trace_id=parent.trace_id if parent else self.new_id(16),
             parent_span_id=parent.span_id if parent else None,
             kind=kind if kind is not None else SPAN_KIND_INTERNAL,
             start_time=start_time if start_time is not None else time.time_ns(),

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.metadata
+import ipaddress
 import json
 import os
 import sys
@@ -23,6 +25,8 @@ from .store import (
     StoreError,
     default_db_path,
     import_otlp_file,
+    import_requests,
+    is_imported,
     open_store,
 )
 from .store.otlp import is_otlp_request
@@ -31,6 +35,9 @@ from .store.otlp import is_otlp_request
 # the JSONL assembly server-side, so the UI build never needs to know about
 # part files.
 TRACE_ROUTE = "/__wizardflow_trace.json"
+
+# The OTLP/HTTP standard port.
+DEFAULT_OTLP_PORT = 4318
 
 
 class WizardFlowCliError(Exception):
@@ -93,7 +100,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 host=args.host,
                 port=args.port,
                 open_browser=not args.no_open,
-                otlp_port=args.otlp_port if args.otlp else None,
+                **_receiver_args(args.otlp, args.otlp_port, args.host),
             )
         if args.command == "db" and args.db_command == "import":
             return run_db_import(files=args.files, db=args.db, project=args.project)
@@ -317,22 +324,31 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument(
         "--otlp",
-        action="store_true",
-        help="Also receive OTLP/HTTP from apps (POST /v1/traces, /v1/logs) into the database.",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Receive OTLP/HTTP from apps (POST /v1/traces, /v1/logs) into the database "
+            "(default: on when bound to this machine only)."
+        ),
     )
     serve.add_argument(
         "--otlp-port",
         type=int,
-        default=4318,
-        help="Port for the OTLP receiver (default: 4318, the OTLP/HTTP standard port).",
+        default=None,
+        help=(
+            f"Port for the OTLP receiver (default: {DEFAULT_OTLP_PORT}, the OTLP/HTTP standard "
+            "port). If you set it, a taken port is an error instead of a warning."
+        ),
     )
 
     db = subparsers.add_parser("db", help="Manage the local OTel database.")
     db_commands = db.add_subparsers(dest="db_command", required=True)
     db_import = db_commands.add_parser(
-        "import", parents=[db_option], help="Import OTLP JSON files (OTel Collector format)."
+        "import",
+        parents=[db_option],
+        help="Import WizardFlow runs or OTLP JSON files (OTel Collector format).",
     )
-    db_import.add_argument("files", nargs="+", help="OTLP JSON file(s).")
+    db_import.add_argument("files", nargs="+", help="WizardFlow trace or OTLP JSON file(s).")
     db_import.add_argument(
         "--project", help="Put everything into this project instead of the resource's."
     )
@@ -442,6 +458,7 @@ def run_serve(
     open_browser: bool,
     project: Optional[str] = None,
     otlp_port: Optional[int] = None,
+    otlp_required: bool = False,
 ) -> int:
     from .serve import ReceiverPortError, run_serve as serve_dashboard
 
@@ -456,9 +473,35 @@ def run_serve(
             version=_package_version(),
             project=project,
             otlp_port=otlp_port,
+            otlp_required=otlp_required,
         )
     except (StoreError, ReceiverPortError) as exc:
         raise WizardFlowCliError(str(exc)) from exc
+
+
+def _receiver_args(otlp: Optional[bool], otlp_port: Optional[int], host: str) -> "dict[str, Any]":
+    """Whether `serve` runs the receiver, and whether it may go without.
+
+    On by default only where it can't be reached from the network. An
+    explicitly chosen port is one the user is counting on, so losing it is an
+    error; the default port may simply be taken, by a Collector say.
+    """
+    enabled = otlp if otlp is not None else _is_loopback(host)
+    if not enabled:
+        return {"otlp_port": None, "otlp_required": False}
+    return {
+        "otlp_port": DEFAULT_OTLP_PORT if otlp_port is None else otlp_port,
+        "otlp_required": otlp_port is not None,
+    }
+
+
+def _is_loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def run_db_import(*, files: Sequence[str], db: Optional[str], project: Optional[str]) -> int:
@@ -533,11 +576,15 @@ def _import_into(
     try:
         for file_path in paths:
             try:
-                result = import_otlp_file(con, file_path, project=project)
-            except (OtlpFormatError, UnicodeDecodeError) as exc:
-                raise WizardFlowCliError(f"{file_path} is not OTLP JSON: {exc}") from exc
+                result = _import_file(con, file_path, project=project)
+            except (OtlpFormatError, TraceFormatError, UnicodeDecodeError) as exc:
+                raise WizardFlowCliError(
+                    f"{file_path} is not OTLP JSON or a WizardFlow trace: {exc}"
+                ) from exc
             except OSError as exc:
                 raise WizardFlowCliError(f"could not read {file_path}: {exc}") from exc
+            except (RuntimeError, ValueError) as exc:
+                raise WizardFlowCliError(f"could not import {file_path}: {exc}") from exc
             results.append(result)
             if result.already_imported:
                 print(f"{file_path.name}: already imported, skipped")
@@ -557,6 +604,24 @@ def _import_into(
         con.close()
     print(f"Database: {db_path}")
     return results
+
+
+def _import_file(con: Any, file_path: Path, *, project: Optional[str]) -> ImportResult:
+    """Import an OTLP JSON file, or a WizardFlow run (all of its parts)."""
+    if _is_otlp_file(file_path):
+        return import_otlp_file(con, file_path, project=project)
+    unit = load_trace_chain(file_path)
+    from .otel_file_exporter import ExportOptions, trace_chain_requests
+
+    path = str(file_path.resolve())
+    digest = hashlib.sha256(b"".join(part.read_bytes() for part in unit.parts)).hexdigest()
+    if is_imported(con, digest):
+        return ImportResult(path=path, already_imported=True)
+    # The same content and graph as `otel export --out`.
+    options = ExportOptions(content_max_bytes=FILE_EXPORT_CONTENT_MAX_BYTES, export_graph=True)
+    return import_requests(
+        con, trace_chain_requests(unit, options), path=path, sha256=digest, project=project
+    )
 
 
 def _is_otlp_file(path: Path) -> bool:

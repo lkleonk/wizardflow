@@ -587,7 +587,7 @@ class Client:
         if self._otel_configured and self._enabled:
             self._otel = self._create_otel_bridge()
             self._otel.start_run(
-                _now_iso(), self._otel_name, self._nodes, self._edges
+                _now_iso(), self._otel_name, self._nodes, self._edges, self.meta
             )
 
     @classmethod
@@ -1288,7 +1288,7 @@ class Client:
                     if self._otel is None:
                         self._otel = self._create_otel_bridge()
                         self._otel.start_run(
-                            timestamp, self._otel_name, self._nodes, self._edges
+                            timestamp, self._otel_name, self._nodes, self._edges, self.meta
                         )
                         return
                     if otel_attributes is not None:
@@ -1299,6 +1299,7 @@ class Client:
                         self._otel_name,
                         self._nodes,
                         self._edges,
+                        self.meta,
                     )
 
                 # reinit() runs mid-process (a new session, a new day), so the

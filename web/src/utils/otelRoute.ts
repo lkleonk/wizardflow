@@ -66,8 +66,8 @@ export function parseOtelRoute(params: URLSearchParams): OtelRoute {
     corr: oneOf(params.get("corr"), CORRELATIONS),
     sec: oneOf(params.get("sec"), SECTIONS),
     scope: params.get("scope") || undefined,
-    // Only ever back into the dashboard: never an arbitrary URL from a link.
-    back: back?.startsWith("/otel") ? back : undefined,
+    // Only ever back into the app: never an arbitrary URL from a link.
+    back: back && (back.startsWith("/otel") || isReplayUrl(back)) ? back : undefined,
   };
 }
 
@@ -108,9 +108,30 @@ export function goTo(route: OtelRoute, { replace = false } = {}): void {
   else window.history.pushState(null, "", href);
 }
 
-/** goTo for a dashboard URL that is already built, like `OtelRoute.back`. */
+/** Whether a `back` URL is a graph replay rather than a dashboard page. */
+export function isReplayUrl(href: string): boolean {
+  return href.startsWith("/?");
+}
+
+/** goTo for a URL that is already built, like `OtelRoute.back`. The replay is
+ * a separate page, so going there is a real navigation. */
 export function goToHref(href: string): void {
-  window.history.pushState(null, "", href);
+  if (isReplayUrl(href)) window.location.assign(href);
+  else window.history.pushState(null, "", href);
+}
+
+/** The same replay, opening on another execution and node. Reusing its URL
+ * keeps a Graph → Spans → Graph round trip from nesting `back` ever deeper. */
+export function replayUrlAt(replayUrl: string, at: ReplayTarget): string {
+  const query = new URLSearchParams(replayUrl.slice(replayUrl.indexOf("?") + 1));
+  for (const [key, value] of [
+    ["otelTrace", at.traceId],
+    ["otelSpan", at.spanId],
+  ] as const) {
+    if (value) query.set(key, value);
+    else query.delete(key);
+  }
+  return `/?${query.toString()}`;
 }
 
 /** The execution (and optionally node visit) a replay should open on. */

@@ -39,7 +39,7 @@ import TutorialDialog from "@/components/TutorialDialog";
 import WelcomeDialog from "@/components/WelcomeDialog";
 import { emptyTrace, exampleFlows, type ExampleFlow } from "@/data";
 import type { AgentTraceFile } from "@/types/agenttrace";
-import type { ApiMeta } from "@/types/otelstore";
+import type { ApiMeta, ApiProject } from "@/types/otelstore";
 import { apiPath, useApi } from "@/utils/otelApi";
 import {
   getSavedFlow,
@@ -68,8 +68,10 @@ import { parseAgentTrace } from "@/utils/agentTraceFile";
 import { useDashboardBackHref, useViewerChrome } from "@/utils/viewerContext";
 import {
   locateReplayTarget,
+  otelHref,
   parseOtelRoute,
   parseReplayTarget,
+  replayUrlAt,
   type ReplayTarget,
 } from "@/utils/otelRoute";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
@@ -208,6 +210,10 @@ export default function Home() {
   const dashboardMeta = useApi<ApiMeta>(dashboardBackHref ? apiPath("meta") : null, {
     live: true,
   });
+  const dashboardProjects = useApi<ApiProject[]>(
+    dashboardBackHref ? apiPath("projects") : null,
+    { live: true }
+  );
 
   // The welcome dialog shows until the user makes their first choice this
   // session (then it's remembered), and never while a saved flow is loaded.
@@ -693,11 +699,6 @@ export default function Home() {
   // status slot and the divider before the action icons.
   const isServedTrace = activeTraceHref !== null;
 
-  const dashboardView = {
-    executionIndex: Math.max(0, currentMessageIndex),
-    executionCount: trace.messages.length,
-  };
-
   const goToPart = useCallback(
     (name: string) => {
       if (!activeTraceHref) return;
@@ -1066,8 +1067,15 @@ export default function Home() {
   const selectedNodeVisits = useMemo<InspectorVisit[]>(() => {
     if (!selectedNodeId) return [];
     const visits: InspectorVisit[] = [];
+    // Only a replay opened from the dashboard has spans to go to.
+    const project =
+      dashboardBackHref && typeof trace.meta?.project === "string"
+        ? trace.meta.project
+        : undefined;
+    const traceId = currentMessage?.otelTraceId;
     steps.forEach((step, index) => {
       if (step.nodeId !== selectedNodeId) return;
+      const spanId = step.otelSpanId;
       visits.push({
         stepId: step.id,
         timestamp: step.timestamp,
@@ -1075,10 +1083,46 @@ export default function Home() {
         timingMode: step.timingMode,
         deltaMs: deltaMsAtStep(steps, index),
         elapsedMs: elapsedMsAtStep(steps, index),
+        spanHref:
+          project && traceId && spanId
+            ? otelHref({
+                view: "trace",
+                project,
+                trace: traceId,
+                span: spanId,
+                back: replayUrlAt(`/${window.location.search}`, { traceId, spanId }),
+              })
+            : undefined,
       });
     });
     return visits;
-  }, [steps, selectedNodeId]);
+  }, [steps, selectedNodeId, dashboardBackHref, trace.meta, currentMessage]);
+
+  // The header's way to the span timeline: the step under the playhead, or the
+  // execution's root span when there is no step to point at.
+  const dashboardProject =
+    dashboardBackHref && typeof trace.meta?.project === "string" ? trace.meta.project : undefined;
+  const dashboardTraceId = currentMessage?.otelTraceId;
+  const dashboardSpanId = steps[currentStepIndex]?.otelSpanId;
+  const dashboardView = {
+    executionIndex: Math.max(0, currentMessageIndex),
+    executionCount: trace.messages.length,
+    projects: dashboardProjects.data ?? [],
+    onStep: goToAdjacentMessage,
+    spanHref:
+      dashboardProject && dashboardTraceId
+        ? otelHref({
+            view: "trace",
+            project: dashboardProject,
+            trace: dashboardTraceId,
+            span: dashboardSpanId,
+            back: replayUrlAt(`/${window.location.search}`, {
+              traceId: dashboardTraceId,
+              spanId: dashboardSpanId,
+            }),
+          })
+        : undefined,
+  };
 
   // A selection carried over from another message may name a node this one
   // never runs. The inspector says which kind of empty that is.

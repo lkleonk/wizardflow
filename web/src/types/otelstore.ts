@@ -28,7 +28,7 @@ export type ApiMeta = {
   dbSizeBytes: number;
   wizardflowVersion: string;
   capabilities: string[];
-  /** The OTLP receiver of `wizardflow serve --otlp`; off without the flag. */
+  /** The OTLP receiver of `wizardflow serve`: off with `--no-otlp`, on a taken port, or on a non-loopback host without `--otlp`. */
   receiver: ApiReceiver;
 };
 

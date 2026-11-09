@@ -6,7 +6,7 @@ import importlib.metadata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from .otel import (
     DEFAULT_OTEL_TRACE_SCOPE,
@@ -71,13 +71,84 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
         raise ValueError(f"unknown exporter: {options.exporter!r}")
 
     trace = unit.trace
-    graph = trace.get("graph", {})
     messages = trace.get("messages", [])
-    timestamps = list(_timestamps(messages))
-    fallback = trace.get("meta", {}).get("createdAt") or datetime.now(timezone.utc).isoformat()
-    start = min(timestamps, key=_timestamp_key) if timestamps else fallback
-    end = max(timestamps, key=_timestamp_key) if timestamps else start
-    bridge_options: Dict[str, Any] = dict(
+    # No OTel packages unless asked for: the same bridge drives a span
+    # recorder, whose spans are then written to the file or sent.
+    use_sdk = options.out is None and options.exporter == "otel-sdk"
+    recorder = None if use_sdk else SpanRecorder()
+    if recorder is not None:
+        bridge = OTelBridge(recorder, trace_api=recorder, **_bridge_options(unit, options))
+    else:
+        bridge = create_otel_bridge(
+            options.endpoint, project_name=trace.get("name"), **_bridge_options(unit, options)
+        )
+    span_count = _replay_into(bridge, unit)
+    trace_count = len(messages) if options.trace_scope == "workflow" else 1
+    if recorder is not None and options.out is not None:
+        trace_count = write_otlp_json(
+            recorder.finished,
+            options.out,
+            resource_attributes=_file_resource(trace.get("name")),
+            scope_version=_package_version(),
+        )
+    elif recorder is not None and options.endpoint is not None:
+        trace_count = len({span.trace_id for span in recorder.finished})
+        send_trace_requests(
+            build_trace_requests(
+                recorder.finished,
+                resource_attributes=_endpoint_resource(trace.get("name")),
+                scope_version=_package_version(),
+                max_spans=ENDPOINT_BATCH_SPANS,
+            ),
+            options.endpoint,
+        )
+    return ExportSummary(
+        len(unit.parts), len(messages), span_count, trace_count, unit.sealed
+    )
+
+
+def trace_chain_requests(unit: TraceChain, options: ExportOptions) -> List[Dict[str, Any]]:
+    """The run as OTLP JSON requests, for importing into the local store.
+
+    Unlike an export, the ids are derived from the run instead of random, so
+    importing it again, or after it has grown, adds only what is new. The
+    run's executions also share a conversation, which is what keeps them
+    together in the dashboard and in one graph replay.
+    """
+    recorder = SpanRecorder(id_seed=_run_seed(unit.trace))
+    bridge_options = _bridge_options(unit, options)
+    bridge_options["root_attributes"].update(_run_conversation(unit.trace))
+    _replay_into(OTelBridge(recorder, trace_api=recorder, **bridge_options), unit)
+    return build_trace_requests(
+        recorder.finished,
+        resource_attributes=_file_resource(unit.trace.get("name")),
+        scope_version=_package_version(),
+    )
+
+
+def _run_seed(trace: Mapping[str, Any]) -> str:
+    """What tells this run from another: messages are only ever appended, so
+    the start of the first one stays put as a run grows."""
+    messages = trace.get("messages", [])
+    first = messages[0] if messages else {}
+    steps = first.get("steps", [])
+    started = steps[0].get("timestamp") if steps else None
+    return "\0".join(str(part) for part in (trace.get("name"), first.get("id"), started))
+
+
+def _run_conversation(trace: Mapping[str, Any]) -> Dict[str, str]:
+    """Conversation attributes for a whole run, named after when it started
+    (stable as it grows). Both keys, so the mapping presets all pick it up."""
+    started = next(iter(_timestamps(trace.get("messages", []))), None)
+    if started is None:
+        return {}
+    conversation = f"run {started}"
+    return {"gen_ai.conversation.id": conversation, "session.id": conversation}
+
+
+def _bridge_options(unit: TraceChain, options: ExportOptions) -> Dict[str, Any]:
+    messages = unit.trace.get("messages", [])
+    return dict(
         trace_scope=options.trace_scope,
         workflow_name=options.workflow_name,
         include_content=options.include_content,
@@ -95,16 +166,17 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
             "wizardflow.export.source_sealed": unit.sealed,
         },
     )
-    # No OTel packages unless asked for: the same bridge drives a span
-    # recorder, whose spans are then written to the file or sent.
-    use_sdk = options.out is None and options.exporter == "otel-sdk"
-    recorder = None if use_sdk else SpanRecorder()
-    if recorder is not None:
-        bridge = OTelBridge(recorder, trace_api=recorder, **bridge_options)
-    else:
-        bridge = create_otel_bridge(
-            options.endpoint, project_name=trace.get("name"), **bridge_options
-        )
+
+
+def _replay_into(bridge: OTelBridge, unit: TraceChain) -> int:
+    """Drive the bridge through the recorded run; returns the node span count."""
+    trace = unit.trace
+    graph = trace.get("graph", {})
+    messages = trace.get("messages", [])
+    timestamps = list(_timestamps(messages))
+    fallback = trace.get("meta", {}).get("createdAt") or datetime.now(timezone.utc).isoformat()
+    start = min(timestamps, key=_timestamp_key) if timestamps else fallback
+    end = max(timestamps, key=_timestamp_key) if timestamps else start
     span_count = 0
     try:
         bridge.start_run(
@@ -112,6 +184,7 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
             trace.get("name"),
             graph.get("nodes", []),
             graph.get("edges", []),
+            trace.get("meta"),
         )
         for message in messages:
             message_id = str(message.get("id", ""))
@@ -167,28 +240,7 @@ def export_trace_chain(unit: TraceChain, options: ExportOptions) -> ExportSummar
         raise OTelExportError(
             "OpenTelemetry provider did not flush all spans; the export may be incomplete"
         )
-    trace_count = len(messages) if options.trace_scope == "workflow" else 1
-    if recorder is not None and options.out is not None:
-        trace_count = write_otlp_json(
-            recorder.finished,
-            options.out,
-            resource_attributes=_file_resource(trace.get("name")),
-            scope_version=_package_version(),
-        )
-    elif recorder is not None and options.endpoint is not None:
-        trace_count = len({span.trace_id for span in recorder.finished})
-        send_trace_requests(
-            build_trace_requests(
-                recorder.finished,
-                resource_attributes=_endpoint_resource(trace.get("name")),
-                scope_version=_package_version(),
-                max_spans=ENDPOINT_BATCH_SPANS,
-            ),
-            options.endpoint,
-        )
-    return ExportSummary(
-        len(unit.parts), len(messages), span_count, trace_count, unit.sealed
-    )
+    return span_count
 
 
 def _file_resource(trace_name: Optional[str]) -> Dict[str, Any]:
@@ -235,4 +287,10 @@ def _timestamp_key(value: str) -> float:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
-__all__ = ["EXPORTERS", "ExportOptions", "ExportSummary", "export_trace_chain"]
+__all__ = [
+    "EXPORTERS",
+    "ExportOptions",
+    "ExportSummary",
+    "export_trace_chain",
+    "trace_chain_requests",
+]

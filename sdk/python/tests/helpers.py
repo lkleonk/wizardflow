@@ -29,8 +29,10 @@ def _read_part(path):
 class _FakeOTelBridge:
     def __init__(self):
         self.calls = []
+        self.run_metas = []
 
-    def start_run(self, timestamp, trace_name, nodes, edges):
+    def start_run(self, timestamp, trace_name, nodes, edges, meta=None):
+        self.run_metas.append(dict(meta or {}))
         self.calls.append(("start_run", timestamp, trace_name, nodes, edges))
 
     def start_node(self, message_id, node, kind, timestamp, trace_name):
@@ -60,7 +62,8 @@ class _FakeOTelBridge:
     def set_root_attributes(self, attributes):
         self.calls.append(("set_root_attributes", attributes))
 
-    def reinit_run(self, end_timestamp, start_timestamp, trace_name, nodes, edges):
+    def reinit_run(self, end_timestamp, start_timestamp, trace_name, nodes, edges, meta=None):
+        self.run_metas.append(dict(meta or {}))
         self.calls.append(
             ("reinit_run", end_timestamp, start_timestamp, trace_name, nodes, edges)
         )

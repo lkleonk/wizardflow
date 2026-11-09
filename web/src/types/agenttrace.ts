@@ -61,7 +61,8 @@ export type AgentTraceMessage = {
   meta?: Record<string, string | number | boolean>;
   /**
    * The OTel trace this execution came from. Set only by the dashboard's
-   * projection (store/projection.py); the SDK's JSONL writer never emits it.
+   * projection (store/projection.py); neither the SDK's JSONL writer nor the
+   * viewer's Download JSONL emits it.
    */
   otelTraceId?: string;
   steps: AgentTraceStep[];

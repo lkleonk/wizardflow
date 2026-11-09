@@ -58,6 +58,17 @@ def test_completed_id_is_reusable_after_reinit(tmp_path):
     assert messages[0]["steps"][0]["payloads"][0]["value"] == 2
 
 
+def test_run_description_and_meta_reach_the_otel_bridge(tmp_path, monkeypatch):
+    bridge = _FakeOTelBridge()
+    monkeypatch.setattr("wizardflow.client.create_otel_bridge", lambda *a, **k: bridge)
+    c = _new(tmp_path, description="one", meta={"team": "a"}, nodes=["a"], otel=True)
+    c.reinit(description="two")
+    assert bridge.run_metas == [
+        {"team": "a", "description": "one"},
+        {"team": "a", "description": "two"},
+    ]
+
+
 def test_reinit_overrides_replace_and_omitted_values_persist(tmp_path):
     c = _new(tmp_path, name="first", description="one", nodes=["a"])
     c.log("m1", "a", "L", 1)

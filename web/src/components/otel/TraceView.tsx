@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -10,14 +10,19 @@ import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
+import SearchIcon from "@mui/icons-material/Search";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
-import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PushPinIcon from "@mui/icons-material/PushPin";
 import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
+import DownloadTraceDialog from "@/components/DownloadTraceDialog";
+import { clearCrumbsFirstFrame, rememberCrumbs } from "@/components/TracePendingScript";
+import { useSearchHotkey } from "@/hooks/useKeyboardShortcuts";
 import { nodeColorAt, nodeColorForKind } from "@/theme/muiTheme";
 import {
   TraceFlag,
@@ -36,9 +41,13 @@ import {
   useApi,
 } from "@/utils/otelApi";
 import { keyMatches, setDisplayPrefs, useDisplayPrefs, type DisplayPrefs } from "@/utils/otelDisplay";
-import { goTo, otelHref, replayHref, type OtelRoute } from "@/utils/otelRoute";
-import OtelHeader from "./OtelHeader";
+import { goTo, isReplayUrl, otelHref, replayHref, replayUrlAt, type OtelRoute } from "@/utils/otelRoute";
+import OtelHeader, { executionCrumbs } from "./OtelHeader";
 import { LoadError, Loading, Mono, SeverityChip, TraceBadges, graphSource } from "./OtelBits";
+import SpanSearchDialog from "./SpanSearchDialog";
+
+// React Flow is heavy and only needed once the graph is opened.
+const SpanGraphPanel = lazy(() => import("./SpanGraphPanel"));
 
 const MONO = "var(--font-geist-mono), monospace";
 const KIND_NAMES = ["unspecified", "internal", "server", "client", "producer", "consumer"];
@@ -136,10 +145,13 @@ export default function TraceView({
     apiPath(`traces/${encodeURIComponent(route.trace)}`, { project: route.project }),
     { live: true }
   );
+  useEffect(() => {
+    if (!loading) clearCrumbsFirstFrame();
+  }, [loading]);
   if (error || loading || !data) {
     return (
       <>
-        <OtelHeader route={route} projects={projects} />
+        <OtelHeader route={route} projects={projects} live={false} />
         {error ? <LoadError error={error} /> : <Loading />}
       </>
     );
@@ -157,25 +169,90 @@ function TraceDetail({
   projects: ApiProject[];
 }) {
   const { trace, spans } = detail;
+  const conversationId = trace.conversationId;
+  const position = detail.conversation?.position;
+  const total = detail.conversation?.total;
+  useEffect(() => {
+    rememberCrumbs({
+      traceId: trace.traceId,
+      conversation: conversationId ?? `${trace.traceId.slice(0, 12)}…`,
+      position,
+      total,
+    });
+  }, [trace.traceId, conversationId, position, total]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useSearchHotkey(true, () => setSearchOpen(true));
+  const [graphOpen, setGraphOpen] = useState(readGraphOpen);
+  const showGraph = (open: boolean) => {
+    setGraphOpen(open);
+    rememberGraphOpen(open);
+  };
   const rows = flattenTree(spans);
   const accents = nodeAccents(spans);
   const selected = spans.find((s) => s.spanId === route.span) ?? rows[0]?.span;
   const select = (spanId: string) => goTo({ ...route, span: spanId }, { replace: true });
   const back = otelHref(route);
   const replayable = (trace.flags & TraceFlag.WIZARDFLOW) !== 0;
-  const replay = replayHref({
-    project: route.project,
-    traceId: trace.traceId,
-    conversationId: trace.conversationId,
-    name: trace.conversationId ?? trace.name,
-    back,
-    at: { traceId: trace.traceId, spanId: selected?.spanId },
-  });
+  const at = { traceId: trace.traceId, spanId: selected?.spanId };
+  // Opened from a replay: return to that one, on the selected span.
+  const replay =
+    route.back && isReplayUrl(route.back)
+      ? replayUrlAt(route.back, at)
+      : replayHref({
+          project: route.project,
+          traceId: trace.traceId,
+          conversationId: trace.conversationId,
+          name: trace.conversationId ?? trace.name,
+          back,
+          at,
+        });
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1, overflow: "hidden" }}>
-      <OtelHeader route={route} projects={projects} trail={traceTrail(detail, route.project, route.back)} />
-      <TraceHeader detail={detail} />
+      <OtelHeader
+        route={route}
+        projects={projects}
+        trail={traceTrail(detail, route.project, route.back)}
+        live
+        actions={
+          <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1 }}>
+            <Tooltip title="Search this execution (Ctrl+K)">
+              <IconButton size="small" onClick={() => setSearchOpen(true)} aria-label="Search this execution">
+                <SearchIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {replayable && (
+              <Tooltip
+                title={
+                  trace.conversationId
+                    ? `Open conversation ${trace.conversationId} in graph replay`
+                    : "Open this execution in graph replay"
+                }
+              >
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<AccountTreeOutlinedIcon />}
+                  href={replay}
+                  sx={{ whiteSpace: "nowrap" }}
+                >
+                  Open graph replay
+                </Button>
+              </Tooltip>
+            )}
+          </Box>
+        }
+      />
+      <SpanSearchDialog
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        spans={rows.map((row) => row.span)}
+        logs={detail.logs}
+        messageKeys={MESSAGE_KEYS}
+        onJump={(hit) => goTo({ ...route, span: hit.spanId, tab: hit.tab }, { replace: true })}
+      />
+      <TraceHeader detail={detail} project={route.project} replayable={replayable} />
       {detail.otherSlices.length > 0 && (
         <Alert severity="info" sx={{ mx: 2, mb: 1, py: 0 }}>
           This trace continues in{" "}
@@ -198,16 +275,37 @@ function TraceDetail({
         left={<SpanTimeline rows={rows} detail={detail} accents={accents} selectedId={selected?.spanId} onSelect={select} />}
         right={
           selected ? (
-            <SpanInspector
-              span={selected}
-              detail={detail}
-              accents={accents}
-              tab={route.tab}
-              onTab={(tab) => goTo({ ...route, span: selected.spanId, tab }, { replace: true })}
-              replay={
-                replayable && (selected.nodeId || selected.spanId === trace.rootSpanId)
-                  ? replay
-                  : undefined
+            <GraphAndInspector
+              strip={
+                replayable ? (
+                  <GraphStrip
+                    span={selected}
+                    detail={detail}
+                    open={graphOpen}
+                    onToggle={() => showGraph(!graphOpen)}
+                  />
+                ) : null
+              }
+              graph={
+                replayable && graphOpen ? (
+                  <Suspense fallback={null}>
+                    <SpanGraphPanel
+                      path={agentTracePath(trace, route.project)}
+                      spans={spans}
+                      selected={selected}
+                      onSelectSpan={select}
+                    />
+                  </Suspense>
+                ) : null
+              }
+              inspector={
+                <SpanInspector
+                  span={selected}
+                  detail={detail}
+                  accents={accents}
+                  tab={route.tab}
+                  onTab={(tab) => goTo({ ...route, span: selected.spanId, tab }, { replace: true })}
+                />
               }
             />
           ) : null
@@ -223,52 +321,77 @@ function traceTrail(detail: ApiTraceDetail, project: string, back?: string): Rea
   if (!trace.conversationId) {
     return [<Mono key="id" sx={{ fontWeight: 650 }}>{trace.traceId.slice(0, 12)}…</Mono>];
   }
-  const crumbs: React.ReactNode[] = [
-    <Mono
-      key="conversation"
-      sx={{
-        display: "inline-block",
-        maxWidth: 180,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        verticalAlign: "bottom",
-        color: "text.secondary",
-      }}
-    >
-      <span title={trace.conversationId}>{trace.conversationId}</span>
-    </Mono>,
-  ];
-  if (conversation && conversation.total > 1) {
-    const step = (label: string, traceId: string | null, icon: React.ReactNode) => (
-      <Tooltip title={traceId ? `${label} execution` : ""}>
-        <span>
-          <IconButton
-            size="small"
-            disabled={!traceId}
-            onClick={() => traceId && goTo({ view: "trace", project, trace: traceId, back })}
-            aria-label={`${label} execution`}
-            sx={{ p: 0.25 }}
-          >
-            {icon}
-          </IconButton>
-        </span>
-      </Tooltip>
-    );
-    crumbs.push(
-      <Box key="execution" sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, whiteSpace: "nowrap" }}>
-        <Typography component="span" sx={{ fontWeight: 650 }}>
-          Execution {conversation.position} of {conversation.total}
-        </Typography>
-        {step("Previous", conversation.prevTraceId, <ChevronLeftIcon fontSize="small" />)}
-        {step("Next", conversation.nextTraceId, <ChevronRightIcon fontSize="small" />)}
-      </Box>
-    );
-  }
-  return crumbs;
+  const stepTo = (traceId: string | null) =>
+    traceId ? () => goTo({ view: "trace", project, trace: traceId, back }) : undefined;
+  return executionCrumbs({
+    conversation: trace.conversationId,
+    execution: conversation
+      ? {
+          position: conversation.position,
+          total: conversation.total,
+          onPrev: stepTo(conversation.prevTraceId),
+          onNext: stepTo(conversation.nextTraceId),
+        }
+      : undefined,
+  });
 }
 
-function TraceHeader({ detail }: { detail: ApiTraceDetail }) {
+/** A replay plays the whole conversation, so its data is the conversation's. */
+function agentTracePath(trace: ApiTraceDetail["trace"], project: string): string {
+  return apiPath(
+    trace.conversationId
+      ? `conversations/${encodeURIComponent(trace.conversationId)}/agenttrace`
+      : `traces/${encodeURIComponent(trace.traceId)}/agenttrace`,
+    { project }
+  );
+}
+
+/** Download sits at the row's right end, the Traces list's replay-button spot. */
+function DownloadRun({ detail, project }: { detail: ApiTraceDetail; project: string }) {
+  const { trace, conversation } = detail;
+  const [open, setOpen] = useState(false);
+  const [requested, setRequested] = useState(false);
+  const conversationId = trace.conversationId;
+  const executions = conversation?.total ?? 1;
+  const count = `${executions} execution${executions === 1 ? "" : "s"}`;
+  const path = agentTracePath(trace, project);
+  const label = conversationId ? `Download conversation ${conversationId} (${count})` : "Download this execution";
+  return (
+    <>
+      <Tooltip title={label}>
+        <IconButton
+          size="small"
+          aria-label={label}
+          onClick={() => {
+            setRequested(true);
+            setOpen(true);
+          }}
+          sx={{ flex: "none", mt: -0.25 }}
+        >
+          <FileDownloadOutlinedIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      {requested && (
+        <DownloadTraceDialog
+          open={open}
+          onClose={() => setOpen(false)}
+          path={path}
+          what={conversationId ? `conversation ${conversationId}, ${count},` : "this execution"}
+        />
+      )}
+    </>
+  );
+}
+
+function TraceHeader({
+  detail,
+  project,
+  replayable,
+}: {
+  detail: ApiTraceDetail;
+  project: string;
+  replayable: boolean;
+}) {
   const { trace } = detail;
   const [copied, setCopied] = useState(false);
   const localRoot = (trace.flags & TraceFlag.PARENT_OUTSIDE) !== 0;
@@ -281,7 +404,8 @@ function TraceHeader({ detail }: { detail: ApiTraceDetail }) {
     </Typography>
   );
   return (
-    <Box sx={{ px: 2, py: 1.25, display: "flex", flexWrap: "wrap", gap: 2, alignItems: "center" }}>
+    <Box sx={{ px: 2, py: 1.25, display: "flex", alignItems: "flex-start", gap: 1 }}>
+      <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexWrap: "wrap", gap: 2, alignItems: "center" }}>
       <TraceBadges flags={trace.flags} />
       <Typography component="span" sx={{ fontSize: 12.5, color: "text.secondary" }}>
         trace{" "}
@@ -320,6 +444,8 @@ function TraceHeader({ detail }: { detail: ApiTraceDetail }) {
         fact("tokens", `${trace.inputTokens ?? 0} in / ${trace.outputTokens ?? 0} out`)}
       {trace.conversationId && fact("conversation", trace.conversationId)}
       {trace.logCount > 0 && fact("logs", trace.logCount)}
+      </Box>
+      {replayable && <DownloadRun detail={detail} project={project} />}
     </Box>
   );
 }
@@ -511,9 +637,198 @@ function SplitPane({
           outline: "none",
         }}
       />
-      <Box sx={{ ...card, gridColumn: { md: 4 }, overflow: "auto", minWidth: 0, minHeight: 0 }}>
+      <Box sx={{ ...card, gridColumn: { md: 4 }, overflow: "auto", minWidth: 0, minHeight: 0, position: "relative" }}>
         {right}
       </Box>
+    </Box>
+  );
+}
+
+// --- graph above the inspector -----------------------------------------------
+
+const GRAPH_OPEN_KEY = "wf-otel-span-graph";
+const GRAPH_HEIGHT_KEY = "wf-otel-span-graph-height";
+const GRAPH_HEIGHT_DEFAULT = 280;
+const GRAPH_HEIGHT_MIN = 140;
+const INSPECTOR_HEIGHT_MIN = 160;
+
+function readGraphOpen(): boolean {
+  try {
+    return window.localStorage.getItem(GRAPH_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberGraphOpen(open: boolean): void {
+  try {
+    window.localStorage.setItem(GRAPH_OPEN_KEY, open ? "1" : "0");
+  } catch {
+    // storage unavailable (private mode): it just isn't remembered
+  }
+}
+
+function readGraphHeight(): number {
+  try {
+    const value = Number(window.localStorage.getItem(GRAPH_HEIGHT_KEY));
+    return Number.isFinite(value) && value >= GRAPH_HEIGHT_MIN ? value : GRAPH_HEIGHT_DEFAULT;
+  } catch {
+    return GRAPH_HEIGHT_DEFAULT;
+  }
+}
+
+/** Docked on top of the graph, so the toggle and what it opens read as one. */
+function GraphStrip({
+  span,
+  detail,
+  open,
+  onToggle,
+}: {
+  span: ApiSpan;
+  detail: ApiTraceDetail;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { trace } = detail;
+  return (
+    <Box
+      sx={{
+        flex: "none",
+        display: "flex",
+        alignItems: "center",
+        gap: 1,
+        px: 1.5,
+        py: 0.75,
+        borderBottom: 1,
+        borderColor: open ? "secondary.main" : "divider",
+      }}
+    >
+      <Typography component="div" sx={{ fontSize: 13, flex: 1, minWidth: 0 }}>
+        {span.nodeId ? (
+          <>
+            Node <b>{span.nodeId}</b>
+          </>
+        ) : span.spanId === trace.rootSpanId ? (
+          "Workflow execution"
+        ) : (
+          "Not a graph node"
+        )}
+        {trace.conversationId && (
+          <>
+            {" · conversation "}
+            <Mono>{trace.conversationId}</Mono>
+          </>
+        )}
+        <Box sx={{ fontSize: 11.5, color: "text.secondary" }}>{graphSource(trace.flags)}</Box>
+      </Typography>
+      <Button
+        size="small"
+        variant="outlined"
+        color="secondary"
+        startIcon={<AccountTreeOutlinedIcon />}
+        onClick={onToggle}
+        aria-expanded={open}
+        sx={{ whiteSpace: "nowrap", flex: "none" }}
+      >
+        {open ? "Hide graph" : "Show graph"}
+      </Button>
+    </Box>
+  );
+}
+
+/** Strip, optional graph and inspector, with a draggable divider under the graph. */
+function GraphAndInspector({
+  strip,
+  graph,
+  inspector,
+}: {
+  strip: React.ReactNode;
+  graph: React.ReactNode;
+  inspector: React.ReactNode;
+}) {
+  const [height, setHeight] = useState(readGraphHeight);
+  const container = useRef<HTMLDivElement>(null);
+  const graphBox = useRef<HTMLDivElement>(null);
+
+  const clamp = (value: number) => {
+    const total = container.current?.getBoundingClientRect().height ?? 0;
+    const above = graphBox.current?.offsetTop ?? 0; // the strip
+    return Math.max(GRAPH_HEIGHT_MIN, Math.min(total - above - INSPECTOR_HEIGHT_MIN, value));
+  };
+  const save = (value: number) => {
+    setHeight(value);
+    try {
+      window.localStorage.setItem(GRAPH_HEIGHT_KEY, String(value));
+    } catch {
+      // storage unavailable (private mode): the height just isn't remembered
+    }
+  };
+
+  const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const startY = event.clientY;
+    let next = height;
+    const move = (e: PointerEvent) => {
+      next = clamp(height + e.clientY - startY);
+      // Straight to the DOM: no re-render of the graph on every pointer move.
+      if (graphBox.current) graphBox.current.style.height = `${next}px`;
+    };
+    const up = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      if (graphBox.current) graphBox.current.style.height = "";
+      save(Math.round(next));
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  };
+
+  return (
+    <Box
+      ref={container}
+      sx={{
+        // Filling the card exactly, so only the inspector scrolls under the graph.
+        position: { md: "absolute" },
+        inset: 0,
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      {strip}
+      {graph && (
+        <>
+          <Box ref={graphBox} sx={{ flex: "none", height: { xs: 260, md: height }, minHeight: 0 }}>
+            {graph}
+          </Box>
+          <Box
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize graph"
+            tabIndex={0}
+            title="Drag to resize · double-click to reset"
+            onPointerDown={startDrag}
+            onDoubleClick={() => save(GRAPH_HEIGHT_DEFAULT)}
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+              e.preventDefault();
+              save(clamp(height + (e.key === "ArrowDown" ? 32 : -32)));
+            }}
+            sx={{
+              flex: "none",
+              height: 6,
+              display: { xs: "none", md: "block" },
+              cursor: "row-resize",
+              touchAction: "none",
+              borderTop: 1,
+              borderColor: "divider",
+              outline: "none",
+              "&:hover, &:focus-visible": { borderColor: "primary.main" },
+            }}
+          />
+        </>
+      )}
+      <Box sx={{ flex: { md: 1 }, minHeight: 0, overflow: { md: "auto" } }}>{inspector}</Box>
     </Box>
   );
 }
@@ -782,6 +1097,51 @@ function PinButton({ attributeKey, pins }: { attributeKey: string; pins: string[
   );
 }
 
+// A JSON value longer than this starts closed, showing its first few lines.
+const JSON_COLLAPSE_LINES = 12;
+const JSON_PREVIEW_LINES = 8;
+
+/** A JSON object or array, one key per line; null for anything else. */
+function prettyJson(value: unknown): string | null {
+  let parsed = value;
+  if (typeof value === "string") {
+    if (!/^\s*[{[]/.test(value)) return null;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return null; // not JSON after all, or cut off by the content limit
+    }
+  }
+  return parsed !== null && typeof parsed === "object" ? JSON.stringify(parsed, null, 2) : null;
+}
+
+function JsonValue({ text, label }: { text: string; label: string }) {
+  const lines = text.split("\n");
+  const collapsible = lines.length > JSON_COLLAPSE_LINES;
+  const [open, setOpen] = useState(!collapsible);
+  if (!collapsible) return text;
+  const action = open ? "Collapse" : `Show all ${lines.length} lines`;
+  return (
+    <>
+      {open ? text : lines.slice(0, JSON_PREVIEW_LINES).join("\n")}
+      {!open && (
+        <Box sx={{ color: "text.disabled" }}>… {lines.length - JSON_PREVIEW_LINES} more lines</Box>
+      )}
+      <Tooltip title={action}>
+        <IconButton
+          size="small"
+          aria-label={`${action}: ${label}`}
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          sx={{ position: "absolute", top: 2, right: 2, p: 0.25 }}
+        >
+          {open ? <ExpandLessIcon sx={{ fontSize: 18 }} /> : <ExpandMoreIcon sx={{ fontSize: 18 }} />}
+        </IconButton>
+      </Tooltip>
+    </>
+  );
+}
+
 function KeyValues({ entries, pins }: { entries: Entry[]; pins?: string[] }) {
   const pinnable = pins !== undefined;
   return (
@@ -796,6 +1156,7 @@ function KeyValues({ entries, pins }: { entries: Entry[]; pins?: string[] }) {
     >
       {entries.map(([key, shown, value]) => {
         const text = typeof value === "string" ? value : JSON.stringify(value);
+        const json = prettyJson(value);
         const long = text.length > 90;
         return (
           <Box key={key} className="kv-row" sx={{ display: "contents" }}>
@@ -810,10 +1171,12 @@ function KeyValues({ entries, pins }: { entries: Entry[]; pins?: string[] }) {
                 fontSize: 12.5,
                 whiteSpace: "pre-wrap",
                 overflowWrap: "anywhere",
-                ...(long && { maxHeight: 140, overflow: "auto", bgcolor: "action.hover", borderRadius: 1, px: 0.75, py: 0.5 }),
+                ...(json
+                  ? { position: "relative", bgcolor: "action.hover", borderRadius: 1, px: 0.75, py: 0.5 }
+                  : long && { maxHeight: 140, overflow: "auto", bgcolor: "action.hover", borderRadius: 1, px: 0.75, py: 0.5 }),
               }}
             >
-              {text}
+              {json ? <JsonValue text={json} label={key} /> : text}
             </Box>
             {pinnable && <PinButton attributeKey={key} pins={pins} />}
           </Box>
@@ -881,14 +1244,12 @@ function SpanInspector({
   accents,
   tab,
   onTab,
-  replay,
 }: {
   span: ApiSpan;
   detail: ApiTraceDetail;
   accents: Map<string, string>;
   tab?: string;
   onTab: (tab: string) => void;
-  replay?: string;
 }) {
   const logs = detail.logs.filter((log) => log.spanId === span.spanId);
   const hasMessages = MESSAGE_KEYS.some((key) => key in span.attributes);
@@ -923,34 +1284,6 @@ function SpanInspector({
           <span>{formatNsDuration(nsDiff(span.endNs, span.startNs))}</span>
           {typeof model === "string" && <span>{model}</span>}
         </Box>
-        {replay && (
-          <Paper
-            variant="outlined"
-            sx={{ mt: 1.5, p: 1, pl: 1.5, borderRadius: 2, display: "flex", alignItems: "center", gap: 1, borderColor: "secondary.main" }}
-          >
-            <Typography sx={{ fontSize: 13, flex: 1 }}>
-              {span.nodeId ? (
-                <>
-                  Node <b>{span.nodeId}</b>
-                </>
-              ) : (
-                "Workflow execution"
-              )}
-              {detail.trace.conversationId && (
-                <>
-                  {" · conversation "}
-                  <Mono>{detail.trace.conversationId}</Mono>
-                </>
-              )}
-              <Box component="span" sx={{ display: "block", fontSize: 11.5, color: "text.secondary" }}>
-                {graphSource(detail.trace.flags)}
-              </Box>
-            </Typography>
-            <Button size="small" variant="outlined" color="secondary" startIcon={<PlayArrowIcon />} href={replay}>
-              Graph replay
-            </Button>
-          </Paper>
-        )}
       </Box>
       <Tabs
         value={current}

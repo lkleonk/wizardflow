@@ -35,6 +35,11 @@ class ImportResult:
     import_id: Optional[int] = None
 
 
+def is_imported(con: sqlite3.Connection, sha256: str) -> bool:
+    """Whether a file with this content hash was imported before."""
+    return con.execute("SELECT 1 FROM imports WHERE sha256 = ?", (sha256,)).fetchone() is not None
+
+
 def import_otlp_file(
     con: sqlite3.Connection, path: Path, *, project: Optional[str] = None
 ) -> ImportResult:
@@ -60,9 +65,7 @@ def import_otlp_text(
     sha256: Optional[str] = None,
     project: Optional[str] = None,
 ) -> ImportResult:
-    if sha256 is not None and con.execute(
-        "SELECT 1 FROM imports WHERE sha256 = ?", (sha256,)
-    ).fetchone():
+    if sha256 is not None and is_imported(con, sha256):
         return ImportResult(path=path, already_imported=True)
 
     # Parse fully first, so a malformed file fails before anything is written.

@@ -1,8 +1,8 @@
 """``wizardflow serve``: the bundled UI plus an API over the local OTel store.
 
 Read-only apart from the settings writes (the attribute mapping), which are
-accepted from this machine only. With ``--otlp``, a second listener receives
-OTLP from apps (:mod:`wizardflow.receiver`)."""
+accepted from this machine only. A second listener receives OTLP from apps
+(:mod:`wizardflow.receiver`): on by default when bound to this machine only."""
 
 from __future__ import annotations
 
@@ -291,13 +291,19 @@ def run_serve(
     version: str,
     project: Optional[str] = None,
     otlp_port: Optional[int] = None,
+    otlp_required: bool = True,
 ) -> int:
     # Creates and migrates the store up front, so requests only ever read.
     open_store(db_path).close()
     receiver_server: Optional[ThreadingHTTPServer] = None
     receiver: Optional[Receiver] = None
     if otlp_port is not None:
-        receiver_server, receiver = start_receiver(db_path, host=host, port=otlp_port)
+        try:
+            receiver_server, receiver = start_receiver(db_path, host=host, port=otlp_port)
+        except ReceiverPortError as exc:
+            if otlp_required:
+                raise
+            print(f"Warning: the dashboard opens without live data: {exc}", file=sys.stderr)
     handler = make_serve_handler(
         ui_dir=ui_dir, db_path=db_path, version=version, receiver=receiver
     )

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import OtelApp from "@/components/otel/OtelApp";
+import OtelFirstFrame from "@/components/otel/OtelFirstFrame";
 
 export const metadata: Metadata = {
   title: "OTel dashboard",
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
 // Suspense boundary; without one, `next build` fails.
 export default function OtelPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<OtelFirstFrame />}>
       <OtelApp />
     </Suspense>
   );

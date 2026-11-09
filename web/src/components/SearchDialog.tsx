@@ -54,14 +54,14 @@ const SNIPPET_AFTER = 60;
  * source. Search runs over this cleaned text too — indexes must line up, and
  * matching what the user sees beats matching escape sequences.
  */
-function cleanForDisplay(text: string): string {
+export function cleanForDisplay(text: string): string {
   return text
     .replace(/\\n/g, " ")
     .replace(/\\"/g, '"')
     .replace(/\s+/g, " ");
 }
 
-function makeSnippet(
+export function makeSnippet(
   text: string,
   matchIndex: number,
   matchLength: number
@@ -81,7 +81,7 @@ function makeSnippet(
   };
 }
 
-function payloadText(value: unknown): string {
+export function payloadText(value: unknown): string {
   if (typeof value === "string") return value;
   try {
     return JSON.stringify(value) ?? String(value);

@@ -668,11 +668,9 @@ function DataSection({ meta }: { meta: ApiMeta }) {
         Import more
       </Typography>
       <Typography sx={{ fontSize: 13, color: "text.secondary", mt: 0.5 }}>
-        Importing runs from the command line. A WizardFlow run first becomes OTLP JSON:
+        Importing WizardFlow runs and OTLP JSON files from the command line:
       </Typography>
-      <Command>
-        wizardflow otel export run.jsonl --out run.otlp.jsonl{"\n"}wizardflow db import run.otlp.jsonl collector/out/*.json
-      </Command>
+      <Command>wizardflow db import run.jsonl collector/out/*.json</Command>
     </>
   );
 }
@@ -687,7 +685,7 @@ function LiveSection({ receiver }: { receiver: ApiReceiver }) {
           <Chip label="off" size="small" variant="outlined" />
         </SectionHead>
         <Typography sx={{ fontSize: 13, color: "text.secondary" }}>
-          Restart the dashboard with the receiver on. It listens on 4318, the standard OTLP/HTTP port:
+          The receiver isn&apos;t running: it was turned off, its port was taken, or the dashboard isn&apos;t bound to this machine only. To start it on 4318, the standard OTLP/HTTP port:
         </Typography>
         <Command>wizardflow serve --otlp</Command>
         <Typography sx={{ fontSize: 13, color: "text.secondary", mt: 2 }}>

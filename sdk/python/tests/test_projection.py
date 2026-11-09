@@ -131,6 +131,46 @@ def test_round_trip_restores_messages_steps_payloads_and_graph(tmp_path):
     con.close()
 
 
+def _store_with_run_meta(tmp_path, meta, **options):
+    out = tmp_path / "run.otlp.jsonl"
+    export_trace_chain(
+        TraceChain({**TRACE, "meta": meta}, (tmp_path / "run.jsonl",), True),
+        ExportOptions(out=out, **options),
+    )
+    con = open_store(tmp_path / "wf.db")
+    import_otlp_file(con, out)
+    return con
+
+
+def _root_attributes(con, trace_id):
+    detail = get_trace(con, "student-advisor", trace_id)
+    root = next(s for s in detail["spans"] if s["parentSpanId"] is None)
+    return root["attributes"]
+
+
+def test_run_description_and_meta_reach_every_root_and_the_replay(tmp_path):
+    meta = {"description": "Nightly eval", "team": "advising", "project": "not-the-store-one"}
+    con = _store_with_run_meta(tmp_path, meta)
+    first, second = _trace_ids(con)
+    for trace_id in (first, second):
+        attrs = _root_attributes(con, trace_id)
+        assert json.loads(attrs["wizardflow.trace.metadata"]) == meta
+
+    replayed = project_trace(con, "student-advisor", first)["meta"]
+    assert replayed["description"] == "Nightly eval"
+    assert replayed["team"] == "advising"
+    assert replayed["project"] == "student-advisor"  # the viewer's own keys win
+    con.close()
+
+
+def test_run_meta_follows_the_content_switch(tmp_path):
+    con = _store_with_run_meta(tmp_path, {"description": "secret"}, include_content=False)
+    first = _trace_ids(con)[0]
+    assert "wizardflow.trace.metadata" not in _root_attributes(con, first)
+    assert "description" not in project_trace(con, "student-advisor", first)["meta"]
+    con.close()
+
+
 def test_recording_scope_splits_one_trace_into_messages(tmp_path):
     con = _store_from_export(tmp_path, trace_scope="recording")
     (trace_id,) = _trace_ids(con)

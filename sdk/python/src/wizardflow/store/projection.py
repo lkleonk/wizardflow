@@ -117,6 +117,7 @@ def _project(
     messages: List[Dict[str, Any]] = []
     trace_name: Optional[str] = None
     graph_event: Optional[Dict[str, Any]] = None
+    run_meta: Dict[str, Any] = {}
     for trace_row, trace_id in rows:
         spans = con.execute(
             "SELECT span_id, parent_span_id, name, start_ns, end_ns, attributes, node_id, "
@@ -127,6 +128,9 @@ def _project(
         root = next((s for s in spans if s[1] is None), spans[0] if spans else None)
         root_attrs = json.loads(root[5]) if root else {}
         trace_name = trace_name or _text(root_attrs.get("wizardflow.trace.name"))
+        recorded_meta = _decoded(root_attrs, "wizardflow.trace.metadata")
+        if isinstance(recorded_meta, dict):
+            run_meta = recorded_meta  # like the graph: the latest trace's wins
         for (attrs_json,) in con.execute(
             "SELECT attributes FROM span_events WHERE trace_row = ? AND name = 'wizardflow.graph' "
             "ORDER BY time_ns DESC LIMIT 1",
@@ -149,6 +153,7 @@ def _project(
     # and transitions that actually ran, no unvisited branches, no
     # conditional edges.
     meta: Dict[str, Any] = {
+        **run_meta,  # what the run was recorded with; the viewer's own keys win
         "source": "opentelemetry",
         "project": project,
         "traces": len(rows),

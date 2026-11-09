@@ -1,6 +1,7 @@
 import { Fragment, memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import Tooltip from "@mui/material/Tooltip";
+import { TOOLTIP_TIMING } from "@/theme/muiTheme";
 import styles from "./TraceNode.module.css";
 
 export type TraceNodeState = "active" | "recent" | "normal";
@@ -114,8 +115,7 @@ function TraceNode({ data }: NodeProps) {
         }
         placement="top"
         arrow
-        enterDelay={500}
-        enterNextDelay={500}
+        {...TOOLTIP_TIMING.explain}
       >
         <div className={styles.surface}>
           <span className={styles.dot} style={{ background: accent }} />

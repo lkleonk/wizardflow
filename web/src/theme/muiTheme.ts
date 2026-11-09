@@ -42,6 +42,19 @@ export function nodeColorAt(index: number): string {
 // separate them — see the MuiAlert override below.
 const DARK_OVERLAY_SURFACE = "#232A34";
 
+// How long a tooltip waits before showing. Every tooltip uses one of these, so
+// no component carries its own number; spread onto <Tooltip> to pick a level.
+// `enterNextDelay` applies when moving straight from one tooltip to the next:
+// `label` leaves it at 0, so a row of icons reads quickly once one has shown.
+export const TOOLTIP_TIMING = {
+  /** The default. The tooltip is the only explanation, or you're scanning. */
+  label: { enterDelay: 100 },
+  /** The control already has a name; the tooltip adds detail. */
+  explain: { enterDelay: 600, enterNextDelay: 600 },
+  /** Would get in the way while the mouse moves across many things. */
+  passive: { enterDelay: 1200, enterNextDelay: 1200 },
+} as const;
+
 // CSS-variables theme with both color schemes. The active scheme is switched by
 // the `data-mui-color-scheme` attribute on <html> (set pre-hydration by
 // InitColorSchemeScript), so toggling never re-renders styles — no flash.
@@ -85,6 +98,9 @@ export const theme = createTheme({
     fontSize: 13,
   },
   components: {
+    MuiTooltip: {
+      defaultProps: TOOLTIP_TIMING.label,
+    },
     MuiPaper: {
       styleOverrides: {
         root: {
