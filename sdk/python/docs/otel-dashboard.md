@@ -130,8 +130,8 @@ started, and the sidebar shows a green dot while the receiver runs.
 **Projects.** One card per project, showing its traces, spans, logs, error
 rate, tokens, services, an activity chart of traces per half hour, and where
 its data came from: a file uploaded with Import a run, a file imported from
-the command line, or the live receiver. Hover that line for each file's name
-and path.
+the command line, or the OTLP receiver (whether or not an app is still
+sending). Hover that line for each file's name and path.
 
 **Traces.** The project's traces, newest first. You can:
 

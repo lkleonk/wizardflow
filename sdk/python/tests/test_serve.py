@@ -672,3 +672,17 @@ def test_a_cli_import_is_listed_as_a_file_with_its_path(api, tmp_path):
     assert _imported(tmp_path / "wf.db", run) == 0
     sources = {p["name"]: p for p in api("/api/projects")}["other-run"]["sources"]
     assert sources == [{"kind": "file", "name": "other.jsonl", "path": str(run.resolve())}]
+
+
+def test_data_from_the_receiver_is_listed_once_as_the_receiver(api, tmp_path):
+    from wizardflow.store import import_requests
+
+    con = open_store(tmp_path / "wf.db")
+    try:
+        for n in range(2):  # two dashboard runs that received something
+            import_requests(con, [traces_request([span(str(n + 7) * 16, trace_id="c" * 32)], service="live-svc")],
+                            source="otlp_http")
+    finally:
+        con.close()
+    sources = {p["name"]: p for p in api("/api/projects")}["live-svc"]["sources"]
+    assert sources == [{"kind": "receiver", "name": "OTLP receiver", "path": None}]

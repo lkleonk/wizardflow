@@ -4,6 +4,10 @@ import Paper from "@mui/material/Paper";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import type { ApiActivity, ApiProject, ApiSource } from "@/types/otelstore";
+import FileCopyOutlinedIcon from "@mui/icons-material/FileCopyOutlined";
+import SensorsOutlinedIcon from "@mui/icons-material/SensorsOutlined";
+import TerminalIcon from "@mui/icons-material/Terminal";
+import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import { TOOLTIP_TIMING } from "@/theme/muiTheme";
 import { apiPath, formatNsDateTime, nsToMs, useApi } from "@/utils/otelApi";
 import { goTo } from "@/utils/otelRoute";
@@ -12,25 +16,34 @@ import { EmptyState, LoadError, Loading, Mono, TraceBadges } from "./OtelBits";
 const SOURCE_KIND: Record<ApiSource["kind"], string> = {
   upload: "uploaded in the dashboard",
   file: "imported from the command line",
-  live: "received live",
+  receiver: "sent by an app to the dashboard's OTLP receiver",
 };
 
+const ICON_SX = { fontSize: 14, flex: "none" } as const;
+
 /**
- * Where a project's data came from: "From run.jsonl (uploaded)", or a count
- * when there are several, with every source and its path in the tooltip.
+ * Where a project's data came from, on one line that never wraps: how it got
+ * in (uploaded, CLI import, OTLP receiver) and, for a single file, its name,
+ * cut with "…". The tooltip lists every source with its path.
  */
 function Sources({ sources }: { sources: ApiSource[] }) {
-  const files = sources.filter((source) => source.kind !== "live");
-  const live = sources.some((source) => source.kind === "live");
-  const only = files.length === 1 ? files[0] : null;
-  const parts = [
-    only
-      ? `${only.name}${only.kind === "upload" ? " (uploaded)" : ""}`
-      : files.length > 1
-        ? `${files.length} files`
-        : null,
-    live ? "live OTLP" : null,
-  ].filter(Boolean);
+  const files = sources.filter((source) => source.kind !== "receiver");
+  const received = sources.some((source) => source.kind === "receiver");
+  const uploads = files.filter((source) => source.kind === "upload").length;
+  const cli = files.length - uploads;
+  const how =
+    uploads && cli ? `${uploads} uploaded, ${cli} CLI import` : uploads ? "uploaded" : "CLI import";
+  const icon = received ? (
+    <SensorsOutlinedIcon sx={ICON_SX} />
+  ) : uploads && cli ? (
+    <FileCopyOutlinedIcon sx={ICON_SX} />
+  ) : uploads ? (
+    <UploadFileOutlinedIcon sx={ICON_SX} />
+  ) : (
+    <TerminalIcon sx={ICON_SX} />
+  );
+  // Only a single file's name can run long; it is the part that gets cut.
+  const name = files.length === 1 ? files[0].name : files.length > 1 ? `${files.length} files` : null;
   return (
     <Tooltip
       {...TOOLTIP_TIMING.explain}
@@ -49,9 +62,18 @@ function Sources({ sources }: { sources: ApiSource[] }) {
         </Box>
       }
     >
-      <Typography noWrap sx={{ fontSize: 12, color: "text.secondary" }}>
-        From {parts.join(" and ")}
-      </Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0, fontSize: 12, color: "text.secondary" }}>
+        {icon}
+        {received && <Box component="span" sx={{ flex: "none" }}>OTLP receiver{name && ", plus"}</Box>}
+        {name && (
+          <>
+            <Box component="span" sx={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {name}
+            </Box>
+            <Box component="span" sx={{ flex: "none" }}>· {how}</Box>
+          </>
+        )}
+      </Box>
     </Tooltip>
   );
 }
@@ -164,14 +186,18 @@ export default function ProjectsView() {
         const errorRate = project.traceCount
           ? Math.round((project.errorTraceCount / project.traceCount) * 100)
           : 0;
+        const services = project.services.filter((service) => service !== project.name);
         return (
           // The grid stretches every card to its row's tallest; the button
           // fills the card so all of it highlights and clicks.
-          <Paper key={project.id} variant="outlined" sx={{ overflow: "hidden", display: "flex" }}>
+          // minWidth 0 on both: the one-line texts would otherwise widen the
+          // card past its grid column instead of being cut.
+          <Paper key={project.id} variant="outlined" sx={{ overflow: "hidden", display: "flex", minWidth: 0 }}>
             <ButtonBase
               onClick={() => goTo({ view: "traces", project: project.name })}
               sx={{
                 flex: 1,
+                minWidth: 0,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "stretch",
@@ -183,9 +209,20 @@ export default function ProjectsView() {
                 "&:hover": { bgcolor: "action.hover" },
               }}
             >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                <Typography sx={{ fontWeight: 650, fontSize: 15 }}>{project.name}</Typography>
-                {project.traceCount > 0 && <TraceBadges flags={project.flags} />}
+              {/* Every card has the same shape, whatever its names: a one-line
+                  header, and a two-line footer pinned to the bottom, each
+                  line cut with "…" rather than wrapped. */}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+                <Tooltip title={project.name}>
+                  <Typography noWrap sx={{ fontWeight: 650, fontSize: 15, minWidth: 0 }}>
+                    {project.name}
+                  </Typography>
+                </Tooltip>
+                {project.traceCount > 0 && (
+                  <Box sx={{ flex: "none", display: "flex" }}>
+                    <TraceBadges flags={project.flags} />
+                  </Box>
+                )}
               </Box>
               <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1 }}>
                 <Stat value={compact(project.traceCount)} label="traces" />
@@ -194,12 +231,26 @@ export default function ProjectsView() {
                 <Stat value={`${errorRate}%`} label="errors" danger={errorRate > 0} />
               </Box>
               {project.traceCount > 0 && <ActivityChart activity={project.activity} />}
-              <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
-                {project.tokenCount > 0 && `${compact(project.tokenCount)} tokens · `}
-                {project.lastSeenNs ? `last activity ${formatNsDateTime(project.lastSeenNs)}` : "no activity"}
-                {project.services.length > 0 && ` · ${project.services.join(", ")}`}
-              </Typography>
-              {project.sources.length > 0 && <Sources sources={project.sources} />}
+              <Box
+                sx={{
+                  mt: "auto",
+                  pt: 1,
+                  borderTop: 1,
+                  borderColor: "divider",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 0.5,
+                  minWidth: 0,
+                }}
+              >
+                <Typography noWrap sx={{ fontSize: 12, color: "text.secondary" }}>
+                  {project.tokenCount > 0 && `${compact(project.tokenCount)} tokens · `}
+                  {project.lastSeenNs ? `last activity ${formatNsDateTime(project.lastSeenNs)}` : "no activity"}
+                  {/* A service named like its project (every WizardFlow run) adds nothing. */}
+                  {services.length > 0 && ` · ${services.join(", ")}`}
+                </Typography>
+                {project.sources.length > 0 && <Sources sources={project.sources} />}
+              </Box>
             </ButtonBase>
           </Paper>
         );

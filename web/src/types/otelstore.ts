@@ -79,9 +79,10 @@ export type ApiProject = {
 
 /**
  * `upload`: the dashboard's "Import a run"; `file`: `db import` or
- * `dashboard FILE` (with its path); `live`: the OTLP receiver.
+ * `dashboard FILE` (with its path); `receiver`: sent by an app to the
+ * dashboard's OTLP receiver, whether or not it is still sending.
  */
-export type ApiSource = { kind: "upload" | "file" | "live"; name: string; path: string | null };
+export type ApiSource = { kind: "upload" | "file" | "receiver"; name: string; path: string | null };
 
 /** One row of /api/traces/groups: the traces sharing a conversation id. */
 export type ApiConversationGroup = {

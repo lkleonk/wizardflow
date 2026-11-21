@@ -126,8 +126,8 @@ def _sources(con: sqlite3.Connection, pid: int) -> List[Dict[str, Any]]:
 
     ``upload``: a file sent by the dashboard's "Import a run" (stored under its
     bare file name); ``file``: ``db import`` / ``dashboard FILE`` (stored under
-    its absolute path); ``live``: the OTLP receiver, once however many
-    dashboard runs fed it.
+    its absolute path); ``receiver``: sent by an app to the dashboard's OTLP
+    receiver, listed once however many dashboard runs received it.
     """
     rows = con.execute(
         """
@@ -143,18 +143,18 @@ def _sources(con: sqlite3.Connection, pid: int) -> List[Dict[str, Any]]:
         (pid, pid),
     ).fetchall()
     sources: List[Dict[str, Any]] = []
-    live = False
+    received = False
     for source, path in rows:
         if source == "otlp_http":
-            live = True
+            received = True
             continue
         if not path:
             continue
         name = re.split(r"[\\/]", path)[-1]
         uploaded = name == path
         sources.append({"kind": "upload" if uploaded else "file", "name": name, "path": None if uploaded else path})
-    if live:
-        sources.append({"kind": "live", "name": "OTLP receiver", "path": None})
+    if received:
+        sources.append({"kind": "receiver", "name": "OTLP receiver", "path": None})
     return sources
 
 
