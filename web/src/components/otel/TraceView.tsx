@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useEffectEvent, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -25,8 +25,14 @@ import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArro
 import PushPinIcon from "@mui/icons-material/PushPin";
 import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
 import DownloadTraceDialog from "@/components/DownloadTraceDialog";
+import { renderWithHighlightedKeys } from "@/components/highlightJsonKeys";
 import { clearCrumbsFirstFrame, rememberCrumbs } from "@/components/TracePendingScript";
 import { useSearchHotkey } from "@/hooks/useKeyboardShortcuts";
+import {
+  getInspectorHighlightKeys,
+  getServerInspectorHighlightKeys,
+  subscribeInspectorHighlightKeys,
+} from "@/utils/flowSession";
 import type { AgentTraceFile } from "@/types/agenttrace";
 import { executionChoices, type ExecutionChoice } from "@/utils/traceSelectors";
 import { nodeColorAt, nodeColorForKind } from "@/theme/muiTheme";
@@ -1230,9 +1236,14 @@ function SpanTimeline({
 
 // --- inspector ---------------------------------------------------------------
 
+const PAYLOADS = "Payloads";
+const PAYLOAD_PREFIX = "wizardflow.payload.";
+
 const GROUPS: [string, (key: string) => boolean][] = [
-  ["WizardFlow payloads", (k) => k.startsWith("wizardflow.payload.")],
-  ["WizardFlow", (k) => k.startsWith("wizardflow.")],
+  // What the node logged, shown without the prefix.
+  [PAYLOADS, (k) => k.startsWith(PAYLOAD_PREFIX)],
+  // What the SDK sets on its own: message, node, kind, trace name.
+  ["WizardFlow ids", (k) => k.startsWith("wizardflow.")],
   ["GenAI", (k) => k.startsWith("gen_ai.")],
   [
     "OpenInference",
@@ -1271,8 +1282,11 @@ function layoutAttributes(
       continue;
     }
     if (MESSAGE_KEYS.includes(key)) continue;
+    // `<payload>.encoding` only tells the importer the payload is JSON, which
+    // the value shows anyway.
+    if (isEncodingMarker(key, attributes)) continue;
     const [name] = GROUPS.find(([, match]) => match(key))!;
-    const shown = name === "WizardFlow payloads" ? key.slice("wizardflow.payload.".length) : key;
+    const shown = name === PAYLOADS ? key.slice(PAYLOAD_PREFIX.length) : key;
     groups.set(name, [...(groups.get(name) ?? []), [key, shown, value]]);
   }
   const order = (list: Entry[]) =>
@@ -1284,6 +1298,14 @@ function layoutAttributes(
     ),
     hidden: order(hidden),
   };
+}
+
+function isEncodingMarker(key: string, attributes: Attributes): boolean {
+  return (
+    key.startsWith(PAYLOAD_PREFIX) &&
+    key.endsWith(".encoding") &&
+    key.slice(0, -".encoding".length) in attributes
+  );
 }
 
 function PinButton({ attributeKey, pins }: { attributeKey: string; pins: string[] }) {
@@ -1337,14 +1359,21 @@ function prettyJson(value: unknown): string | null {
 }
 
 function JsonValue({ text, label }: { text: string; label: string }) {
+  // The same "Highlight keys" setting as the replay inspector's.
+  const highlightKeys = useSyncExternalStore(
+    subscribeInspectorHighlightKeys,
+    getInspectorHighlightKeys,
+    getServerInspectorHighlightKeys
+  );
+  const show = (json: string) => (highlightKeys ? renderWithHighlightedKeys(json) : json);
   const lines = text.split("\n");
   const collapsible = lines.length > JSON_COLLAPSE_LINES;
   const [open, setOpen] = useState(!collapsible);
-  if (!collapsible) return text;
+  if (!collapsible) return show(text);
   const action = open ? "Collapse" : `Show all ${lines.length} lines`;
   return (
     <>
-      {open ? text : lines.slice(0, JSON_PREVIEW_LINES).join("\n")}
+      {show(open ? text : lines.slice(0, JSON_PREVIEW_LINES).join("\n"))}
       {!open && (
         <Box sx={{ color: "text.disabled" }}>… {lines.length - JSON_PREVIEW_LINES} more lines</Box>
       )}

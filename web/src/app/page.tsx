@@ -1103,15 +1103,8 @@ export default function Home() {
   const selectedNodeVisits = useMemo<InspectorVisit[]>(() => {
     if (!selectedNodeId) return [];
     const visits: InspectorVisit[] = [];
-    // Only a replay opened from the dashboard has spans to go to.
-    const project =
-      dashboardBackHref && typeof trace.meta?.project === "string"
-        ? trace.meta.project
-        : undefined;
-    const traceId = currentMessage?.otelTraceId;
     steps.forEach((step, index) => {
       if (step.nodeId !== selectedNodeId) return;
-      const spanId = step.otelSpanId;
       visits.push({
         stepId: step.id,
         timestamp: step.timestamp,
@@ -1119,20 +1112,10 @@ export default function Home() {
         timingMode: step.timingMode,
         deltaMs: deltaMsAtStep(steps, index),
         elapsedMs: elapsedMsAtStep(steps, index),
-        spanHref:
-          project && traceId && spanId
-            ? otelHref({
-                view: "trace",
-                project,
-                trace: traceId,
-                span: spanId,
-                back: replayUrlAt(`/${window.location.search}`, { traceId, spanId }),
-              })
-            : undefined,
       });
     });
     return visits;
-  }, [steps, selectedNodeId, dashboardBackHref, trace.meta, currentMessage]);
+  }, [steps, selectedNodeId]);
 
   // The header's way to the span timeline: the step under the playhead, or the
   // execution's root span when there is no step to point at.
