@@ -13,6 +13,8 @@ import type { ExecutionChoice } from "@/utils/traceSelectors";
 export type ExecutionPickerProps = {
   /** Undefined while the list is still loading. */
   choices?: ExecutionChoice[];
+  /** Set when the list could not be loaded; shown instead of "Loading…". */
+  error?: unknown;
   /** The popup opened: the moment to load the list, if it isn't here yet. */
   onOpen?: () => void;
   onJump: (index: number) => void;
@@ -31,6 +33,7 @@ export default function ExecutionPicker({
   position,
   label,
   choices,
+  error,
   onOpen,
   onJump,
 }: ExecutionPickerProps & { position: number; label: React.ReactNode }) {
@@ -91,7 +94,11 @@ export default function ExecutionPicker({
             }}
           />
         </Box>
-        {!choices && <Typography sx={{ px: 2, pb: 1.5, fontSize: 13, color: "text.secondary" }}>Loading…</Typography>}
+        {!choices && (
+          <Typography sx={{ px: 2, pb: 1.5, fontSize: 13, color: "text.secondary" }}>
+            {error ? "Couldn't load the executions." : "Loading…"}
+          </Typography>
+        )}
         {choices && matches.length === 0 && (
           <Typography sx={{ px: 2, pb: 1.5, fontSize: 13, color: "text.secondary" }}>No matching execution.</Typography>
         )}

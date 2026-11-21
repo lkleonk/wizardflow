@@ -113,6 +113,10 @@ function subscribeNow(listener: () => void): () => void {
     if (nowListeners.size === 0) {
       window.clearInterval(nowTimer);
       nowTimer = undefined;
+      // Forget the time: the next page to mount reads its first snapshot
+      // before subscribing, and would otherwise anchor "Last 1h" on whenever
+      // the previous one left (back from a trace hours later: ~4h shown).
+      nowMs = 0;
     }
   };
 }

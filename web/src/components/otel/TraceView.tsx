@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useEffectEvent, useRef, useState } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -35,8 +35,10 @@ import {
   type ApiLog,
   type ApiProject,
   type ApiSpan,
+  type ApiTrace,
   type ApiTraceDetail,
   type Attributes,
+  type Page,
 } from "@/types/otelstore";
 import {
   apiPath,
@@ -207,14 +209,31 @@ function TraceDetail({
   const back = otelHref(route);
   const replayable = (trace.flags & TraceFlag.WIZARDFLOW) !== 0;
   const playback = useSpanPlayback(trace.traceId, spans, selected, replayable && graphOpen, select);
-  // Loaded when the popup first opens; the graph and download use the same data.
+  // Loaded when the popup first opens. It lists what "Execution N of M"
+  // counts: a replayable trace counts the conversation's replayable traces,
+  // which its replay data names best (the graph and download use the same
+  // data); any other trace counts all of them, which only the trace list has.
   const [pickerWanted, setPickerWanted] = useState(false);
+  const wantChoices = pickerWanted && trace.conversationId !== null;
   const replayData = useApi<AgentTraceFile>(
-    pickerWanted && trace.conversationId ? agentTracePath(trace, route.project) : null,
+    wantChoices && replayable ? agentTracePath(trace, route.project) : null,
+    { live: true }
+  );
+  const conversationTraces = useApi<Page<ApiTrace>>(
+    wantChoices && !replayable
+      ? apiPath("traces", {
+          project: route.project,
+          conversation: trace.conversationId ?? "",
+          limit: String(PICKER_LIMIT),
+        })
+      : null,
     { live: true }
   );
   const picker: ExecutionPickerProps = {
-    choices: replayData.data ? oneChoicePerTrace(executionChoices(replayData.data.messages)) : undefined,
+    choices: replayable
+      ? replayData.data && oneChoicePerTrace(executionChoices(replayData.data.messages))
+      : conversationTraces.data && traceChoices(conversationTraces.data.items),
+    error: replayable ? replayData.error : conversationTraces.error,
     onOpen: () => setPickerWanted(true),
     onJump: (index) => {
       const traceId = picker.choices?.[index]?.traceId;
@@ -381,6 +400,19 @@ function traceTrail(
         }
       : undefined,
   });
+}
+
+/** The most traces the API returns in one page. */
+const PICKER_LIMIT = 500;
+
+/** Picker rows straight from the trace list (newest first), oldest first. */
+function traceChoices(traces: ApiTrace[]): ExecutionChoice[] {
+  return [...traces].reverse().map((t) => ({
+    title: t.name ?? `${t.traceId.slice(0, 12)}…`,
+    startedAt: new Date(Math.floor(Number(t.startNs) / 1e6)).toISOString(),
+    failed: t.errorCount > 0,
+    traceId: t.traceId,
+  }));
 }
 
 /** The span page counts traces, and one trace can hold several executions. */
@@ -780,14 +812,18 @@ function useSpanPlayback(
   const next = neighbour(1);
   const nextId = next?.spanId;
 
+  // `select` is a new function every render (and live data re-renders the
+  // page every few seconds): read through an effect event, so a refetch
+  // doesn't restart the step timer and make playback stutter.
+  const advance = useEffectEvent((spanId: string | undefined) => {
+    if (spanId) select(spanId);
+    else setPlayingTrace(null);
+  });
   useEffect(() => {
     if (!playing) return;
-    const timer = setTimeout(() => {
-      if (nextId) select(nextId);
-      else setPlayingTrace(null);
-    }, PLAYBACK_STEP_MS);
+    const timer = setTimeout(() => advance(nextId), PLAYBACK_STEP_MS);
     return () => clearTimeout(timer);
-  }, [playing, nextId, select]);
+  }, [playing, nextId]);
 
   const step = (span: ApiSpan | undefined) => {
     setPlaying(false);
@@ -1394,7 +1430,21 @@ function ChatMessages({ raw }: { raw: unknown }) {
   } catch {
     return <KeyValues entries={[["raw", "content", raw]]} />;
   }
-  if (!Array.isArray(messages)) return <KeyValues entries={[["raw", "content", raw]]} />;
+  // Attribute values come from any instrumentation: anything not shaped like
+  // GenAI messages ([null], parts as a string, …) is shown as plain content
+  // instead of crashing the page.
+  const wellFormed =
+    Array.isArray(messages) &&
+    messages.every(
+      (message) =>
+        message !== null &&
+        typeof message === "object" &&
+        (message.role === undefined || typeof message.role === "string") &&
+        (message.parts === undefined ||
+          (Array.isArray(message.parts) &&
+            message.parts.every((part) => part !== null && typeof part === "object")))
+    );
+  if (!wellFormed) return <KeyValues entries={[["raw", "content", raw]]} />;
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
       {messages.map((message, i) => (

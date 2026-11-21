@@ -61,7 +61,9 @@ export default function OtelApp() {
       <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
         {route.view === "trace" && project && trace ? (
           // Renders its own header: only it knows the crumbs and the view switch.
-          <TraceView key={trace} route={{ ...route, project, trace }} projects={projectList} />
+          // Not keyed on the trace: it stays mounted across executions, so the
+          // current one stays on screen until the next has loaded.
+          <TraceView route={{ ...route, project, trace }} projects={projectList} />
         ) : (
           <>
             <OtelHeader route={route} projects={projectList} />

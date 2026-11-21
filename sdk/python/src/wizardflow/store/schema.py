@@ -163,8 +163,13 @@ CREATE TABLE logs (
   event_name       TEXT,
   trace_id         TEXT,
   span_id          TEXT,
-  flags            INTEGER NOT NULL DEFAULT 0
+  flags            INTEGER NOT NULL DEFAULT 0,
+  -- Logs have no id of their own: a hash of the record (with its resource and
+  -- scope rows) stops a re-imported file or a retried /v1/logs request from
+  -- storing them twice. NULL for a record with no timestamp at all.
+  dedup_key        TEXT
 );
+CREATE UNIQUE INDEX logs_dedup ON logs(dedup_key) WHERE dedup_key IS NOT NULL;
 CREATE INDEX logs_list ON logs(project_id, ts_ns DESC);
 CREATE INDEX logs_sev ON logs(project_id, severity_number, ts_ns DESC);
 CREATE INDEX logs_trace ON logs(trace_id, span_id) WHERE trace_id IS NOT NULL;
@@ -204,17 +209,7 @@ INSERT INTO attribute_mappings (project_id, concept, keys, updated_ns) VALUES
   (NULL, 'payloads',      '["wizardflow.payload.*"]', 0);
 """
 
-# Logs have no id of their own, so re-importing a grown file or a retried
-# /v1/logs request stored them again. A hash of the record (with its resource
-# and scope rows) makes the second copy a no-op, like a span's (trace, span) id.
-# Rows imported before v2 keep a NULL key and are left as they are.
-SCHEMA_V2 = """
-ALTER TABLE logs ADD COLUMN dedup_key TEXT;
-CREATE UNIQUE INDEX logs_dedup ON logs(dedup_key) WHERE dedup_key IS NOT NULL;
-"""
-
 MIGRATIONS: List[Tuple[int, str]] = [
     (1, SCHEMA_V1),
-    (2, SCHEMA_V2),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]

@@ -321,7 +321,10 @@ export default function Home() {
       // the view follows the run to the newest one — tail -f behavior;
       // anywhere earlier nothing moves and the arrivals are counted for the
       // timeline's "+N new" chip instead.
-      if (selectedMessageId === extend.prevLastMessageId) {
+      if (trace.messages.length === extend.prevMessageCount) {
+        // Only the last message grew (new steps of a running execution):
+        // nothing moves, the new steps simply appear after the current one.
+      } else if (selectedMessageId === extend.prevLastMessageId) {
         const tail = trace.messages[trace.messages.length - 1];
         setSelectedMessageId(tail.id);
         setCurrentStepIndex(0);
@@ -790,10 +793,18 @@ export default function Home() {
       const next = withName(parsed);
       const current = getSavedFlow();
       if (current && isTraceExtension(current, next)) {
-        // Equal length with matching edge ids: nothing new. (An in-place
-        // amend of an existing message isn't detectable by ids — rare enough
-        // to ride along with the next append.)
-        if (next.messages.length === current.messages.length) return false;
+        // Equal length with matching edge ids: nothing new, unless the last
+        // message grew. That is the dashboard's replay of a conversation whose
+        // newest execution is still running: its steps arrive one at a time.
+        // (An in-place amend of an earlier message isn't detected — rare
+        // enough to ride along with the next append.)
+        if (
+          next.messages.length === current.messages.length &&
+          JSON.stringify(next.messages[next.messages.length - 1]) ===
+            JSON.stringify(current.messages[current.messages.length - 1])
+        ) {
+          return false;
+        }
         setPendingExtend({
           prevLastMessageId: current.messages[current.messages.length - 1]?.id,
           prevMessageCount: current.messages.length,
