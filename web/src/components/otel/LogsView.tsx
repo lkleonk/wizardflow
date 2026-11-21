@@ -13,6 +13,7 @@ import TableRow from "@mui/material/TableRow";
 import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import SearchIcon from "@mui/icons-material/Search";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -152,6 +153,13 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
                   </TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>
                     {log.traceId ? (
+                      <Tooltip
+                        title={
+                          log.spanId
+                            ? "Open the trace at the span this log was written in"
+                            : "Open the trace this log belongs to"
+                        }
+                      >
                       <Link
                         component="button"
                         onClick={(event) => {
@@ -169,6 +177,7 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
                       >
                         {log.traceId.slice(0, 8)}…
                       </Link>
+                      </Tooltip>
                     ) : (
                       <Typography component="span" title="This log record has no trace id" sx={{ color: "text.disabled" }}>
                         –
