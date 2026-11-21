@@ -21,7 +21,8 @@ from otlp_builders import (
 )
 from wizardflow import cli
 from wizardflow import serve as serve_module
-from wizardflow.cli import _is_otlp_file, _resolve_latest_trace, main
+from wizardflow.cli import _resolve_latest_trace, main
+from wizardflow.file_import import is_otlp_file as _is_otlp_file
 from wizardflow.serve import make_serve_handler
 from wizardflow.store import import_otlp_text, open_store
 from wizardflow.store.projection import list_conversations, project_conversation, project_trace
@@ -587,3 +588,42 @@ def test_db_import_of_a_grown_execution_extends_its_root(tmp_path, capsys):
     finally:
         con.close()
     assert outliving == 0
+
+
+# ------------------------------------------------------------- Import a run (UI)
+
+
+def test_import_endpoint_takes_a_run_and_knows_it_on_a_second_send(api, tmp_path):
+    run = _run(tmp_path / "run.jsonl", [_message("m1", 1), _message("m2", 2)])
+    body = {"name": "run.jsonl", "text": run.read_text(encoding="utf-8")}
+    status, first = _send(api, "POST", "/api/import", body)
+    assert status == 200
+    assert first["alreadyImported"] is False
+    assert first["projects"] == ["advisor-run"] and first["spans"] > 0
+    status, again = _send(api, "POST", "/api/import", body)
+    assert status == 200
+    assert again["alreadyImported"] is True and again["projects"] == ["advisor-run"]
+
+
+def test_a_run_imported_from_the_ui_is_known_to_db_import(api, tmp_path, capsys):
+    run = _run(tmp_path / "run.jsonl", [_message("m1", 1)])
+    # The bytes as on disk, as a browser sends them (read_text would turn
+    # Windows line endings into LF and change the hash).
+    _send(api, "POST", "/api/import", {"name": "run.jsonl", "text": run.read_bytes().decode("utf-8")})
+    assert _imported(tmp_path / "wf.db", run) == 0
+    assert "already imported" in capsys.readouterr().out
+
+
+def test_import_endpoint_takes_otlp_json(api, tmp_path):
+    text = lines(logs_request([log_record("uploaded", ts=1_760_000_002_000_000_000)], service="uploader"))
+    status, body = _send(api, "POST", "/api/import", {"name": "logs.otlp.jsonl", "text": text})
+    assert status == 200 and body["logs"] == 1 and body["projects"] == ["uploader"]
+
+
+def test_import_endpoint_refuses_other_files_and_foreign_origins(api):
+    status, body = _send(api, "POST", "/api/import", {"name": "notes.json", "text": '{"hello": 1}'})
+    assert status == 400 and "not OTLP JSON or a WizardFlow run" in body["error"]
+    assert _send(api, "POST", "/api/import", {"name": "x"})[0] == 400
+    status, _ = _send(api, "POST", "/api/import", {"name": "x", "text": "{}"},
+                      headers={"Origin": "https://evil.example"})
+    assert status == 403

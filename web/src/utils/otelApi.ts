@@ -22,8 +22,8 @@ export async function fetchApi<T>(path: string, signal?: AbortSignal): Promise<T
   );
 }
 
-/** A settings write (PUT with a JSON body, or DELETE). */
-export async function sendApi<T>(method: "PUT" | "DELETE", path: string, body?: unknown): Promise<T> {
+/** A write: settings (PUT with a JSON body, or DELETE) or an import (POST). */
+export async function sendApi<T>(method: "PUT" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
   return readResponse<T>(
     await fetch(API_ORIGIN + path, {
       method,

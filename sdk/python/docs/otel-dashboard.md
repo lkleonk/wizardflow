@@ -64,6 +64,11 @@ on the first file's project. `--project NAME` works there too. `wizardflow
 replay` does not take OTLP files: it shows one WizardFlow run and stores
 nothing.
 
+**Import a run** in the dashboard's sidebar does the same for one file you pick
+in the browser: the dashboard server imports it, then opens its project. It is
+accepted from this machine only. A rotated run's part comes in on its own,
+since the browser sends one file; `db import` follows the whole chain.
+
 ## Opening the dashboard
 
 ```bash

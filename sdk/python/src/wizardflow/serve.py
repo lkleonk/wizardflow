@@ -1,7 +1,7 @@
 """``wizardflow dashboard``: the bundled UI plus an API over the local OTel store.
 
-Read-only apart from the settings writes (the attribute mapping), which are
-accepted from this machine only. A second listener receives OTLP from apps
+Read-only apart from the settings writes (the attribute mapping) and the
+"Import a run" button, which are accepted from this machine only. A second listener receives OTLP from apps
 (:mod:`wizardflow.receiver`): on by default when bound to this machine only."""
 
 from __future__ import annotations
@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit, urlparse
 
+from .file_import import import_trace_bytes
+from .reader import TraceFormatError
 from .receiver import Receiver, make_receiver_handler
 from .store import open_store, projection
-from .store import queries, settings
+from .store import OtlpFormatError, queries, settings
 
 API_PREFIX = "/api/"
 DASHBOARD_ROUTE = "/otel"
@@ -63,6 +65,9 @@ def make_serve_handler(
         def do_PUT(self) -> None:  # noqa: N802 - inherited stdlib API name
             self._write("PUT")
 
+        def do_POST(self) -> None:  # noqa: N802 - inherited stdlib API name
+            self._write("POST")
+
         def do_DELETE(self) -> None:  # noqa: N802 - inherited stdlib API name
             self._write("DELETE")
 
@@ -74,7 +79,7 @@ def make_serve_handler(
                 return
             self.send_response(HTTPStatus.NO_CONTENT)
             self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Access-Control-Allow-Methods", "GET, PUT, DELETE")
+            self.send_header("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
             self.send_header("Vary", "Origin")
             self.end_headers()
@@ -103,10 +108,10 @@ def make_serve_handler(
             if not _is_local_host(self.headers.get("Host", "")) or (
                 origin is not None and not _is_local_origin(origin)
             ):
-                self._json(HTTPStatus.FORBIDDEN, {"error": "settings can only be changed from this machine"})
+                self._json(HTTPStatus.FORBIDDEN, {"error": "the dashboard can only be changed from this machine"})
                 return
             body: Any = None
-            if method == "PUT":
+            if method in ("PUT", "POST"):
                 if not (self.headers.get("Content-Type") or "").startswith("application/json"):
                     self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "send application/json"})
                     return
@@ -117,7 +122,7 @@ def make_serve_handler(
                 if length < 0:
                     self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid Content-Length"})
                     return
-                if length > MAX_BODY:
+                if length > (MAX_IMPORT_BODY if method == "POST" else MAX_BODY):
                     self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request body too large"})
                     return
                 try:
@@ -246,7 +251,9 @@ def _write_route(
     con: sqlite3.Connection, method: str, path: str, query: Dict[str, Any], body: Any
 ) -> Any:
     rest = path[len(API_PREFIX):].strip("/")
-    if rest != "settings/mapping":
+    if rest == "import" and method == "POST":
+        return _import_upload(con, body)
+    if rest != "settings/mapping" or method == "POST":
         raise queries.NotFound(f"no API route {method} {path}")
     if method == "PUT":
         if not isinstance(body, dict):
@@ -257,8 +264,52 @@ def _write_route(
     return {"reindexed": result, **queries.get_settings(con)}
 
 
+def _import_upload(con: sqlite3.Connection, body: Any) -> Dict[str, Any]:
+    """``POST /api/import`` with ``{"name": file name, "text": its content}``:
+    the same import as ``wizardflow db import``, for one file."""
+    if not (isinstance(body, dict) and isinstance(body.get("text"), str)):
+        raise queries.QueryError('send {"name": file name, "text": file content}')
+    name = body.get("name") if isinstance(body.get("name"), str) else "upload"
+    data = body["text"].encode("utf-8")
+    try:
+        result = import_trace_bytes(con, name, data)
+    except (OtlpFormatError, TraceFormatError, ValueError) as exc:
+        # ValueError covers a malformed JSON line as well as bad content.
+        raise queries.QueryError(f"{name} is not OTLP JSON or a WizardFlow run: {exc}") from None
+    projects = result.projects or _imported_projects(con, hashlib.sha256(data).hexdigest())
+    return {
+        "alreadyImported": result.already_imported,
+        "spans": result.spans,
+        "logs": result.logs,
+        "traces": result.traces,
+        "projects": projects,
+    }
+
+
+def _imported_projects(con: sqlite3.Connection, sha256: str) -> list:
+    """The projects an earlier import of this file went into."""
+    rows = con.execute(
+        """
+        SELECT DISTINCT p.name FROM imports i
+          JOIN spans s ON s.import_id = i.id
+          JOIN traces t ON t.id = s.trace_row
+          JOIN projects p ON p.id = t.project_id
+         WHERE i.sha256 = ?
+        UNION
+        SELECT DISTINCT p.name FROM imports i
+          JOIN logs l ON l.import_id = i.id
+          JOIN projects p ON p.id = l.project_id
+         WHERE i.sha256 = ?
+        """,
+        (sha256, sha256),
+    ).fetchall()
+    return sorted(name for (name,) in rows)
+
+
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
 MAX_BODY = 1 << 20
+# A run file sent by "Import a run", JSON-encoded (escaping can double it).
+MAX_IMPORT_BODY = 256 << 20
 
 
 def _is_local_origin(origin: str) -> bool:
@@ -288,9 +339,9 @@ def _read_connection(db_path: Path) -> sqlite3.Connection:
 
 
 def _write_connection(db_path: Path) -> sqlite3.Connection:
-    # Only settings writes use this; run_serve already created and migrated
-    # the store. Autocommit mode: the settings functions open their own
-    # transactions.
+    # Only the writes use this; run_serve already created and migrated the
+    # store. Autocommit mode: the settings functions and the importer open
+    # their own transactions.
     con = sqlite3.connect(str(db_path), isolation_level=None)
     con.execute("PRAGMA foreign_keys = ON")
     con.execute("PRAGMA busy_timeout = 5000")

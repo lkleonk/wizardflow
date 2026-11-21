@@ -1,4 +1,5 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
@@ -7,6 +8,7 @@ import ListItemButton from "@mui/material/ListItemButton";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Paper from "@mui/material/Paper";
+import Snackbar from "@mui/material/Snackbar";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { useColorScheme } from "@mui/material/styles";
@@ -18,8 +20,12 @@ import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { LivePulse } from "@/components/LiveDot";
 import type { ApiReceiver } from "@/types/otelstore";
+import { apiPath, sendApi } from "@/utils/otelApi";
 import { setDisplayPrefs, useDisplayPrefs } from "@/utils/otelDisplay";
 import { goTo, otelHref, type OtelRoute } from "@/utils/otelRoute";
+
+/** POST /api/import's answer. */
+type ImportResult = { alreadyImported: boolean; spans: number; logs: number; traces: number; projects: string[] };
 
 type SidebarProps = {
   route: OtelRoute;
@@ -88,6 +94,40 @@ function SidebarBody({
   folded,
 }: SidebarProps & { folded: boolean }) {
   const { mode, systemMode, setMode } = useColorScheme();
+  const [fileInput, setFileInput] = useState<HTMLInputElement | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [notice, setNotice] = useState<{ error: boolean; text: string } | null>(null);
+  // "Import a run": the same import as `wizardflow db import`, done by the
+  // local server, then on to the project it went into.
+  const importFile = async (file: File | undefined) => {
+    if (!file) return;
+    setImporting(true);
+    try {
+      const result = await sendApi<ImportResult>("POST", apiPath("import"), {
+        name: file.name,
+        text: await file.text(),
+      });
+      const target = result.projects[0];
+      if (!target) {
+        setNotice({ error: false, text: `${file.name} holds no spans or logs.` });
+        return;
+      }
+      setNotice({
+        error: false,
+        text: result.alreadyImported
+          ? `${file.name} is already in ${target}.`
+          : `Imported ${file.name} into ${target}.`,
+      });
+      // Any time range: a run recorded last week would be hidden by "Last 1h".
+      const to: OtelRoute = { view: "traces", project: target, range: "all" };
+      if (replay) window.location.assign(otelHref(to));
+      else goTo(to);
+    } catch (error) {
+      setNotice({ error: true, text: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setImporting(false);
+    }
+  };
   const isDark = (mode === "system" ? systemMode : mode) !== "light";
   const dbLabel = dbPath?.split(/[\\/]/).slice(-2).join("/");
   // Remembered so the next page can show them in its first frame.
@@ -254,9 +294,9 @@ function SidebarBody({
       )}
       <Divider sx={{ mx: 1.5, my: 0.5 }} />
       <List dense sx={{ px: 0.75 }}>
-        {iconItem("Open a JSONL file", <UploadFileIcon fontSize="small" />, {
-          component: "a",
-          href: "/",
+        {iconItem("Import a run", <UploadFileIcon fontSize="small" />, {
+          onClick: () => fileInput?.click(),
+          disabled: importing,
         })}
         {iconItem(
           "Settings",
@@ -265,6 +305,31 @@ function SidebarBody({
           active === "settings"
         )}
       </List>
+      <input
+        ref={setFileInput}
+        type="file"
+        accept=".jsonl,.json,application/json"
+        hidden
+        onChange={(event) => {
+          void importFile(event.target.files?.[0]);
+          // The same file can be picked again after an error.
+          event.target.value = "";
+        }}
+      />
+      <Snackbar
+        open={notice !== null}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        autoHideDuration={notice?.error ? 10000 : 5000}
+        onClose={() => setNotice(null)}
+      >
+        <Alert
+          severity={notice?.error ? "error" : "success"}
+          onClose={() => setNotice(null)}
+          sx={{ maxWidth: 480 }}
+        >
+          {notice?.text}
+        </Alert>
+      </Snackbar>
       <Box
         sx={{
           mt: "auto",

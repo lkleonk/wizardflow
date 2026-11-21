@@ -1494,6 +1494,20 @@ function Section({
   );
 }
 
+// A CSS `dashed` 1px border renders as short, dot-like dashes. An SVG outline
+// gives real dashes (6 on, 5 off) that follow the rounded corners (8px, the
+// Paper's borderRadius 2). The stroke is 2 wide because the rect's edge clips
+// half of it.
+const dashedOutline = (color: string) =>
+  `url("data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg'><rect width='100%' height='100%' rx='8' fill='none' stroke='${color}' stroke-width='2' stroke-dasharray='6 5'/></svg>`
+  )}")`;
+const SYSTEM_MESSAGE_BORDER = {
+  border: 0,
+  backgroundImage: dashedOutline("rgba(0,0,0,0.22)"),
+  '[data-mui-color-scheme="dark"] &': { backgroundImage: dashedOutline("rgba(255,255,255,0.18)") },
+} as const;
+
 function ChatMessages({ raw }: { raw: unknown }) {
   let messages: { role?: string; parts?: { type?: string; content?: unknown }[] }[] = [];
   try {
@@ -1529,7 +1543,7 @@ function ChatMessages({ raw }: { raw: unknown }) {
             p: 1,
             borderRadius: 2,
             ...(message.role === "system"
-              ? { alignSelf: "stretch", borderStyle: "dashed", bgcolor: "transparent", color: "text.secondary" }
+              ? { alignSelf: "stretch", ...SYSTEM_MESSAGE_BORDER, bgcolor: "transparent", color: "text.secondary" }
               : {
                   maxWidth: "92%",
                   alignSelf: message.role === "assistant" ? "flex-end" : "flex-start",

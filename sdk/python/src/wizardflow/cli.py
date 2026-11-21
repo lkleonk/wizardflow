@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.metadata
 import ipaddress
 import json
@@ -24,12 +23,9 @@ from .store import (
     OtlpFormatError,
     StoreError,
     default_db_path,
-    import_otlp_file,
-    import_requests,
-    is_imported,
     open_store,
 )
-from .store.otlp import is_otlp_request
+from .file_import import FILE_EXPORT_CONTENT_MAX_BYTES, import_trace_file, is_otlp_file
 
 # The bundled static UI fetches the assembled trace as plain JSON; the CLI does
 # the JSONL assembly server-side, so the UI build never needs to know about
@@ -417,9 +413,8 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
-# A file is read locally and replayed in full, so it keeps the graph and the
-# whole content by default; an endpoint keeps the live, backend-friendly caps.
-FILE_EXPORT_CONTENT_MAX_BYTES = 16_000_000
+# An endpoint keeps the live, backend-friendly caps (a file keeps everything:
+# FILE_EXPORT_CONTENT_MAX_BYTES).
 ENDPOINT_EXPORT_CONTENT_MAX_BYTES = 16_384
 
 
@@ -655,7 +650,7 @@ def _import_into(
     try:
         for file_path in paths:
             try:
-                result = _import_file(con, file_path, project=project)
+                result = import_trace_file(con, file_path, project=project)
             except (OtlpFormatError, TraceFormatError, UnicodeDecodeError) as exc:
                 raise WizardFlowCliError(
                     f"{file_path} is not OTLP JSON or a WizardFlow trace: {exc}"
@@ -687,45 +682,6 @@ def _import_into(
         con.close()
     print(f"Database: {db_path}")
     return results
-
-
-def _import_file(con: Any, file_path: Path, *, project: Optional[str]) -> ImportResult:
-    """Import an OTLP JSON file, or a WizardFlow run (all of its parts)."""
-    if _is_otlp_file(file_path):
-        return import_otlp_file(con, file_path, project=project)
-    unit = load_trace_chain(file_path)
-    from .otel_file_exporter import ExportOptions, trace_chain_requests
-
-    path = str(file_path.resolve())
-    digest = hashlib.sha256(b"".join(part.read_bytes() for part in unit.parts)).hexdigest()
-    if is_imported(con, digest):
-        return ImportResult(path=path, already_imported=True)
-    # The same content and graph as `otel export --out`.
-    options = ExportOptions(content_max_bytes=FILE_EXPORT_CONTENT_MAX_BYTES, export_graph=True)
-    return import_requests(
-        con, trace_chain_requests(unit, options), path=path, sha256=digest, project=project
-    )
-
-
-def _is_otlp_file(path: Path) -> bool:
-    """Whether ``path`` holds OTLP JSON rather than a WizardFlow trace.
-
-    Line 1 decides: one export request per line (the Collector's format).
-    A pretty-printed single request is checked as a whole if it is small.
-    """
-    try:
-        with path.open("r", encoding="utf-8-sig") as handle:
-            first = handle.readline()
-            try:
-                return is_otlp_request(json.loads(first))
-            except json.JSONDecodeError:
-                pass
-            if path.stat().st_size > 32_000_000:
-                return False
-            handle.seek(0)
-            return is_otlp_request(json.loads(handle.read()))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return False
 
 
 def _shell_arg(path: Path) -> str:
@@ -765,7 +721,7 @@ def run_replay(
     else:
         trace_path = _resolve_trace_path(trace=trace, path=path, latest=latest)
     # Replay is for one WizardFlow run; OTel data has no single run to replay.
-    if _is_otlp_file(trace_path):
+    if is_otlp_file(trace_path):
         raise WizardFlowCliError(
             f"{trace_path.name} is OpenTelemetry data, which opens in the dashboard:\n"
             f"  wizardflow dashboard {_shell_arg(trace_path)}"
@@ -909,7 +865,7 @@ def _resolve_latest_trace(raw: Optional[str]) -> Path:
         candidate
         for pattern in ("*.jsonl", "*.json")
         for candidate in directory.glob(pattern)
-        if candidate.is_file() and not _is_otlp_file(candidate)
+        if candidate.is_file() and not is_otlp_file(candidate)
     ]
     if not candidates:
         raise WizardFlowCliError(
