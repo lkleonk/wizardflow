@@ -1477,7 +1477,8 @@ function Section({
         {help && (
           <Tooltip title={help} placement="top" arrow>
             <InfoOutlinedIcon
-              aria-label={help}
+              // titleAccess, not aria-label: SvgIcon is aria-hidden without it.
+              titleAccess={help}
               tabIndex={0}
               sx={{ fontSize: 13, ml: 0.5, verticalAlign: "-2px", color: "text.disabled", cursor: "help" }}
             />
@@ -1509,7 +1510,7 @@ const SYSTEM_MESSAGE_BORDER = {
 } as const;
 
 function ChatMessages({ raw }: { raw: unknown }) {
-  let messages: { role?: string; parts?: { type?: string; content?: unknown }[] }[] = [];
+  let messages: { role?: string; parts?: GenAiPart[] }[] = [];
   try {
     messages = typeof raw === "string" ? JSON.parse(raw) : (raw as typeof messages);
   } catch {
@@ -1554,15 +1555,56 @@ function ChatMessages({ raw }: { raw: unknown }) {
           <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: "text.secondary", textTransform: "uppercase" }}>
             {message.role ?? "message"}
           </Typography>
-          <Typography sx={{ fontSize: 13, whiteSpace: "pre-wrap", color: "inherit" }}>
-            {(message.parts ?? [])
-              .map((part) => (typeof part.content === "string" ? part.content : JSON.stringify(part.content)))
-              .join("\n")}
-          </Typography>
+          {(message.parts ?? []).map((part, j) => (
+            <ChatPart key={j} part={part} />
+          ))}
         </Paper>
       ))}
     </Box>
   );
+}
+
+type GenAiPart = {
+  type?: string;
+  content?: unknown;
+  id?: unknown;
+  name?: unknown;
+  arguments?: unknown;
+  response?: unknown;
+};
+
+const asText = (value: unknown) =>
+  typeof value === "string" ? value : value === undefined ? "" : JSON.stringify(value, null, 2);
+
+/** One GenAI message part: text as text, a tool call or its result as a labelled block. */
+function ChatPart({ part }: { part: GenAiPart }) {
+  const text = { fontSize: 13, whiteSpace: "pre-wrap", overflowWrap: "anywhere", color: "inherit" } as const;
+  const block = (label: React.ReactNode, body: string) => (
+    <Box sx={{ mt: 0.5 }}>
+      <Typography sx={{ fontSize: 11.5, color: "text.secondary" }}>{label}</Typography>
+      <Mono sx={{ display: "block", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{body}</Mono>
+    </Box>
+  );
+  if (part.type === "text" || part.type === undefined) {
+    return <Typography sx={text}>{asText(part.content)}</Typography>;
+  }
+  if (part.type === "tool_call") {
+    return block(
+      <>
+        Calls <b>{asText(part.name) || "a tool"}</b>
+        {part.id !== undefined && ` · ${asText(part.id)}`}
+      </>,
+      asText(part.arguments)
+    );
+  }
+  if (part.type === "tool_call_response") {
+    return block(
+      <>Result{part.id !== undefined && ` of ${asText(part.id)}`}</>,
+      asText(part.response)
+    );
+  }
+  // Another part type (reasoning, blob, …): its fields as JSON.
+  return block(part.type, JSON.stringify(part, null, 2));
 }
 
 function SpanInspector({

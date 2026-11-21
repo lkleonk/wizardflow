@@ -627,3 +627,48 @@ def test_import_endpoint_refuses_other_files_and_foreign_origins(api):
     status, _ = _send(api, "POST", "/api/import", {"name": "x", "text": "{}"},
                       headers={"Origin": "https://evil.example"})
     assert status == 403
+
+
+def test_import_endpoint_refuses_a_later_part_of_a_rotated_run(api, tmp_path):
+    part2 = _run(tmp_path / "run.part2.jsonl", [_message("m2", 2)],
+                 meta={"part": 2, "prevPart": "run.jsonl"})
+    status, body = _send(api, "POST", "/api/import",
+                         {"name": "run.part2.jsonl", "text": part2.read_bytes().decode("utf-8")})
+    assert status == 400
+    assert "later part of a rotated run" in body["error"] and "db import" in body["error"]
+
+
+@pytest.mark.parametrize("text", [
+    json.dumps({"graph": {"nodes": [], "edges": []}, "messages": [5]}),
+    json.dumps({"resourceSpans": "x"}),
+    "\ud800",
+])
+def test_import_endpoint_answers_malformed_files_with_a_400_naming_them(api, text):
+    status, body = _send(api, "POST", "/api/import", {"name": "broken.jsonl", "text": text})
+    assert status == 400
+    assert body["error"].startswith("broken.jsonl") and "Temp" not in body["error"]
+
+
+def test_writes_need_a_loopback_client():
+    from wizardflow.serve import _is_loopback_client
+
+    assert _is_loopback_client("127.0.0.1") and _is_loopback_client("::1")
+    assert _is_loopback_client("::ffff:127.0.0.1")
+    assert not _is_loopback_client("192.168.1.20") and not _is_loopback_client("::ffff:10.0.0.2")
+    assert not _is_loopback_client("not-an-ip")
+
+
+def test_projects_list_where_their_data_came_from(api, tmp_path):
+    run = _run(tmp_path / "run.jsonl", [_message("m1", 1)])
+    _send(api, "POST", "/api/import", {"name": "run.jsonl", "text": run.read_bytes().decode("utf-8")})
+    projects = {p["name"]: p for p in api("/api/projects")}
+    assert projects["advisor-run"]["sources"] == [{"kind": "upload", "name": "run.jsonl", "path": None}]
+    # The fixture's file was imported through the importer with no path.
+    assert projects["advisor"]["sources"] == []
+
+
+def test_a_cli_import_is_listed_as_a_file_with_its_path(api, tmp_path):
+    run = _run(tmp_path / "other.jsonl", [_message("m9", 9)], name="other-run")
+    assert _imported(tmp_path / "wf.db", run) == 0
+    sources = {p["name"]: p for p in api("/api/projects")}["other-run"]["sources"]
+    assert sources == [{"kind": "file", "name": "other.jsonl", "path": str(run.resolve())}]

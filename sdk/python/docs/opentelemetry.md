@@ -463,13 +463,22 @@ structure (`gen_ai.input.messages` / `gen_ai.output.messages`):
 | One chat message, `{"role": ..., "content": ...}` | One message with that role |
 | Anything else | One message (default role) whose text is the value's JSON |
 
-A message's `content` stays text when it is a string or a list of
-`{"type": "text", "text": ...}` parts; other content is exported as its JSON,
-and a message whose `content` is `None` (an assistant turn that only calls
-tools) exports its other fields as JSON. Only a value with `role` and
-`content` on every entry counts as chat messages; other objects are never
-guessed to be messages. When the text exceeds `otel_content_max_bytes`, earlier
-messages are kept whole and the first one over the limit is cut.
+Within a chat message:
+
+- `content` becomes a `text` part: a string as is, a list of
+  `{"type": "text", "text": ...}` parts joined, other content as its JSON.
+- `tool_calls` become `tool_call` parts (`id`, `name`, `arguments`), from the
+  OpenAI shape `{id, function: {name, arguments}}` or a flat
+  `{id, name, arguments | input}`; JSON-string arguments are parsed.
+- A `tool` message with a `tool_call_id` becomes a `tool_call_response` part
+  (`id`, `response`).
+- `name` stays on the message. Any other key is kept as a JSON `text` part, so
+  nothing logged is dropped.
+
+Only a value with `role` and `content` on every entry counts as chat messages;
+other objects are never guessed to be messages. When the text exceeds
+`otel_content_max_bytes`, earlier parts are kept whole and the first one over
+the limit is cut.
 
 ## Optional graph event
 

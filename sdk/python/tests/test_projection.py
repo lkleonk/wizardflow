@@ -338,3 +338,20 @@ def test_executions_are_ordered_by_start_even_on_a_whole_second(tmp_path):
     replay = project_conversation(con, "bot", "chat")
     assert [m["id"] for m in replay["messages"]] == ["1" * 32, "2" * 32]
     con.close()
+
+
+def test_projected_messages_keep_roles_when_there_are_several():
+    from wizardflow.store.projection import _message_text
+
+    one = [{"role": "user", "parts": [{"type": "text", "content": "Hi?"}]}]
+    assert _message_text(one) == "Hi?"
+    several = [
+        {"role": "system", "parts": [{"type": "text", "content": "Be brief."}]},
+        {"role": "user", "parts": [{"type": "text", "content": "Hi?"}]},
+    ]
+    assert _message_text(several) == [
+        {"role": "system", "content": "Be brief."},
+        {"role": "user", "content": "Hi?"},
+    ]
+    call = {"role": "assistant", "parts": [{"type": "tool_call", "id": "c1", "name": "calc"}]}
+    assert _message_text([several[1], call]) == [{"role": "user", "content": "Hi?"}, call]

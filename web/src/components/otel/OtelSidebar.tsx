@@ -110,7 +110,14 @@ function SidebarBody({
       });
       const target = result.projects[0];
       if (!target) {
-        setNotice({ error: false, text: `${file.name} holds no spans or logs.` });
+        // Already imported, but its rows were all owned by an earlier import
+        // (e.g. received live first), so there's no project to name.
+        setNotice({
+          error: false,
+          text: result.alreadyImported
+            ? `${file.name} was already imported.`
+            : `${file.name} holds no spans or logs.`,
+        });
         return;
       }
       setNotice({

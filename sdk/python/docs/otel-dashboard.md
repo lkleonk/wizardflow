@@ -66,8 +66,9 @@ nothing.
 
 **Import a run** in the dashboard's sidebar does the same for one file you pick
 in the browser: the dashboard server imports it, then opens its project. It is
-accepted from this machine only. A rotated run's part comes in on its own,
-since the browser sends one file; `db import` follows the whole chain.
+accepted from this machine only. For a rotated run, pick its first part: the
+browser sends one file, so that part comes in on its own, and a later part is
+refused. `db import` on the first part brings in the whole chain.
 
 ## Opening the dashboard
 
@@ -127,7 +128,10 @@ started, and the sidebar shows a green dot while the receiver runs.
 ## Pages
 
 **Projects.** One card per project, showing its traces, spans, logs, error
-rate, tokens, services, and an activity chart of traces per half hour.
+rate, tokens, services, an activity chart of traces per half hour, and where
+its data came from: a file uploaded with Import a run, a file imported from
+the command line, or the live receiver. Hover that line for each file's name
+and path.
 
 **Traces.** The project's traces, newest first. You can:
 

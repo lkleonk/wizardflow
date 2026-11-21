@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -114,9 +115,47 @@ def list_projects(con: sqlite3.Connection, *, now_ns: Optional[int] = None) -> L
             "lastSeenNs": _ns(max(last_trace, last_log)) if (last_trace or last_log) else None,
             "flags": layer_flags,
             "services": sorted(filter(None, (services or "").split(","))),
+            "sources": _sources(con, pid),
             "activity": _activity(con, pid, now_ns or time.time_ns()),
         })
     return projects
+
+
+def _sources(con: sqlite3.Connection, pid: int) -> List[Dict[str, Any]]:
+    """Where a project's spans and logs came from, oldest import first.
+
+    ``upload``: a file sent by the dashboard's "Import a run" (stored under its
+    bare file name); ``file``: ``db import`` / ``dashboard FILE`` (stored under
+    its absolute path); ``live``: the OTLP receiver, once however many
+    dashboard runs fed it.
+    """
+    rows = con.execute(
+        """
+        SELECT i.source, i.path FROM imports i
+         WHERE i.id IN (
+           SELECT s.import_id FROM spans s JOIN traces t ON t.id = s.trace_row
+            WHERE t.project_id = ? AND s.import_id IS NOT NULL
+           UNION
+           SELECT l.import_id FROM logs l
+            WHERE l.project_id = ? AND l.import_id IS NOT NULL)
+         ORDER BY i.imported_ns, i.id
+        """,
+        (pid, pid),
+    ).fetchall()
+    sources: List[Dict[str, Any]] = []
+    live = False
+    for source, path in rows:
+        if source == "otlp_http":
+            live = True
+            continue
+        if not path:
+            continue
+        name = re.split(r"[\\/]", path)[-1]
+        uploaded = name == path
+        sources.append({"kind": "upload" if uploaded else "file", "name": name, "path": None if uploaded else path})
+    if live:
+        sources.append({"kind": "live", "name": "OTLP receiver", "path": None})
+    return sources
 
 
 def _activity(con: sqlite3.Connection, pid: int, now_ns: int) -> Dict[str, Any]:

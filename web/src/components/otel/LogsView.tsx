@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import Link from "@mui/material/Link";
 import Paper from "@mui/material/Paper";
@@ -126,18 +127,30 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
                 const open = expanded.has(log.id);
                 return (
                 <Fragment key={log.id}>
-                {/* A click opens the record's attributes, which have no column. */}
+                {/* A click anywhere opens the record's attributes, which have no
+                    column; the chevron is the same as a button, for keyboards
+                    and screen readers. */}
                 <TableRow
                   hover
                   onClick={() => toggle(log.id)}
-                  aria-expanded={open}
                   sx={{ cursor: "pointer", "& > td": open ? { borderBottom: 0 } : undefined }}
                 >
                   <TableCell sx={{ pr: 0 }}>
-                    <ChevronRightIcon
-                      fontSize="small"
-                      sx={{ display: "block", color: "text.secondary", transition: "transform 120ms", transform: open ? "rotate(90deg)" : undefined }}
-                    />
+                    <IconButton
+                      size="small"
+                      aria-expanded={open}
+                      aria-label={open ? "Hide attributes" : "Show attributes"}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggle(log.id);
+                      }}
+                      sx={{ p: 0.25 }}
+                    >
+                      <ChevronRightIcon
+                        fontSize="small"
+                        sx={{ color: "text.secondary", transition: "transform 120ms", transform: open ? "rotate(90deg)" : undefined }}
+                      />
+                    </IconButton>
                   </TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>
                     <Mono sx={{ fontSize: 12 }}>{formatNsDateTime(log.tsNs)}</Mono>

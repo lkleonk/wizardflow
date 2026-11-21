@@ -3,10 +3,58 @@ import ButtonBase from "@mui/material/ButtonBase";
 import Paper from "@mui/material/Paper";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import type { ApiActivity, ApiProject } from "@/types/otelstore";
+import type { ApiActivity, ApiProject, ApiSource } from "@/types/otelstore";
+import { TOOLTIP_TIMING } from "@/theme/muiTheme";
 import { apiPath, formatNsDateTime, nsToMs, useApi } from "@/utils/otelApi";
 import { goTo } from "@/utils/otelRoute";
 import { EmptyState, LoadError, Loading, Mono, TraceBadges } from "./OtelBits";
+
+const SOURCE_KIND: Record<ApiSource["kind"], string> = {
+  upload: "uploaded in the dashboard",
+  file: "imported from the command line",
+  live: "received live",
+};
+
+/**
+ * Where a project's data came from: "From run.jsonl (uploaded)", or a count
+ * when there are several, with every source and its path in the tooltip.
+ */
+function Sources({ sources }: { sources: ApiSource[] }) {
+  const files = sources.filter((source) => source.kind !== "live");
+  const live = sources.some((source) => source.kind === "live");
+  const only = files.length === 1 ? files[0] : null;
+  const parts = [
+    only
+      ? `${only.name}${only.kind === "upload" ? " (uploaded)" : ""}`
+      : files.length > 1
+        ? `${files.length} files`
+        : null,
+    live ? "live OTLP" : null,
+  ].filter(Boolean);
+  return (
+    <Tooltip
+      {...TOOLTIP_TIMING.explain}
+      title={
+        <Box component="span" sx={{ display: "block" }}>
+          {sources.map((source, i) => (
+            <Box component="span" key={i} sx={{ display: "block" }}>
+              <b>{source.name}</b>, {SOURCE_KIND[source.kind]}
+              {source.path && (
+                <Box component="span" sx={{ display: "block", fontFamily: "var(--font-geist-mono), monospace", fontSize: 11 }}>
+                  {source.path}
+                </Box>
+              )}
+            </Box>
+          ))}
+        </Box>
+      }
+    >
+      <Typography noWrap sx={{ fontSize: 12, color: "text.secondary" }}>
+        From {parts.join(" and ")}
+      </Typography>
+    </Tooltip>
+  );
+}
 
 function Stat({ value, label, danger }: { value: React.ReactNode; label: string; danger?: boolean }) {
   return (
@@ -151,6 +199,7 @@ export default function ProjectsView() {
                 {project.lastSeenNs ? `last activity ${formatNsDateTime(project.lastSeenNs)}` : "no activity"}
                 {project.services.length > 0 && ` · ${project.services.join(", ")}`}
               </Typography>
+              {project.sources.length > 0 && <Sources sources={project.sources} />}
             </ButtonBase>
           </Paper>
         );

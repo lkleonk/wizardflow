@@ -7,6 +7,7 @@ Read-only apart from the settings writes (the attribute mapping) and the
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import sqlite3
 import sys
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit, urlparse
 
-from .file_import import import_trace_bytes
+from .file_import import LaterPartError, import_trace_bytes
 from .reader import TraceFormatError
 from .receiver import Receiver, make_receiver_handler
 from .store import open_store, projection
@@ -100,13 +101,16 @@ def make_serve_handler(
             if not path.startswith(API_PREFIX):
                 self.send_error(HTTPStatus.METHOD_NOT_ALLOWED)
                 return
-            # Writes come from this machine's own dashboard only: a local Host
-            # (no DNS rebinding) and, if the browser sends one, a local Origin
-            # (no other website posting here). A JSON body also forces a CORS
-            # preflight, which non-local origins never pass.
+            # Writes come from this machine's own dashboard only: a loopback
+            # client (a program elsewhere on the network can send any Host
+            # header), a local Host (no DNS rebinding) and, if the browser sends
+            # one, a local Origin (no other website posting here). A JSON body
+            # also forces a CORS preflight, which non-local origins never pass.
             origin = self.headers.get("Origin")
-            if not _is_local_host(self.headers.get("Host", "")) or (
-                origin is not None and not _is_local_origin(origin)
+            if (
+                not _is_loopback_client(self.client_address[0])
+                or not _is_local_host(self.headers.get("Host", ""))
+                or (origin is not None and not _is_local_origin(origin))
             ):
                 self._json(HTTPStatus.FORBIDDEN, {"error": "the dashboard can only be changed from this machine"})
                 return
@@ -269,13 +273,23 @@ def _import_upload(con: sqlite3.Connection, body: Any) -> Dict[str, Any]:
     the same import as ``wizardflow db import``, for one file."""
     if not (isinstance(body, dict) and isinstance(body.get("text"), str)):
         raise queries.QueryError('send {"name": file name, "text": file content}')
-    name = body.get("name") if isinstance(body.get("name"), str) else "upload"
-    data = body["text"].encode("utf-8")
+    name = body.get("name") if isinstance(body.get("name"), str) and body["name"] else "upload"
     try:
+        data = body["text"].encode("utf-8")
         result = import_trace_bytes(con, name, data)
+    except sqlite3.Error:
+        raise
+    except LaterPartError as exc:
+        raise queries.QueryError(str(exc)) from None
     except (OtlpFormatError, TraceFormatError, ValueError) as exc:
-        # ValueError covers a malformed JSON line as well as bad content.
+        # ValueError covers a malformed JSON line as well as bad content; a
+        # UnicodeEncodeError (a lone surrogate) is one too.
         raise queries.QueryError(f"{name} is not OTLP JSON or a WizardFlow run: {exc}") from None
+    except Exception as exc:  # noqa: BLE001 - any other shape problem is the file's
+        # e.g. a trace whose messages are not objects: the importer trips on it.
+        raise queries.QueryError(
+            f"{name} is not OTLP JSON or a WizardFlow run ({type(exc).__name__}: {exc})"
+        ) from None
     projects = result.projects or _imported_projects(con, hashlib.sha256(data).hexdigest())
     return {
         "alreadyImported": result.already_imported,
@@ -319,6 +333,16 @@ def _is_local_origin(origin: str) -> bool:
 
 def _is_local_host(host: str) -> bool:
     return urlparse(f"//{host}").hostname in LOCAL_HOSTS
+
+
+def _is_loopback_client(address: str) -> bool:
+    """Whether a request comes from this machine (127.x, ::1, or ::ffff:127.x)."""
+    try:
+        ip = ipaddress.ip_address(address.split("%", 1)[0])
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    return (mapped or ip).is_loopback
 
 
 def _int(raw: Optional[str], name: str) -> Optional[int]:

@@ -72,8 +72,16 @@ export type ApiProject = {
   /** OR of the GENAI / WIZARDFLOW bits over the project's traces. */
   flags: number;
   services: string[];
+  /** Where its data came from, oldest import first. */
+  sources: ApiSource[];
   activity: ApiActivity;
 };
+
+/**
+ * `upload`: the dashboard's "Import a run"; `file`: `db import` or
+ * `dashboard FILE` (with its path); `live`: the OTLP receiver.
+ */
+export type ApiSource = { kind: "upload" | "file" | "live"; name: string; path: string | null };
 
 /** One row of /api/traces/groups: the traces sharing a conversation id. */
 export type ApiConversationGroup = {

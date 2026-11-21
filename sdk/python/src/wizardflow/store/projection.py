@@ -328,19 +328,28 @@ def _decoded(attrs: Dict[str, Any], key: str) -> Any:
 
 
 def _message_text(messages: Any) -> Any:
-    """``[{role, parts: [{type: text, content}]}]`` → the text, if that's all it is."""
-    if not isinstance(messages, list):
+    """GenAI messages as a replay payload.
+
+    One message of text parts is just its text, as a step's input or output
+    usually is. Several messages keep their roles: ``[{role, content}]`` for
+    text-only messages, the GenAI message itself for one with tool calls or
+    tool results. Anything else is returned as it came.
+    """
+    if not isinstance(messages, list) or not messages:
         return messages
-    texts = []
+    simplified = []
     for message in messages:
         parts = message.get("parts") if isinstance(message, dict) else None
         if not isinstance(parts, list):
             return messages
-        for part in parts:
-            if not (isinstance(part, dict) and part.get("type") == "text"):
-                return messages
-            texts.append(str(part.get("content", "")))
-    return "\n".join(texts) if texts else messages
+        if all(isinstance(part, dict) and part.get("type") == "text" for part in parts):
+            text = "\n".join(str(part.get("content", "")) for part in parts)
+            simplified.append({"role": message.get("role"), "content": text})
+        else:
+            simplified.append(message)
+    if len(simplified) == 1 and "content" in simplified[0]:
+        return simplified[0]["content"]
+    return simplified
 
 
 def _kind(raw: Optional[str]) -> str:

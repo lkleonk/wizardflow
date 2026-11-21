@@ -548,13 +548,67 @@ def test_single_chat_message_keeps_its_role():
 def test_chat_message_content_that_is_not_a_string():
     messages, _ = _llm_messages([
         {"role": "user", "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]},
-        {"role": "tool", "content": {"temp": 19}},
-        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}]},
+        {"role": "user", "content": {"temp": 19}},
     ])
-    assert messages == [
-        ("user", "a\nb"),
-        ("tool", '{"temp":19}'),
-        ("assistant", '{"content":null,"tool_calls":[{"id":"c1"}]}'),
+    assert messages == [("user", "a\nb"), ("user", '{"temp":19}')]
+
+
+def _raw_messages(value, semantic="input"):
+    attrs = map_node_attributes(
+        message_id="m1",
+        node_id="model",
+        kind="llm",
+        payloads=[{"label": semantic, "value": value, "semanticType": semantic}],
+        include_content=True,
+    )
+    return json.loads(attrs[f"gen_ai.{semantic}.messages"])
+
+
+def test_tool_calls_and_tool_results_become_genai_parts():
+    messages = _raw_messages([
+        {"role": "user", "content": "What is 2+2?"},
+        {
+            "role": "assistant",
+            "content": "Let me compute",
+            "tool_calls": [{
+                "id": "c1",
+                "type": "function",
+                "function": {"name": "calc", "arguments": '{"expr": "2+2"}'},
+            }],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "4"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c2", "name": "log", "input": {"x": 1}}]},
+    ])
+    assert messages[1] == {
+        "role": "assistant",
+        "parts": [
+            {"type": "text", "content": "Let me compute"},
+            {"type": "tool_call", "id": "c1", "name": "calc", "arguments": {"expr": "2+2"}},
+        ],
+    }
+    assert messages[2] == {
+        "role": "tool",
+        "parts": [{"type": "tool_call_response", "id": "c1", "response": "4"}],
+    }
+    assert messages[3]["parts"] == [{"type": "tool_call", "id": "c2", "name": "log", "arguments": {"x": 1}}]
+
+
+def test_unknown_chat_message_keys_are_kept_as_json_text():
+    messages = _raw_messages([
+        {"role": "user", "name": "ana", "content": "hi", "cache_control": {"type": "ephemeral"}},
+        {"role": "tool", "content": "orphan", "tool_calls": "not-a-list"},
+    ])
+    assert messages[0] == {
+        "role": "user",
+        "name": "ana",
+        "parts": [
+            {"type": "text", "content": "hi"},
+            {"type": "text", "content": '{"cache_control":{"type":"ephemeral"}}'},
+        ],
+    }
+    assert messages[1]["parts"] == [
+        {"type": "text", "content": "orphan"},
+        {"type": "text", "content": '{"tool_calls":"not-a-list"}'},
     ]
 
 
@@ -577,3 +631,24 @@ def test_truncated_chat_messages_keep_earlier_messages_whole():
     assert messages[0] == ("system", "short")
     assert [role for role, _ in messages] == ["system", "user"]
     assert 0 < len(messages[1][1]) < 200
+
+
+def test_truncation_cuts_a_long_tool_result_and_keeps_valid_json():
+    value = [
+        {"role": "user", "content": "q"},
+        {"role": "tool", "tool_call_id": "c1", "content": "r" * 300},
+    ]
+    attrs = map_node_attributes(
+        message_id="m1",
+        node_id="model",
+        kind="llm",
+        payloads=[{"label": "input", "value": value, "semanticType": "input"}],
+        include_content=True,
+        content_max_bytes=150,
+    )
+    rendered = json.loads(attrs["gen_ai.input.messages"])
+    assert attrs["gen_ai.input.messages.truncated"] is True
+    assert len(attrs["gen_ai.input.messages"].encode("utf-8")) <= 150
+    assert rendered[0]["parts"] == [{"type": "text", "content": "q"}]
+    part = rendered[1]["parts"][0]
+    assert part["type"] == "tool_call_response" and 0 < len(part["response"]) < 300

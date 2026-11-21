@@ -74,6 +74,8 @@ function readContext(): ViewerContext {
 const subscribe = () => () => {};
 
 function readBackHref(): string | null {
+  // The website has no dashboard to go back to, whatever a link says.
+  if (isHostedWizardFlow) return null;
   const back = new URLSearchParams(window.location.search).get("back");
   // Only ever back into our own dashboard: never an arbitrary URL from a link.
   return back && back.startsWith("/otel") && !back.startsWith("//") ? back : null;

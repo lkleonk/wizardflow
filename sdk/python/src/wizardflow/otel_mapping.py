@@ -268,12 +268,23 @@ def _content_text(content: Any) -> str:
     return canonical_json(content)
 
 
-def _chat_messages(value: Any, role: str) -> List[Tuple[str, str]]:
-    """``(role, text)`` per message.
+# One GenAI message part: its fixed fields, and the one text field (if any)
+# that truncation may cut, with that text.
+_Part = Tuple[Dict[str, Any], Optional[str], str]
+_Message = Tuple[Dict[str, Any], List[_Part]]
+
+# The chat message keys turned into GenAI fields; any other key is kept as a
+# JSON text part, so nothing logged is lost.
+_CHAT_KEYS = frozenset({"role", "content", "tool_calls", "tool_call_id", "name"})
+
+
+def _chat_messages(value: Any, role: str) -> List[_Message]:
+    """GenAI messages for one logged value.
 
     A value already shaped like chat messages (a ``{"role", "content"}`` dict,
     or a non-empty list of them) keeps one message per entry and its own
-    roles. Anything else is one message with ``role`` and the value as text.
+    roles, tool calls and tool results. Anything else is one message with
+    ``role`` and the value as text.
     """
     items = [value] if isinstance(value, Mapping) else value
     if (
@@ -287,60 +298,114 @@ def _chat_messages(value: Any, role: str) -> List[Tuple[str, str]]:
             for item in items
         )
     ):
-        pairs = []
-        for item in items:
-            content = item["content"]
-            if content is None:
-                # e.g. an assistant turn that only calls tools: keep the rest
-                rest = {key: val for key, val in item.items() if key != "role"}
-                pairs.append((item["role"], canonical_json(rest)))
-            else:
-                pairs.append((item["role"], _content_text(content)))
-        return pairs
+        return [_chat_message(item) for item in items]
     text = value if isinstance(value, str) else canonical_json(value)
-    return [(role, text)]
+    return [({"role": role}, [({"type": "text"}, "content", text)])]
 
 
-def _render_messages(pairs: List[Tuple[str, str]], budget: Optional[int]) -> str:
-    """GenAI messages JSON, with at most ``budget`` bytes of text in total.
+def _chat_message(item: Mapping[str, Any]) -> _Message:
+    header: Dict[str, Any] = {"role": item["role"]}
+    if isinstance(item.get("name"), str):
+        header["name"] = item["name"]
+    parts: List[_Part] = []
+    content = item.get("content")
+    extra = {key: val for key, val in item.items() if key not in _CHAT_KEYS}
+    if item["role"] == "tool" and item.get("tool_call_id") is not None:
+        response = content if isinstance(content, str) else canonical_json(content)
+        parts.append(
+            ({"type": "tool_call_response", "id": str(item["tool_call_id"])}, "response", response)
+        )
+    else:
+        if item.get("tool_call_id") is not None:
+            extra["tool_call_id"] = item["tool_call_id"]
+        if content is not None and content != "":
+            parts.append(({"type": "text"}, "content", _content_text(content)))
+    calls = item.get("tool_calls")
+    if isinstance(calls, list) and all(isinstance(call, Mapping) for call in calls):
+        parts.extend(({"type": "tool_call", **_tool_call(call)}, None, "") for call in calls)
+    elif calls is not None:
+        extra["tool_calls"] = calls
+    if item.get("name") is not None and "name" not in header:
+        extra["name"] = item["name"]
+    if extra:
+        parts.append(({"type": "text"}, "content", canonical_json(extra)))
+    if not parts:
+        parts.append(({"type": "text"}, "content", ""))
+    return header, parts
 
-    Earlier messages are kept whole; the first one over budget is cut and the
+
+def _tool_call(call: Mapping[str, Any]) -> Dict[str, Any]:
+    """An OpenAI ``{id, function: {name, arguments}}`` or a flat
+    ``{id, name, arguments | input}`` call as a GenAI tool call part."""
+    function = call.get("function")
+    source = function if isinstance(function, Mapping) else call
+    part: Dict[str, Any] = {}
+    if call.get("id") is not None:
+        part["id"] = str(call["id"])
+    if isinstance(source.get("name"), str):
+        part["name"] = source["name"]
+    arguments = source.get("arguments", source.get("input"))
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            pass
+    if arguments is not None:
+        part["arguments"] = arguments
+    return part
+
+
+def _render_messages(messages: List[_Message], budget: Optional[int]) -> str:
+    """GenAI messages JSON, with at most ``budget`` bytes of cuttable text.
+
+    Earlier parts are kept whole; the first one over budget is cut and the
     rest are left out. ``None`` keeps everything.
     """
-    messages = []
-    for index, (role, text) in enumerate(pairs):
-        if budget is not None:
-            encoded = text.encode("utf-8")
-            if len(encoded) > budget:
-                text = encoded[:budget].decode("utf-8", errors="ignore")
-                if text or index == 0:
-                    messages.append(_text_message(role, text))
+    out: List[Dict[str, Any]] = []
+    for header, parts in messages:
+        rendered: List[Dict[str, Any]] = []
+        stop = False
+        for fixed, key, text in parts:
+            if key is None:
+                rendered.append(dict(fixed))
+                continue
+            if budget is not None:
+                encoded = text.encode("utf-8")
+                if len(encoded) > budget:
+                    text = encoded[:budget].decode("utf-8", errors="ignore")
+                    stop = True
+                else:
+                    budget -= len(encoded)
+            if stop and not text and (rendered or out):
                 break
-            budget -= len(encoded)
-        messages.append(_text_message(role, text))
-    return canonical_json(messages)
-
-
-def _text_message(role: str, text: str) -> Dict[str, Any]:
-    return {"role": role, "parts": [{"type": "text", "content": text}]}
+            rendered.append({**fixed, key: text})
+            if stop:
+                break
+        if rendered or not out:
+            out.append({**header, "parts": rendered})
+        if stop:
+            break
+    return canonical_json(out)
 
 
 def _put_messages(
     attributes: Dict[str, Any], name: str, value: Any, role: str, max_bytes: int
 ) -> None:
     """Bound GenAI messages by trimming their text while keeping valid JSON."""
-    pairs = _chat_messages(value, role)
-    rendered = _render_messages(pairs, None)
+    messages = _chat_messages(value, role)
+    rendered = _render_messages(messages, None)
     original_size = len(rendered.encode("utf-8"))
     if original_size <= max_bytes:
         attributes[name] = rendered
         attributes[f"{name}.encoding"] = "json"
         return
 
-    low, high, best = 0, sum(len(text.encode("utf-8")) for _, text in pairs), ""
+    low = 0
+    high = sum(len(text.encode("utf-8")) for _, parts in messages for _, key, text in parts if key)
+    best = ""
     while low <= high:
         middle = (low + high) // 2
-        candidate = _render_messages(pairs, middle)
+        candidate = _render_messages(messages, middle)
         if len(candidate.encode("utf-8")) <= max_bytes:
             best = candidate
             low = middle + 1
