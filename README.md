@@ -60,6 +60,21 @@ OpenTelemetry configuration, see the [Python SDK guide](sdk/python/README.md).
 Drop the `.jsonl` file into [getwizardflow.com](https://getwizardflow.com) (or
 your local build) to replay it.
 
+## Local dashboard
+
+For more than one run, `wizardflow dashboard` keeps your runs and any
+OpenTelemetry traces in a local SQLite database: a span waterfall with the
+graph beside it, GenAI messages and token counts, and a receiver on
+`localhost:4318` that apps with OpenTelemetry can send to directly.
+
+```bash
+wizardflow dashboard run.jsonl   # import a run, then open the dashboard
+```
+
+![The WizardFlow dashboard: a span waterfall, the graph, and the span inspector](sdk/python/assets/dashboard.png)
+
+See the [dashboard guide](sdk/python/docs/otel-dashboard.md).
+
 ## Repo layout
 
 | Path | What |

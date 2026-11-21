@@ -88,6 +88,21 @@ with wizardflow.node("msg-1", "generator") as node:
 wizardflow.end_message("msg-1")
 ```
 
+## Local dashboard
+
+For more than one run, `wizardflow dashboard` keeps your runs and any
+OpenTelemetry traces in a local SQLite database: a span waterfall with the
+graph beside it, GenAI messages and token counts, and a receiver on
+`localhost:4318` that apps with OpenTelemetry can send to directly.
+
+```bash
+wizardflow dashboard run.jsonl   # import a run, then open the dashboard
+```
+
+![The WizardFlow dashboard: a span waterfall, the graph, and the span inspector](https://raw.githubusercontent.com/lkleonk/wizardflow/main/sdk/python/assets/dashboard.png)
+
+See the [dashboard guide](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/otel-dashboard.md).
+
 ## Optional OpenTelemetry export
 
 Live export while recording joins your application's OpenTelemetry tracing, so
