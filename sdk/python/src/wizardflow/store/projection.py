@@ -114,7 +114,9 @@ def _project(
     conversation_id: Optional[str],
 ) -> Dict[str, Any]:
     mapping = load_mapping(con, pid)
-    messages: List[Dict[str, Any]] = []
+    # Each message with its first node's start, in ns: sorting the ISO text
+    # instead would put "…:00Z" after "…:00.5Z" (no fraction on whole seconds).
+    timed: List[Tuple[int, Dict[str, Any]]] = []
     trace_name: Optional[str] = None
     graph_event: Optional[Dict[str, Any]] = None
     run_meta: Dict[str, Any] = {}
@@ -145,9 +147,10 @@ def _project(
                 continue
             executions.setdefault(span[8] or trace_id, []).append(span)
         for message_id, node_spans in executions.items():
-            messages.append(_message(message_id, trace_id, node_spans, root, root_attrs, mapping, spans))
+            message = _message(message_id, trace_id, node_spans, root, root_attrs, mapping, spans)
+            timed.append((int(node_spans[0][3]), message))  # spans come in start order
 
-    messages.sort(key=lambda m: m["steps"][0]["timestamp"] if m["steps"] else "")
+    messages = [message for _, message in sorted(timed, key=lambda pair: pair[0])]
     graph, graph_source = _graph(graph_event, messages)
     # Shown in the viewer's trace info: an inferred graph only has the nodes
     # and transitions that actually ran, no unvisited branches, no

@@ -319,3 +319,22 @@ def test_replay_routes(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_executions_are_ordered_by_start_even_on_a_whole_second(tmp_path):
+    # ISO text sorts "…:10Z" after "…:10.5Z"; the replay must not.
+    second = 1_791_712_810_000_000_000
+    con = open_store(tmp_path / "wf.db")
+    turn = lambda trace_id, n, start: traces_request(  # noqa: E731
+        [
+            span(f"{n}0" * 8, trace_id=trace_id, name="invoke_workflow", start=start, end=start + 10,
+                 attributes={"session.id": "chat"}),
+            span(f"{n}1" * 8, trace_id=trace_id, parent=f"{n}0" * 8, start=start, end=start + 10,
+                 attributes={"wizardflow.node.id": "router"}),
+        ],
+        service="bot",
+    )
+    import_otlp_text(con, lines(turn("2" * 32, 2, second + 500_000_000), turn("1" * 32, 1, second)))
+    replay = project_conversation(con, "bot", "chat")
+    assert [m["id"] for m in replay["messages"]] == ["1" * 32, "2" * 32]
+    con.close()

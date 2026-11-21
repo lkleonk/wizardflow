@@ -204,7 +204,17 @@ INSERT INTO attribute_mappings (project_id, concept, keys, updated_ns) VALUES
   (NULL, 'payloads',      '["wizardflow.payload.*"]', 0);
 """
 
+# Logs have no id of their own, so re-importing a grown file or a retried
+# /v1/logs request stored them again. A hash of the record (with its resource
+# and scope rows) makes the second copy a no-op, like a span's (trace, span) id.
+# Rows imported before v2 keep a NULL key and are left as they are.
+SCHEMA_V2 = """
+ALTER TABLE logs ADD COLUMN dedup_key TEXT;
+CREATE UNIQUE INDEX logs_dedup ON logs(dedup_key) WHERE dedup_key IS NOT NULL;
+"""
+
 MIGRATIONS: List[Tuple[int, str]] = [
     (1, SCHEMA_V1),
+    (2, SCHEMA_V2),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]

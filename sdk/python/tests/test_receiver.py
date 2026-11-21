@@ -116,6 +116,7 @@ def test_invalid_spans_come_back_as_partial_success(receiver):
     ("/v1/traces", b"", "application/x-protobuf", {"Content-Encoding": "br"}, 415, "br"),
     ("/v1/traces", b"", "application/json", {"Origin": "https://evil.example"}, 403, "web pages"),
     ("/v1/traces", b"", "application/json", {"Host": "evil.example:4318"}, 403, "Host"),
+    ("/v1/traces", b"", "application/json", {"Content-Length": "-1"}, 400, "Content-Length"),
 ])
 def test_bad_requests_are_refused(receiver, path, body, content_type, headers, status, message):
     got, got_type, answer = _post(receiver, path, body, content_type, headers)
@@ -330,3 +331,10 @@ def test_the_data_version_moves_when_data_arrives(receiver):
     assert after_span != after_log
     _post(receiver, "/v1/traces", body)  # only duplicates: nothing new to show
     assert version() == after_span
+
+
+def test_resent_logs_are_not_duplicated(receiver):
+    body = json.dumps(logs_request([log_record("hello")])).encode()
+    _post(receiver, "/v1/logs", body, "application/json")
+    _post(receiver, "/v1/logs", body, "application/json")  # a retry after a lost answer
+    assert _rows(receiver.db, "SELECT count(*) FROM logs") == [(1,)]

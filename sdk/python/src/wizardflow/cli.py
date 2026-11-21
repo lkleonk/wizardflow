@@ -480,7 +480,7 @@ def run_otel_export(
         file=sys.stderr,
     )
     if to_file:
-        print(f"Import it: wizardflow db import {out}", file=sys.stderr)
+        print(f"Open it in the dashboard: wizardflow dashboard {_shell_arg(Path(out))}", file=sys.stderr)
     return 0
 
 
@@ -566,7 +566,7 @@ def _existing_files(files: Sequence[str]) -> "list[Path]":
 
 
 def _receiver_args(otlp: Optional[bool], otlp_port: Optional[int], host: str) -> "dict[str, Any]":
-    """Whether `serve` runs the receiver, and whether it may go without.
+    """Whether `dashboard` runs the receiver, and whether it may go without.
 
     On by default only where it can't be reached from the network. An
     explicitly chosen port is one the user is counting on, so losing it is an
@@ -592,7 +592,7 @@ def _is_loopback(host: str) -> bool:
 
 def run_db_import(*, files: Sequence[str], db: Optional[str], project: Optional[str]) -> int:
     _import_into(_db_path(db), _existing_files(files), project=project)
-    print(f"Open the dashboard: wizardflow dashboard{'' if db is None else f' --db {db}'}")
+    print(f"Open the dashboard: wizardflow dashboard{'' if db is None else f' --db {_shell_arg(Path(db))}'}")
     return 0
 
 
@@ -671,6 +671,10 @@ def _import_into(
             extra = []
             if result.duplicate_spans:
                 extra.append(f"{_count(result.duplicate_spans, 'duplicate span')} skipped")
+            if result.updated_spans:
+                extra.append(f"{_count(result.updated_spans, 'grown span')} updated")
+            if result.duplicate_logs:
+                extra.append(f"{_count(result.duplicate_logs, 'duplicate log')} skipped")
             if result.skipped_spans:
                 extra.append(f"{_count(result.skipped_spans, 'invalid span')} skipped")
             print(

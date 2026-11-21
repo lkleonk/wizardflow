@@ -8,6 +8,8 @@ from urllib.request import Request, urlopen
 
 import pytest
 
+from wizardflow.store.schema import LATEST_VERSION
+
 from otlp_builders import (
     TRACE_A,
     TRACE_B,
@@ -71,7 +73,7 @@ def test_db_import_info_and_migrate(tmp_path, capsys):
 
     assert main(["db", "info", "--db", str(db)]) == 0
     info = capsys.readouterr().out
-    assert "Schema: v1" in info and "advisor: 2 traces, 3 spans, 2 logs" in info
+    assert f"Schema: v{LATEST_VERSION}" in info and "advisor: 2 traces, 3 spans, 2 logs" in info
 
     assert main(["db", "migrate", "--db", str(db)]) == 0
     assert "up to date" in capsys.readouterr().out
@@ -415,7 +417,7 @@ def test_static_routes_serve_viewer_and_clean_dashboard_url(api):
 
 
 def test_meta_and_projects(api):
-    assert api("/api/meta")["schemaVersion"] == 1
+    assert api("/api/meta")["schemaVersion"] == LATEST_VERSION
     (project,) = api("/api/projects")
     assert project["name"] == "advisor"
     assert (project["traceCount"], project["spanCount"], project["logCount"]) == (2, 3, 2)
@@ -546,3 +548,42 @@ def test_api_answers_unchanged_data_with_304(api):
     with pytest.raises(HTTPError) as exc:
         urlopen(Request(url, headers={"If-None-Match": etag}), timeout=5)
     assert exc.value.code == 304
+
+
+def test_a_foreign_host_header_is_refused(api):
+    # DNS rebinding: another site's name pointing at 127.0.0.1.
+    for path in ("/api/projects", "/otel"):
+        request = Request(api.base + path, headers={"Host": "attacker.example:80"})
+        with pytest.raises(HTTPError) as exc:
+            urlopen(request, timeout=5)
+        assert exc.value.code == 403
+    assert api("/api/projects")[0]["name"] == "advisor"  # 127.0.0.1 itself still works
+
+
+def test_a_negative_content_length_is_refused(api):
+    status, body = _send(
+        api, "PUT", "/api/settings/mapping",
+        headers={"Content-Type": "application/json", "Content-Length": "-1"},
+    )
+    assert status == 400 and "Content-Length" in body["error"]
+
+
+def test_db_import_of_a_grown_execution_extends_its_root(tmp_path, capsys):
+    db = tmp_path / "wf.db"
+    path = tmp_path / "run.jsonl"
+    short = _message("m1", 0)
+    short["steps"] = short["steps"][:1]  # still running: one node so far
+    _imported(db, _run(path, [short]))
+    grown = _message("m1", 0)
+    grown["steps"][1]["endTimestamp"] = "2026-10-11T10:00:45Z"  # past the old root's end
+    _imported(db, _run(path, [grown]))
+    assert "1 grown span updated" in capsys.readouterr().out
+    con = open_store(db)
+    try:
+        outliving = con.execute(
+            "SELECT count(*) FROM spans c JOIN spans p ON p.span_id = c.parent_span_id "
+            "AND p.trace_id = c.trace_id WHERE c.end_ns > p.end_ns"
+        ).fetchone()[0]
+    finally:
+        con.close()
+    assert outliving == 0

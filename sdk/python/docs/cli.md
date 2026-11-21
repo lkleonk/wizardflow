@@ -21,7 +21,9 @@ still work as aliases of `replay` and `dashboard`.
 
 ## Selecting a trace
 
-Every subcommand accepts a trace as a positional argument or through `--path`:
+The replay commands (`replay`, `md`, `html`, `json`) accept a trace as a
+positional argument or through `--path`. `dashboard`, `db import`, and
+`otel export` take plain file arguments only.
 
 ```bash
 wizardflow replay run.jsonl
@@ -106,12 +108,15 @@ does not combine an entire rotation chain.
 
 ```bash
 wizardflow otel export run.jsonl --endpoint http://localhost:4318/v1/traces
+wizardflow otel export run.jsonl --out run.otlp.jsonl
 wizardflow otel export run.jsonl --workflow-name consultation
 wizardflow otel export run.jsonl --trace-scope recording
 ```
 
-This projects an existing artifact through OTLP/HTTP using the same semantic
-mapping as live export. It creates fresh OTel trace IDs and never modifies the
+This projects an existing artifact to OpenTelemetry using the same semantic
+mapping as live export: sent over OTLP/HTTP, or with `--out` written to an
+OTLP JSON file in the OpenTelemetry Collector's file format (one export request
+per line), which `wizardflow dashboard FILE` and other OTLP tools can read. It creates fresh OTel trace IDs and never modifies the
 source file. By default it discovers and exports the complete rotated
 part-chain and creates one trace per message, rooted at an `invoke_workflow`
 span; `--trace-scope recording` creates one `wizardflow.run` trace for the
@@ -121,15 +126,19 @@ do not carry them.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--endpoint` | OTel environment | OTLP/HTTP traces endpoint |
+| `--out` | none | Write OTLP JSON to this file instead of sending; excludes `--endpoint` |
 | `--trace-scope` | `workflow` | `workflow` (one trace per message) or `recording` trace boundaries |
 | `--workflow-name` | none | Stable `gen_ai.workflow.name` for workflow roots; match the live `otel_workflow_name` |
 | `--include-content` / `--no-include-content` | on | Export or omit bounded input, output, and structured log content |
-| `--content-max-bytes` | `16_384` | Maximum bytes for each exported content value |
-| `--export-graph` | off | Add the WizardFlow graph event to each root |
+| `--content-max-bytes` | `16_384`; `16_000_000` with `--out` | Maximum bytes for each exported content value |
+| `--export-graph` / `--no-export-graph` | off; on with `--out` | Add the WizardFlow graph event to each root |
 | `--graph-max-bytes` | `65_536` | Maximum full graph-event content size |
 | `--current-part-only` | off | Export only the named rotation part |
 
-When `--endpoint` is omitted, the command reads
+A file is read locally and replayed in full, so `--out` keeps the graph and
+practically all content by default; an endpoint keeps the smaller,
+backend-friendly limits. When neither `--endpoint` nor `--out` is given, the
+command reads
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, then `OTEL_EXPORTER_OTLP_ENDPOINT`.
 Sending needs no OpenTelemetry packages: WizardFlow brings its own OTLP/HTTP
 exporter. See [opentelemetry.md](opentelemetry.md) for its environment

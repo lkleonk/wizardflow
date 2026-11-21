@@ -27,13 +27,29 @@ DASHBOARD_ROUTE = "/otel"
 
 
 def make_serve_handler(
-    *, ui_dir: Path, db_path: Path, version: str, receiver: Optional[Receiver] = None
+    *,
+    ui_dir: Path,
+    db_path: Path,
+    version: str,
+    receiver: Optional[Receiver] = None,
+    check_host: bool = True,
 ) -> "type[SimpleHTTPRequestHandler]":
+    """``check_host``: answer only requests addressed to this machine by name.
+
+    On by default (loopback), where it stops DNS rebinding: a website whose
+    name now resolves to 127.0.0.1 would otherwise read every trace and prompt
+    through the API. Bound to another interface, browsers use that host's own
+    name, so the caller turns it off, as the receiver does.
+    """
+
     class WizardFlowServeHandler(SimpleHTTPRequestHandler):
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, directory=str(ui_dir), **kwargs)
 
         def do_GET(self) -> None:  # noqa: N802 - inherited stdlib API name
+            if check_host and not _is_local_host(self.headers.get("Host", "")):
+                self._json(HTTPStatus.FORBIDDEN, {"error": "unexpected Host header"})
+                return
             parts = urlsplit(self.path)
             if parts.path.startswith(API_PREFIX):
                 self._api(unquote(parts.path), parse_qs(parts.query))
@@ -94,7 +110,13 @@ def make_serve_handler(
                 if not (self.headers.get("Content-Type") or "").startswith("application/json"):
                     self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "send application/json"})
                     return
-                length = int(self.headers.get("Content-Length") or 0)
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    length = -1
+                if length < 0:
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid Content-Length"})
+                    return
                 if length > MAX_BODY:
                     self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "request body too large"})
                     return
@@ -305,6 +327,7 @@ def run_serve(
                 raise
             print(f"Warning: the dashboard opens without live data: {exc}", file=sys.stderr)
     handler = make_serve_handler(
+        check_host=host in LOCAL_HOSTS,
         ui_dir=ui_dir, db_path=db_path, version=version, receiver=receiver
     )
     try:

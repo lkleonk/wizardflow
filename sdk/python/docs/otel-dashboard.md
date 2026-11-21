@@ -50,8 +50,9 @@ wizardflow db migrate [--db PATH]
 The file type is detected from its content, so you can mix both in one command.
 
 - **Re-importing is safe.** A file whose contents were already imported is
-  skipped, and spans already in the database are skipped and counted. Importing
-  a run again after it has grown adds only the new executions.
+  skipped, and spans and logs already in the database are skipped and counted.
+  Importing a run again after it has grown adds only the new executions, and
+  updates the ones that were still running.
 - **Projects:** every span and log is filed under a project. Its name comes
   from the resource: `openinference.project.name`, else `service.name`, else
   `default`. To change these keys, set the **Project** concept in Settings,
@@ -106,8 +107,8 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 python my_app.py
   (`opentelemetry-exporter-otlp-proto-http`); gRPC on port 4317 is not
   supported.
 - **Same import as files:** projects, dedup, and the attribute mapping work as
-  for `db import`. A span sent twice is stored once, so exporter retries are
-  safe. Spans without a valid trace or span id are refused and reported back
+  for `db import`. A span or log sent twice is stored once, so exporter
+  retries are safe. Spans without a valid trace or span id are refused and reported back
   to the exporter as rejected.
 - **A taken port** (a Collector running on 4318, say) gives a warning, and the
   dashboard opens without the receiver; pick another with `--otlp-port`. A port
@@ -115,7 +116,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 python my_app.py
 - **Your own runs** can go there too, with no OTel packages:
   `wizardflow otel export run.jsonl --endpoint http://127.0.0.1:4318/v1/traces`.
 
-Settings → Live receiver shows the endpoint and what arrived since `serve`
+Settings → Live receiver shows the endpoint and what arrived since `dashboard`
 started, and the sidebar shows a green dot while the receiver runs.
 
 ## Pages

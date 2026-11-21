@@ -103,7 +103,7 @@ class Receiver:
                 source="otlp_http",
                 import_id=self._import_id,
             )
-            # All requests of this serve run share one imports row.
+            # All requests of this dashboard run share one imports row.
             self._import_id = result.import_id
             self.stats.requests += 1
             self.stats.spans += result.spans
@@ -207,7 +207,10 @@ def make_receiver_handler(receiver: Receiver) -> "type[BaseHTTPRequestHandler]":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
-                raise _Rejected(HTTPStatus.BAD_REQUEST, "invalid Content-Length") from None
+                length = -1
+            # A negative length would make read() take everything the client sends.
+            if length < 0:
+                raise _Rejected(HTTPStatus.BAD_REQUEST, "invalid Content-Length")
             if length > MAX_OTLP_BODY:
                 raise _Rejected(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request body too large")
             body = self.rfile.read(length)

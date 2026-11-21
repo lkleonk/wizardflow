@@ -108,7 +108,7 @@ def test_cli_out_defaults_to_graph_and_full_content(tmp_path, capsys):
     out = tmp_path / "run.otlp.jsonl"
     assert main(["otel", "export", str(source), "--out", str(out)]) == 0
     err = capsys.readouterr().err
-    assert f"to {out}" in err and "wizardflow db import" in err
+    assert f"to {out}" in err and "wizardflow dashboard" in err
     spans = [s for r in iter_requests(out.read_text(encoding="utf-8")) for s in iter_spans(r)]
     assert any(e.name == "wizardflow.graph" for s in spans for e in s.events)
 

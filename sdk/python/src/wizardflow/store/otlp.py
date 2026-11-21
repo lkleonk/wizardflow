@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -255,7 +256,7 @@ def any_value(raw: Any) -> Any:
         return _int(raw["intValue"])  # int64 travels as a string in JSON
     if "doubleValue" in raw:
         value = raw["doubleValue"]
-        return float(value) if not isinstance(value, str) else _float(value)
+        return _finite(float(value) if not isinstance(value, str) else _float(value))
     if "arrayValue" in raw:
         return [any_value(v) for v in (raw["arrayValue"] or {}).get("values") or []]
     if "kvlistValue" in raw:
@@ -304,6 +305,15 @@ def _float(raw: str) -> Optional[float]:
         return float(raw)  # also "NaN" / "Infinity", which proto3 JSON allows
     except ValueError:
         return None
+
+
+def _finite(value: Optional[float]) -> Any:
+    """NaN and ±Infinity as proto3 JSON spells them. JSON has no such numbers:
+    stored as floats they would reach the browser as bare ``NaN``, which its
+    JSON parser rejects, and break the whole trace page."""
+    if value is None or math.isfinite(value):
+        return value
+    return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
 
 
 def _enum(raw: Any, names: Dict[str, int]) -> int:

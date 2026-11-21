@@ -312,3 +312,25 @@ def test_failed_import_leaves_nothing_behind(con):
         import_otlp_text(con, good + "\nnot json\n")
     assert con.execute("SELECT count(*) FROM spans").fetchone()[0] == 0
     assert con.execute("SELECT count(*) FROM imports").fetchone()[0] == 0
+
+
+def test_a_grown_file_adds_only_its_new_logs(con):
+    first = _logs_request([{"timeUnixNano": "300", "body": {"stringValue": "one"}}])
+    second = _logs_request([{"timeUnixNano": "400", "body": {"stringValue": "two"}}])
+    import_otlp_text(con, _lines(first))
+    result = import_otlp_text(con, _lines(first, second))  # the exporter appended a line
+    assert (result.logs, result.duplicate_logs) == (1, 1)
+    assert con.execute("SELECT count(*) FROM logs").fetchone()[0] == 2
+
+
+def test_logs_without_any_timestamp_are_never_merged(con):
+    request = _logs_request([{"body": {"stringValue": "same"}}])
+    import_otlp_text(con, _lines(request))
+    import_otlp_text(con, _lines(request))
+    assert con.execute("SELECT count(*) FROM logs").fetchone()[0] == 2
+
+
+def test_non_finite_doubles_become_their_proto3_json_names():
+    assert [any_value({"doubleValue": v}) for v in (float("nan"), "Infinity", float("-inf"), 2.5)] == [
+        "NaN", "Infinity", "-Infinity", 2.5,
+    ]

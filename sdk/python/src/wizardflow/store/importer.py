@@ -29,6 +29,8 @@ class ImportResult:
     spans: int = 0
     logs: int = 0
     duplicate_spans: int = 0
+    updated_spans: int = 0     # seen before, now with a later end (a grown run)
+    duplicate_logs: int = 0
     skipped_spans: int = 0     # invalid trace / span id
     traces: int = 0            # trace slices created or updated
     projects: List[str] = field(default_factory=list)
@@ -88,7 +90,7 @@ def import_requests(
     """Import parsed OTLP export requests in one transaction.
 
     ``import_id`` adds to an existing ``imports`` row instead of creating
-    one: the live receiver files all requests of one ``serve`` run under a
+    one: the live receiver files all requests of one ``dashboard`` run under a
     single row rather than one per request.
     """
     importer = _Importer(con, project_override=project)
@@ -150,6 +152,16 @@ class _Importer:
         trace_row = self._trace_row(project_id, span.trace_id, span.start_ns, span.end_ns)
         mapping = self._mapping(project_id)
         attrs = span.attributes
+        mapped = (
+            as_text(first_value(attrs, mapping.get("model", []))),
+            as_int(first_value(attrs, mapping.get("input_tokens", []))),
+            as_int(first_value(attrs, mapping.get("output_tokens", []))),
+            as_text(first_value(attrs, mapping.get("node", []))),
+            as_text(first_value(attrs, mapping.get("node_kind", []))),
+            as_text(first_value(attrs, mapping.get("execution", []))),
+        )
+        if self._update_grown(span, mapped):
+            return
         cur = self.con.execute(
             "INSERT INTO spans (trace_row, trace_id, span_id, parent_span_id, resource_id, "
             "scope_id, import_id, name, kind, start_ns, end_ns, status_code, status_message, "
@@ -161,13 +173,7 @@ class _Importer:
                 trace_row, span.trace_id, span.span_id, span.parent_span_id, resource_id,
                 scope_id, self.import_id, span.name, span.kind, span.start_ns, span.end_ns,
                 span.status_code, span.status_message, span.trace_state, _json(attrs),
-                span.dropped_attributes_count,
-                as_text(first_value(attrs, mapping.get("model", []))),
-                as_int(first_value(attrs, mapping.get("input_tokens", []))),
-                as_int(first_value(attrs, mapping.get("output_tokens", []))),
-                as_text(first_value(attrs, mapping.get("node", []))),
-                as_text(first_value(attrs, mapping.get("node_kind", []))),
-                as_text(first_value(attrs, mapping.get("execution", []))),
+                span.dropped_attributes_count, *mapped,
             ),
         )
         if cur.rowcount != 1:
@@ -195,21 +201,57 @@ class _Importer:
                 ],
             )
 
+    def _update_grown(self, span: Span, mapped: Tuple[Any, ...]) -> bool:
+        """A span already stored but now ending later: the same run imported
+        again after it grew, whose execution roots stayed open meanwhile. Take
+        the newer end, status and attributes (a title is set at the end), so a
+        root never ends before its new children. Events and links stay as they
+        were. Returns whether the span existed, updated or not."""
+        row = self.con.execute(
+            "SELECT id, trace_row, end_ns FROM spans WHERE trace_id = ? AND span_id = ?",
+            (span.trace_id, span.span_id),
+        ).fetchone()
+        if row is None:
+            return False
+        span_row, trace_row, end_ns = row
+        if span.end_ns <= end_ns:
+            self.result.duplicate_spans += 1
+            return True
+        self.con.execute(
+            "UPDATE spans SET end_ns = ?, status_code = ?, status_message = ?, attributes = ?, "
+            "dropped_attributes_count = ?, model = ?, input_tokens = ?, output_tokens = ?, "
+            "node_id = ?, node_kind = ?, execution_key = ? WHERE id = ?",
+            (
+                span.end_ns, span.status_code, span.status_message, _json(span.attributes),
+                span.dropped_attributes_count, *mapped, span_row,
+            ),
+        )
+        self.result.updated_spans += 1
+        self._touched.add(trace_row)
+        return True
+
     def add_log(self, log: LogRecord) -> None:
         project_id, resource_id = self._resource(log.resource)
         scope_id = self._scope(log.scope)
         ts_ns = log.time_ns or log.observed_ns or self.now_ns
-        self.con.execute(
+        body = None if log.body is None else json.dumps(log.body, ensure_ascii=False)
+        attributes = _json(log.attributes)
+        cur = self.con.execute(
             "INSERT INTO logs (project_id, resource_id, scope_id, import_id, ts_ns, time_ns, "
             "observed_ns, severity_number, severity_text, body, attributes, event_name, "
-            "trace_id, span_id, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "trace_id, span_id, flags, dedup_key) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT DO NOTHING",
             (
                 project_id, resource_id, scope_id, self.import_id, ts_ns, log.time_ns,
-                log.observed_ns, log.severity_number, log.severity_text,
-                None if log.body is None else json.dumps(log.body, ensure_ascii=False),
-                _json(log.attributes), log.event_name, log.trace_id, log.span_id, log.flags,
+                log.observed_ns, log.severity_number, log.severity_text, body, attributes,
+                log.event_name, log.trace_id, log.span_id, log.flags,
+                _log_key(resource_id, scope_id, log, body, attributes),
             ),
         )
+        if cur.rowcount != 1:
+            self.result.duplicate_logs += 1
+            return
         self.result.logs += 1
         if log.trace_id:
             self._log_traces.add((project_id, log.trace_id))
@@ -441,3 +483,18 @@ def _json(value: Any) -> str:
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _log_key(
+    resource_id: int, scope_id: int, log: LogRecord, body: Optional[str], attributes: str
+) -> Optional[str]:
+    """What makes a log record the same one again, hashed. A record with no
+    timestamp at all gets no key: two of those may well be different events."""
+    if not log.time_ns and not log.observed_ns:
+        return None
+    identity = [
+        resource_id, scope_id, log.time_ns, log.observed_ns, log.severity_number,
+        log.severity_text, body, attributes, log.event_name, log.trace_id, log.span_id,
+        log.flags,
+    ]
+    return hashlib.sha256(json.dumps(identity).encode("utf-8")).hexdigest()

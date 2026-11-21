@@ -10,6 +10,10 @@ the OpenInference project resource attribute for backend grouping.
 
 Existing JSONL artifacts can also be projected later with the offline exporter.
 
+For a local OTLP endpoint, `wizardflow dashboard` receives OTLP/HTTP on
+`http://localhost:4318`, the address the examples below use, and shows what
+arrives. See the [OTel dashboard guide](otel-dashboard.md).
+
 ## Installation
 
 The `wizardflow` package has no dependencies, and exporting a recorded run
@@ -29,6 +33,15 @@ wizardflow otel export run.jsonl \
   --workflow-name consultation
 ```
 
+To write a file instead of sending, pass `--out`. The file holds OTLP JSON in
+the OpenTelemetry Collector's file format (one export request per line), and
+by default keeps the graph event and content up to 16 MB per value, since it is
+read locally rather than sent to a backend:
+
+```bash
+wizardflow otel export run.jsonl --out run.otlp.jsonl
+```
+
 The command discovers a rotated part-chain even when given a middle part and
 exports all messages in part order. Use `--current-part-only` to export only
 the named file. Input files are never modified.
@@ -43,7 +56,8 @@ live export. Application `otel_attributes` are OTel-only and not stored in
 JSONL, so offline roots do not carry them.
 
 Content export is enabled by default so the receiving UI shows useful inputs,
-outputs, and structured logs on the first export. Graph export remains opt-in:
+outputs, and structured logs on the first export. When sending to an endpoint,
+graph export remains opt-in:
 
 ```bash
 wizardflow otel export run.jsonl --export-graph
