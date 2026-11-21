@@ -11,7 +11,7 @@ export class ApiError extends Error {
 }
 
 // Development only: `npm run dev` has no /api of its own, so point it at a
-// separately started `wizardflow serve --port 8765` with
+// separately started `wizardflow dashboard --port 8765` with
 // NEXT_PUBLIC_WIZARDFLOW_API=http://127.0.0.1:8765. Unset in real builds,
 // where the dashboard and its API share one origin.
 const API_ORIGIN = process.env.NEXT_PUBLIC_WIZARDFLOW_API ?? "";

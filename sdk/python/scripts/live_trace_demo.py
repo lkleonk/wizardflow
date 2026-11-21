@@ -14,10 +14,10 @@ of live updates and part rotation, neither of which has an automated test.
     npm run dev
     # open the URL the generator printed
 
-Why `npm run dev` and not `wizardflow ui`: the CLI serves the *bundled* viewer in
+Why `npm run dev` and not `wizardflow replay`: the CLI serves the *bundled* viewer in
 src/wizardflow/_ui/, which is a stale export without the polling code. To test
 the CLI path (real ETag/304 server) instead, refresh the bundle first with
-`python scripts/build_ui.py`, then `wizardflow ui --latest <dir>`.
+`python scripts/build_ui.py`, then `wizardflow replay --latest <dir>`.
 
 Maintainer-only, like build_ui.py next to it: needs the monorepo checkout (it
 writes into web/) and never ships — the wheel packages src/wizardflow alone.

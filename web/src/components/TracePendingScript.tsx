@@ -1,7 +1,7 @@
 "use client";
 
 // Marks <html> with `data-trace-pending` before first paint when the URL asks
-// for a trace (`?trace=`, from `wizardflow ui` or the OTel dashboard). The
+// for a trace (`?trace=`, from `wizardflow replay` or the OTel dashboard). The
 // viewer is a static page rendered without a query string, so its HTML always
 // holds the empty "No flow loaded" viewer; with the mark, CSS in globals.css
 // shows a full-screen loading cover over it from the very first frame, and

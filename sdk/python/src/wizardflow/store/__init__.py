@@ -1,5 +1,5 @@
 """Local OpenTelemetry store: OTLP in (files or the live receiver), SQLite on
-disk, read by the ``wizardflow serve`` dashboard. Standard library only."""
+disk, read by the ``wizardflow dashboard`` dashboard. Standard library only."""
 
 from .db import StoreError, default_db_path, open_store
 from .importer import (

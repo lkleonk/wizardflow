@@ -1,4 +1,4 @@
-"""`wizardflow serve --otlp`: the live OTLP/HTTP receiver, and the built-in
+"""`wizardflow dashboard --otlp`: the live OTLP/HTTP receiver, and the built-in
 sender of `wizardflow otel export --endpoint` talking to it."""
 
 import gzip

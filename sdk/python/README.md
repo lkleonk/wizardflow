@@ -6,7 +6,7 @@ graph, inspect with ordinary tools, or attach to a bug report.
 
 Drop the file into [getwizardflow.com](https://getwizardflow.com) and it is
 processed entirely in the browser, so nothing is uploaded. You can also replay it
-locally with `wizardflow ui`.
+locally with `wizardflow replay`.
 
 ![WizardFlow replaying an agent run](https://raw.githubusercontent.com/lkleonk/wizardflow/main/sdk/python/assets/demo.gif)
 
@@ -72,7 +72,7 @@ Drop `trace_path` into [getwizardflow.com](https://getwizardflow.com), or open
 it locally:
 
 ```bash
-wizardflow ui traces/run__<timestamp>.jsonl
+wizardflow replay traces/run__<timestamp>.jsonl
 ```
 
 The module-level style remains available for applications that use one default
@@ -176,16 +176,20 @@ duck-typed through `app.get_graph()`.
 ## CLI at a glance
 
 ```bash
-wizardflow ui run.jsonl              # interactive local replay
-wizardflow ui --latest traces/       # newest trace in a directory
-wizardflow md run.jsonl -o run.md    # Markdown export
+# Replay: one run file, nothing stored
+wizardflow replay run.jsonl            # interactive local replay
+wizardflow replay --latest traces/     # newest run in a directory
+wizardflow md run.jsonl -o run.md      # Markdown export
 wizardflow html run.jsonl -o run.html
 wizardflow json run.jsonl -o run.json
-wizardflow db import run.jsonl       # a run (or OTLP JSON) into the local database
-wizardflow serve                     # dashboard over that database, receiving OTLP on :4318
+
+# Dashboard: all your runs and OpenTelemetry data in a local database
+wizardflow dashboard                   # open it, receiving OTLP on :4318
+wizardflow dashboard run.jsonl         # import a run (or OTLP JSON), then open it
+wizardflow db import run.jsonl         # import without opening
 ```
 
-All commands read both WizardFlow JSONL and the single-document JSON form. See
+The replay commands read both WizardFlow JSONL and the single-document JSON form. See
 the [CLI guide](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/cli.md)
 for flags, live-trace behavior, and rotated-part navigation.
 

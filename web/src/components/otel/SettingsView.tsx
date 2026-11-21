@@ -681,13 +681,13 @@ function LiveSection({ receiver }: { receiver: ApiReceiver }) {
   if (!receiver.enabled) {
     return (
       <>
-        <SectionHead title="Live receiver" sub="Receive OTLP over HTTP while wizardflow serve runs, so apps send traces and logs here directly.">
+        <SectionHead title="Live receiver" sub="Receive OTLP over HTTP while wizardflow dashboard runs, so apps send traces and logs here directly.">
           <Chip label="off" size="small" variant="outlined" />
         </SectionHead>
         <Typography sx={{ fontSize: 13, color: "text.secondary" }}>
           The receiver isn&apos;t running: it was turned off, its port was taken, or the dashboard isn&apos;t bound to this machine only. To start it on 4318, the standard OTLP/HTTP port:
         </Typography>
-        <Command>wizardflow serve --otlp</Command>
+        <Command>wizardflow dashboard --otlp</Command>
         <Typography sx={{ fontSize: 13, color: "text.secondary", mt: 2 }}>
           Use <Mono sx={{ fontSize: 12.5 }}>--otlp-port</Mono> if a Collector already runs there.
         </Typography>
@@ -696,13 +696,13 @@ function LiveSection({ receiver }: { receiver: ApiReceiver }) {
   }
   return (
     <>
-      <SectionHead title="Live receiver" sub="Apps send OTLP here while wizardflow serve runs. New data shows up on every page within a few seconds.">
+      <SectionHead title="Live receiver" sub="Apps send OTLP here while wizardflow dashboard runs. New data shows up on every page within a few seconds.">
         <Chip label="receiving" size="small" color="success" variant="outlined" />
       </SectionHead>
       <SettingRow label="Endpoint" hint="POST /v1/traces and /v1/logs, as protobuf or JSON, optionally gzipped.">
         <Mono sx={{ fontSize: 12.5 }}>{receiver.endpoint}</Mono>
       </SettingRow>
-      <SettingRow label="Received" hint="Since this wizardflow serve started.">
+      <SettingRow label="Received" hint="Since this wizardflow dashboard started.">
         <Mono sx={{ fontSize: 12.5 }}>
           {receiver.requests} requests · {receiver.spans} spans · {receiver.logs} logs
           {receiver.rejected > 0 && ` · ${receiver.rejected} rejected`}

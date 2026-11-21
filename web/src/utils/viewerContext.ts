@@ -5,7 +5,7 @@ import { isHostedWizardFlow } from "@/utils/deploymentTarget";
  * Where the replay viewer is being used, which decides the chrome around it:
  *
  * - `website`: getwizardflow.com, a visitor exploring or dropping a file.
- * - `local-file`: `wizardflow ui run.jsonl`, a developer reading their own run.
+ * - `local-file`: `wizardflow replay run.jsonl`, a developer reading their own run.
  * - `from-dashboard`: a replay opened from the local OTel dashboard
  *   (`?from=otel`), drilling into one conversation from the database.
  */
@@ -26,7 +26,7 @@ export type ViewerChrome = {
 
 // The one place that decides what each context shows; components read this
 // table instead of carrying their own conditions. A visitor needs the tour and
-// the privacy promise; someone who ran `wizardflow ui` on their own machine
+// the privacy promise; someone who ran `wizardflow replay` on their own machine
 // came with a trace and needs neither.
 const CHROME: Record<ViewerContext, ViewerChrome> = {
   website: {

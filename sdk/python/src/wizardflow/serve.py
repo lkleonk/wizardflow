@@ -1,4 +1,4 @@
-"""``wizardflow serve``: the bundled UI plus an API over the local OTel store.
+"""``wizardflow dashboard``: the bundled UI plus an API over the local OTel store.
 
 Read-only apart from the settings writes (the attribute mapping), which are
 accepted from this machine only. A second listener receives OTLP from apps

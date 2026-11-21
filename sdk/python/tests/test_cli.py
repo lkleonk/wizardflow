@@ -22,7 +22,7 @@ from wizardflow.cli import (
     main,
     run_json,
     run_otel_export,
-    run_ui,
+    run_replay,
 )
 
 
@@ -150,8 +150,10 @@ def test_bare_wizardflow_prints_help(capsys):
     assert main([]) == 0
     out = capsys.readouterr().out
     assert "usage: wizardflow" in out
-    assert "ui" in out
+    assert "replay [FILE]" in out and "dashboard [FILE...]" in out
     assert "examples:" in out
+    # The pre-0.9 names still parse but aren't advertised.
+    assert " ui " not in out and "serve" not in out
 
 
 def test_version_flag_prints_version(capsys):
@@ -161,11 +163,11 @@ def test_version_flag_prints_version(capsys):
     assert capsys.readouterr().out.startswith("wizardflow ")
 
 
-def test_run_ui_without_path_hints_when_cwd_has_no_traces(tmp_path, monkeypatch):
+def test_run_replay_without_path_hints_when_cwd_has_no_traces(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(WizardFlowCliError, match="pass a trace file"):
-        run_ui(trace=None, path=None, host="127.0.0.1", port=0, open_browser=False)
+    with pytest.raises(WizardFlowCliError, match="pass a run file"):
+        run_replay(trace=None, path=None, host="127.0.0.1", port=0, open_browser=False)
 
 
 def test_resolve_trace_path_rejects_ambiguous_input(tmp_path):

@@ -1,4 +1,4 @@
-// JSON shapes served by `wizardflow serve` under /api — the contract with
+// JSON shapes served by `wizardflow dashboard` under /api — the contract with
 // sdk/python/src/wizardflow/store/queries.py and projection.py. Change both
 // sides together.
 //
@@ -28,7 +28,7 @@ export type ApiMeta = {
   dbSizeBytes: number;
   wizardflowVersion: string;
   capabilities: string[];
-  /** The OTLP receiver of `wizardflow serve`: off with `--no-otlp`, on a taken port, or on a non-loopback host without `--otlp`. */
+  /** The OTLP receiver of `wizardflow dashboard`: off with `--no-otlp`, on a taken port, or on a non-loopback host without `--otlp`. */
   receiver: ApiReceiver;
 };
 
@@ -39,7 +39,7 @@ export type ApiReceiver =
       /** Base URL for OTEL_EXPORTER_OTLP_ENDPOINT, e.g. http://127.0.0.1:4318. */
       endpoint: string;
       port: number;
-      /** Counted since this `serve` started. */
+      /** Counted since this `dashboard` started. */
       requests: number;
       spans: number;
       logs: number;

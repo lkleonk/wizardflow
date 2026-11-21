@@ -40,6 +40,27 @@ TRACE_ROUTE = "/__wizardflow_trace.json"
 DEFAULT_OTLP_PORT = 4318
 
 
+# argparse can't put subcommands under headings, so `--help` lists them here.
+# The two halves of the tool: one run file, or the database behind the dashboard.
+OVERVIEW = f"""\
+Record, replay and inspect agent runs.
+
+Replay - one run file, nothing stored
+  replay [FILE]           Replay a run on its graph (newest .jsonl here if omitted)
+  md FILE                 Render a run to Markdown with a Mermaid graph
+  html FILE               Render a run to one self-contained HTML page
+  json FILE               Assemble a JSONL run into one JSON document
+
+Dashboard - all your runs and OpenTelemetry data, in a local database
+  dashboard [FILE...]     Open the dashboard; imports FILEs first; receives OTLP
+                          on :{DEFAULT_OTLP_PORT}
+  db import FILE...       Add runs or OTLP files without opening the dashboard
+  db info | migrate       Inspect or upgrade the database
+
+OpenTelemetry out
+  otel export FILE        Send a run to an OTLP endpoint, or write OTLP JSON (--out)"""
+
+
 class WizardFlowCliError(Exception):
     """Raised for user-facing CLI errors."""
 
@@ -48,9 +69,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    # The pre-0.9 names still work, hidden from --help.
+    command = {"ui": "replay", "serve": "dashboard"}.get(args.command, args.command)
+
     try:
-        if args.command == "ui":
-            return run_ui(
+        if command == "replay":
+            return run_replay(
                 trace=args.trace,
                 path=args.path,
                 latest=args.latest,
@@ -94,8 +118,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 current_part_only=args.current_part_only,
                 exporter=args.exporter,
             )
-        if args.command == "serve":
-            return run_serve(
+        if command == "dashboard":
+            return run_dashboard(
+                files=args.files,
+                project=args.project,
                 db=args.db,
                 host=args.host,
                 port=args.port,
@@ -126,14 +152,17 @@ def _package_version() -> str:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wizardflow",
-        description="Record and inspect WizardFlow agent traces.",
+        usage="wizardflow <command> [options]",
+        description=OVERVIEW,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  wizardflow ui                     open the newest trace in this directory\n"
-            "  wizardflow ui run.jsonl           open a specific trace\n"
-            "  wizardflow serve                  OTel dashboard over the local database\n"
-            "  wizardflow md run.jsonl -o run.md render a trace to Markdown"
+            "  wizardflow replay run.jsonl          watch one run\n"
+            "  wizardflow dashboard                 open the dashboard; point apps at\n"
+            f"                                       http://localhost:{DEFAULT_OTLP_PORT}\n"
+            "  wizardflow dashboard run.jsonl       import a run, then open the dashboard\n"
+            "\n"
+            "Run `wizardflow <command> --help` for a command's options."
         ),
     )
     parser.add_argument(
@@ -142,7 +171,10 @@ def _build_parser() -> argparse.ArgumentParser:
         version=f"wizardflow {_package_version()}",
     )
     # Not required: a bare `wizardflow` prints the full help (see main()).
-    subparsers = parser.add_subparsers(dest="command")
+    # Listed by OVERVIEW instead, grouped, and without the old aliases.
+    subparsers = parser.add_subparsers(
+        dest="command", help=argparse.SUPPRESS, prog="wizardflow"
+    )
 
     # Shared by every subcommand that reads a trace file.
     trace_input = argparse.ArgumentParser(add_help=False)
@@ -164,10 +196,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     ui = subparsers.add_parser(
-        "ui",
+        "replay",
+        aliases=["ui"],
         parents=[trace_input],
-        help="Open a local WizardFlow viewer for an AgentTrace file "
-        "(default: the newest trace in the current directory).",
+        help="Replay one WizardFlow run on its graph.",
+        description="Replay one WizardFlow run (.jsonl or .json) on its graph in the "
+        "browser. Nothing is stored. Default: the newest run in this directory. "
+        "OpenTelemetry data opens in `wizardflow dashboard` instead.",
     )
     ui.add_argument(
         "--host",
@@ -311,9 +346,23 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     serve = subparsers.add_parser(
-        "serve",
+        "dashboard",
+        aliases=["serve"],
         parents=[db_option],
-        help="Open the OTel dashboard over the local WizardFlow database.",
+        help="Open the dashboard over the local WizardFlow database.",
+        description="Open the dashboard over the local WizardFlow database: projects, "
+        "traces, logs and graph replay. FILEs (WizardFlow runs or OTLP JSON) are "
+        "imported first; importing a file twice is safe. While it runs, apps can "
+        "send OTLP to the built-in receiver.",
+    )
+    serve.add_argument(
+        "files",
+        nargs="*",
+        metavar="FILE",
+        help="WizardFlow run or OTLP JSON file to import before opening.",
+    )
+    serve.add_argument(
+        "--project", help="Put the imported FILEs into this project instead of the resource's."
     )
     serve.add_argument("--host", default="127.0.0.1", help="Host interface to bind.")
     serve.add_argument(
@@ -479,6 +528,43 @@ def run_serve(
         raise WizardFlowCliError(str(exc)) from exc
 
 
+def run_dashboard(
+    *,
+    files: Sequence[str],
+    project: Optional[str],
+    db: Optional[str],
+    host: str,
+    port: int,
+    open_browser: bool,
+    otlp_port: Optional[int] = None,
+    otlp_required: bool = False,
+) -> int:
+    """`wizardflow dashboard [FILE...]`: import the files, then open on their project."""
+    opened = None
+    if files:
+        results = _import_into(_db_path(db), _existing_files(files), project=project)
+        opened = next((name for result in results for name in result.projects), None)
+    return run_serve(
+        db=db,
+        host=host,
+        port=port,
+        open_browser=open_browser,
+        project=project or opened,
+        otlp_port=otlp_port,
+        otlp_required=otlp_required,
+    )
+
+
+def _existing_files(files: Sequence[str]) -> "list[Path]":
+    paths = []
+    for name in files:
+        file_path = Path(name).expanduser()
+        if not file_path.is_file():
+            raise WizardFlowCliError(f"file does not exist: {file_path}")
+        paths.append(file_path)
+    return paths
+
+
 def _receiver_args(otlp: Optional[bool], otlp_port: Optional[int], host: str) -> "dict[str, Any]":
     """Whether `serve` runs the receiver, and whether it may go without.
 
@@ -505,15 +591,8 @@ def _is_loopback(host: str) -> bool:
 
 
 def run_db_import(*, files: Sequence[str], db: Optional[str], project: Optional[str]) -> int:
-    db_path = _db_path(db)
-    paths = []
-    for name in files:
-        file_path = Path(name).expanduser()
-        if not file_path.is_file():
-            raise WizardFlowCliError(f"file does not exist: {file_path}")
-        paths.append(file_path)
-    _import_into(db_path, paths, project=project)
-    print(f"Open the dashboard: wizardflow serve{'' if db is None else f' --db {db}'}")
+    _import_into(_db_path(db), _existing_files(files), project=project)
+    print(f"Open the dashboard: wizardflow dashboard{'' if db is None else f' --db {db}'}")
     return 0
 
 
@@ -645,11 +724,20 @@ def _is_otlp_file(path: Path) -> bool:
         return False
 
 
+def _shell_arg(path: Path) -> str:
+    """A path to paste back into a command: relative when under the cwd, quoted if needed."""
+    try:
+        shown = str(path.resolve().relative_to(Path.cwd()))
+    except ValueError:
+        shown = str(path)
+    return f'"{shown}"' if any(c.isspace() for c in shown) else shown
+
+
 def _count(value: int, noun: str) -> str:
     return f"{value} {noun if value == 1 else noun + 's'}"
 
 
-def run_ui(
+def run_replay(
     *,
     trace: Optional[str],
     path: Optional[str],
@@ -658,7 +746,7 @@ def run_ui(
     open_browser: bool,
     latest: bool = False,
 ) -> int:
-    # Bare `wizardflow ui` behaves like `--latest` on the current directory —
+    # Bare `wizardflow replay` behaves like `--latest` on the current directory —
     # the trace is still served through TRACE_ROUTE, so live updates work
     # exactly as with an explicit path.
     inferred = trace is None and path is None and not latest
@@ -667,26 +755,20 @@ def run_ui(
             trace_path = _resolve_latest_trace(None)
         except WizardFlowCliError as exc:
             raise WizardFlowCliError(
-                f"{exc} (pass a trace file: wizardflow ui path/to/trace.jsonl)"
+                f"{exc} (pass a run file: wizardflow replay path/to/run.jsonl)"
             ) from exc
         print(f"Serving newest trace: {trace_path}")
     else:
         trace_path = _resolve_trace_path(trace=trace, path=path, latest=latest)
-    # `ui` means "open this file": an OTel file is imported into the local
-    # database and opened in the dashboard instead of the single-file replay.
+    # Replay is for one WizardFlow run; OTel data has no single run to replay.
     if _is_otlp_file(trace_path):
-        db_path = default_db_path()
-        result = _import_into(db_path, [trace_path], project=None)[0]
-        return run_serve(
-            db=str(db_path),
-            host=host,
-            port=port,
-            open_browser=open_browser,
-            project=result.projects[0] if result.projects else None,
+        raise WizardFlowCliError(
+            f"{trace_path.name} is OpenTelemetry data, which opens in the dashboard:\n"
+            f"  wizardflow dashboard {_shell_arg(trace_path)}"
         )
     _load_trace(trace_path)  # fail fast on an unreadable trace before serving
     if default_db_path().exists():
-        print("Your OTel data: wizardflow serve")
+        print(f"To see this run in your dashboard: wizardflow dashboard {_shell_arg(trace_path)}")
     ui_dir = _resolve_ui_dir()
 
     handler = _make_handler(ui_dir=ui_dir, trace_path=trace_path)
@@ -817,7 +899,7 @@ def _resolve_latest_trace(raw: Optional[str]) -> Path:
     directory = Path(raw).expanduser().resolve() if raw else Path.cwd()
     if not directory.is_dir():
         raise WizardFlowCliError(f"--latest expects a directory, got: {directory}")
-    # OTel files are opened explicitly (or via `wizardflow serve`), never
+    # OTel files are opened explicitly (or via `wizardflow dashboard`), never
     # picked up as "the newest trace" by accident.
     candidates = [
         candidate
@@ -945,7 +1027,7 @@ def _sibling_part(trace_path: Path, url_path: str, ui_dir: Path) -> Optional[Pat
     A rotated run is several files next to each other; the viewer walks it by
     name. Only a plain file name (no separators, no traversal) naming an
     existing trace file in the served trace's own directory qualifies, and a
-    bundled UI asset of the same name always wins — `wizardflow ui` stays a
+    bundled UI asset of the same name always wins — `wizardflow replay` stays a
     viewer for one run's files, not a directory server.
     """
     name = unquote(url_path.lstrip("/"))

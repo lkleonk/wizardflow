@@ -163,7 +163,7 @@ export default function WelcomeDialog({
           }
           sx={{ mt: 1, textTransform: "none", color: "text.secondary" }}
         >
-          How to ensure data stays local
+          Data stays local
         </Button>
         <Collapse in={offlineTipOpen}>
           <Box sx={{ mt: 1 }}>

@@ -1,4 +1,4 @@
-"""`wizardflow db …`, `wizardflow serve` and the /api routes over the OTel store."""
+"""`wizardflow db …`, `wizardflow dashboard` and the /api routes over the OTel store."""
 
 import json
 import threading
@@ -257,17 +257,44 @@ def test_otlp_files_are_recognized_and_skipped_by_the_newest_default(tmp_path):
     assert _resolve_latest_trace(str(tmp_path)) == trace
 
 
-def test_ui_on_an_otlp_file_imports_and_opens_the_dashboard(tmp_path, monkeypatch, capsys):
+def test_dashboard_imports_its_files_and_opens_on_their_project(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     source = _sample(tmp_path)
     calls = []
     monkeypatch.setattr(cli, "run_serve", lambda **kw: calls.append(kw) or 0)
-    assert main(["ui", str(source), "--no-open"]) == 0
+    assert main(["dashboard", str(source), "--no-open"]) == 0
     (call,) = calls
     assert call["project"] == "advisor"
     assert (tmp_path / ".wizardflow" / "wizardflow.db").exists()
     assert (tmp_path / ".wizardflow" / ".gitignore").exists()
     assert "imported 3 spans" in capsys.readouterr().out
+
+
+def test_dashboard_project_flag_names_the_project_it_opens(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = _sample(tmp_path)
+    calls = []
+    monkeypatch.setattr(cli, "run_serve", lambda **kw: calls.append(kw) or 0)
+    assert main(["dashboard", str(source), "--project", "mine", "--no-open"]) == 0
+    assert calls[0]["project"] == "mine"
+
+
+def test_dashboard_on_a_missing_file_is_an_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "run_serve", lambda **kw: 0)
+    with pytest.raises(SystemExit):
+        main(["dashboard", str(tmp_path / "nope.jsonl"), "--no-open"])
+    assert "file does not exist" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["replay", "ui"])
+def test_replay_on_an_otlp_file_points_at_the_dashboard(tmp_path, monkeypatch, capsys, command):
+    monkeypatch.chdir(tmp_path)
+    source = _sample(tmp_path)
+    with pytest.raises(SystemExit):
+        main([command, str(source), "--no-open"])
+    err = capsys.readouterr().err
+    assert "OpenTelemetry data" in err and f"wizardflow dashboard {source.name}" in err
+    assert not (tmp_path / ".wizardflow").exists()
 
 
 @pytest.mark.parametrize(
@@ -286,10 +313,13 @@ def test_ui_on_an_otlp_file_imports_and_opens_the_dashboard(tmp_path, monkeypatc
         (["--host", "0.0.0.0", "--otlp"], (4318, False)),
     ],
 )
-def test_serve_runs_the_receiver_by_default_on_this_machine_only(monkeypatch, flags, expected):
+@pytest.mark.parametrize("command", ["dashboard", "serve"])
+def test_dashboard_runs_the_receiver_by_default_on_this_machine_only(
+    monkeypatch, flags, expected, command
+):
     calls = []
     monkeypatch.setattr(cli, "run_serve", lambda **kw: calls.append(kw) or 0)
-    assert main(["serve", "--no-open", *flags]) == 0
+    assert main([command, "--no-open", *flags]) == 0
     assert (calls[0]["otlp_port"], calls[0]["otlp_required"]) == expected
 
 

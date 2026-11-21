@@ -76,6 +76,11 @@ import {
 } from "@/utils/otelRoute";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
 import OtelSidebar from "@/components/otel/OtelSidebar";
+import GraphReplayIntroDialog, {
+  graphReplayIntroSeen,
+} from "@/components/otel/GraphReplayIntroDialog";
+
+const subscribeNever = () => () => {};
 import {
   isTraceExtension,
   watchTrace,
@@ -199,7 +204,7 @@ export default function Home() {
   const inspector = useInspectorPanel(disableGraphArrangeMode);
 
   // Which chrome this context shows: the website's tour and examples, or the
-  // trimmed viewer of `wizardflow ui` / a replay opened from the dashboard.
+  // trimmed viewer of `wizardflow replay` / a replay opened from the dashboard.
   const { chrome } = useViewerChrome();
   // From the dashboard, its sidebar stays beside the replay, pointing at the
   // project the user came from.
@@ -270,6 +275,16 @@ export default function Home() {
     !loadingExampleId &&
     !exampleDeepLinkPending;
   const [tutorialOpen, setTutorialOpen] = useState(false);
+
+  // First arrival in graph replay from the dashboard: explain the execution
+  // strip and offer the span waterfall back. Read after hydration (the server
+  // says "seen"), so the static HTML never has it open.
+  const replayIntroSeen = useSyncExternalStore(
+    subscribeNever,
+    graphReplayIntroSeen,
+    () => true
+  );
+  const [replayIntroClosed, setReplayIntroClosed] = useState(false);
 
   // Explainer toast shown over a freshly started demo replay (see
   // DemoExplainerToast). Armed by the demo entry points: the welcome dialog
@@ -477,6 +492,16 @@ export default function Home() {
   );
 
   const openSearch = useCallback(() => setSearchOpen(true), []);
+  // The demo toast sits above dialogs (a Snackbar outranks a Modal), so a
+  // dialog opened from the header dismisses it instead of being covered.
+  const openTutorial = useCallback(() => {
+    setDemoToast(null);
+    setTutorialOpen(true);
+  }, []);
+  const openGallery = useCallback(() => {
+    setDemoToast(null);
+    setGalleryOpen(true);
+  }, []);
   useSearchHotkey(hasFlow, openSearch);
 
   // Clicking a node pauses a running replay before selecting it. Playback
@@ -714,7 +739,7 @@ export default function Home() {
     if (tail) handleSelectMessage(tail.id);
   }, [trace.messages, handleSelectMessage]);
 
-  // Local SDK launcher support: `wizardflow ui trace.json` serves the bundled
+  // Local SDK launcher support: `wizardflow replay trace.json` serves the bundled
   // static app and opens `/?trace=/__wizardflow_trace.json&traceName=...`.
   // Keep this same-origin only; the hosted website should not become a generic
   // cross-origin JSON fetcher just because a query string says so.
@@ -1109,6 +1134,10 @@ export default function Home() {
     executionCount: trace.messages.length,
     projects: dashboardProjects.data ?? [],
     onStep: goToAdjacentMessage,
+    onJump: (index: number) => {
+      const message = trace.messages[index];
+      if (message) handleSelectMessage(message.id);
+    },
     spanHref:
       dashboardProject && dashboardTraceId
         ? otelHref({
@@ -1134,10 +1163,6 @@ export default function Home() {
 
   return (
     // Always this row, sidebar or not: switching the tree's shape after
-    onJump: (index: number) => {
-      const message = trace.messages[index];
-      if (message) handleSelectMessage(message.id);
-    },
     // hydration (the context is read from the URL) would remount the viewer.
     <Box
       sx={{
@@ -1211,6 +1236,18 @@ export default function Home() {
           }}
         />
 
+        <GraphReplayIntroDialog
+          open={
+            !!dashboardBackHref &&
+            hasFlow &&
+            !isLoadingUrlTrace &&
+            !replayIntroSeen &&
+            !replayIntroClosed
+          }
+          onStay={() => setReplayIntroClosed(true)}
+          waterfallHref={dashboardView.spanHref ?? dashboardBackHref ?? undefined}
+        />
+
         <SearchDialog
           open={searchOpen}
           onClose={() => setSearchOpen(false)}
@@ -1274,9 +1311,9 @@ export default function Home() {
           dashboardView={dashboardView}
           onGoToPart={goToPart}
           onClearFlow={handleDropFlow}
-          onOpenGallery={() => setGalleryOpen(true)}
+          onOpenGallery={openGallery}
           onUploadLoad={handleUploadLoad}
-          onOpenTutorial={() => setTutorialOpen(true)}
+          onOpenTutorial={openTutorial}
           onOpenSearch={openSearch}
           isDarkMode={isDarkMode}
           onToggleColorMode={toggleColorMode}
@@ -1330,7 +1367,7 @@ export default function Home() {
               // Under the first-paint cover while a `?trace=` URL loads.
               <EmptyCanvas
                 onUploadLoad={handleUploadLoad}
-                onOpenGallery={() => setGalleryOpen(true)}
+                onOpenGallery={openGallery}
                 showExamples={chrome.examples}
               />
             )}

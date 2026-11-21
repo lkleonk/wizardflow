@@ -5,12 +5,12 @@ import styles from "./whyWizardFlow.module.css";
 export const metadata: Metadata = {
   title: "Why WizardFlow?",
   description:
-    "Portable, local-first agent traces with optional OpenTelemetry export for your existing observability stack.",
+    "Portable, local-first agent traces, a local dashboard for many runs, and OpenTelemetry in both directions.",
   alternates: { canonical: "/why-wizardflow" },
   openGraph: {
     title: "Why WizardFlow?",
     description:
-      "Portable agent traces for local replay, sharing, focused debugging, and optional OpenTelemetry export.",
+      "Portable agent traces for local replay and sharing, a local dashboard for many runs, and OpenTelemetry import and export.",
     url: "/why-wizardflow",
   },
 };
@@ -20,7 +20,8 @@ const comparison = [
   ["Core interaction", "Graph and replay", "Search and analysis"],
   ["Replay unit", "One workflow execution", "Usually a trace"],
   ["Standalone sharing", "Send one file", "Varies by platform"],
-  ["OpenTelemetry export", "Optional OTLP traces", "Often built in"],
+  ["Many runs", "Local dashboard, one SQLite file", "Hosted or self-hosted backend"],
+  ["OpenTelemetry", "Import, receive, and export OTLP", "Often built in"],
   ["Fleet-wide monitoring", "Not the focus", "Core capability"],
   ["Team dashboards and evaluations", "Not the focus", "Core capability"],
 ];
@@ -40,7 +41,9 @@ export default function WhyWizardFlowPage() {
         <p className={styles.lead}>
           WizardFlow turns an agent run into a portable JSONL file and an
           intuitive, graph-based replay. Open it locally or in your
-          browser&mdash;no backend or account required.
+          browser&mdash;no backend or account required. When you have many
+          runs, a local dashboard brings them together with any OpenTelemetry
+          data.
         </p>
 
         <section className={styles.featureOverview}>
@@ -74,9 +77,9 @@ export default function WhyWizardFlowPage() {
               <p className={styles.featureKicker}>Simple</p>
               <h3>No backend required</h3>
               <p>
-                Record and inspect runs without deploying a trace server or
-                maintaining a database. The hosted viewer processes files in
-                your browser.
+                Record and inspect runs without deploying a trace server. The
+                hosted viewer processes files in your browser, and the
+                dashboard runs on your own machine.
               </p>
             </article>
           </div>
@@ -163,7 +166,7 @@ export default function WhyWizardFlowPage() {
           <div className={styles.replayGrid}>
             <div>
               <h3>On your machine</h3>
-              <code>wizardflow ui run.jsonl</code>
+              <code>wizardflow replay run.jsonl</code>
               <p>opens the complete viewer locally.</p>
             </div>
             <div>
@@ -178,7 +181,41 @@ export default function WhyWizardFlowPage() {
         </section>
 
         <section className={styles.section}>
-          <h2>File-first, with optional OpenTelemetry export</h2>
+          <h2>Many runs: the local dashboard</h2>
+          <p>
+            <code>wizardflow dashboard</code> opens a dashboard over all your
+            runs: projects, traces, logs, and every span with its attributes.
+            It runs on your machine and keeps everything in one SQLite file, with
+            no account, collector, or extra dependencies.
+          </p>
+          <ul>
+            <li>Import your WizardFlow runs and OpenTelemetry Collector files.</li>
+            <li>
+              Receive OTLP live: point any app with OpenTelemetry at it while it
+              runs.
+            </li>
+            <li>
+              Read each execution as the usual span waterfall, then open the same
+              execution in graph replay.
+            </li>
+            <li>
+              Traces from other tools get graph replay too, through an attribute
+              mapping with presets for the OTel GenAI conventions, OpenInference
+              (Phoenix), and Langfuse.
+            </li>
+          </ul>
+          <a
+            className={styles.inlineLink}
+            href="https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/otel-dashboard.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Read the dashboard guide
+          </a>
+        </section>
+
+        <section className={styles.section}>
+          <h2>File-first, with OpenTelemetry in both directions</h2>
           <p>
             The JSONL trace remains the durable, transport-neutral source of
             truth. It preserves the graph, workflow executions, node executions,
@@ -186,20 +223,27 @@ export default function WhyWizardFlowPage() {
             observability vendor.
           </p>
           <p>
-            When you also need centralized traces, the Python SDK can export
-            node executions as <strong>OpenTelemetry spans over OTLP</strong>.
-            That lets tools such as Phoenix and Langfuse ingest the run through
-            their trace pipelines while WizardFlow keeps the replayable file.
+            When you also need centralized traces, the Python SDK exports each
+            workflow execution as <strong>OpenTelemetry spans over OTLP</strong>,
+            live while recording or later from a file. That lets tools such as
+            Phoenix and Langfuse ingest the run through their trace pipelines
+            while WizardFlow keeps the replayable file.
           </p>
           <ul>
             <li>Node spans retain the original WizardFlow timestamps.</li>
             <li>LLM, agent, tool, and retrieval semantics map conservatively.</li>
-            <li>Prompt and output content export is disabled by default.</li>
+            <li>
+              Recorded content is exported within size limits and can be turned
+              off.
+            </li>
             <li>JSONL and OpenTelemetry can be enabled independently.</li>
+            <li>
+              Exporting a recorded run needs no OpenTelemetry packages.
+            </li>
           </ul>
           <p>
-            Importing existing OpenTelemetry traces into WizardFlow is planned
-            for a future release.
+            In the other direction, the local dashboard imports and receives
+            OpenTelemetry traces from any source.
           </p>
           <a
             className={styles.inlineLink}
@@ -214,8 +258,9 @@ export default function WhyWizardFlowPage() {
         <section className={styles.section}>
           <h2>A different starting point</h2>
           <p>
-            WizardFlow starts with portable, graph-based replay and can grow
-            into centralized observability. Most observability platforms start
+            WizardFlow starts with portable, graph-based replay, adds a local
+            dashboard for many runs, and connects to centralized observability
+            through OpenTelemetry. Most observability platforms start
             with centralized traces, search, and operational monitoring.
           </p>
           <div className={styles.tableWrap}>
@@ -255,9 +300,10 @@ export default function WhyWizardFlowPage() {
             colleague.
           </p>
           <p>
-            WizardFlow provides the portable, graph-based replay; a backend
-            provides the operational view across many runs. Through
-            OpenTelemetry, you can use both.
+            WizardFlow provides the portable, graph-based replay and a local
+            view across your own runs; a backend provides the operational view
+            across a team and production. Through OpenTelemetry, you can use
+            both.
           </p>
         </section>
 

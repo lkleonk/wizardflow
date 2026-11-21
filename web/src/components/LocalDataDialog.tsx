@@ -33,7 +33,7 @@ export default function LocalDataDialog({ open, onClose }: LocalDataDialogProps)
           pb: 1,
         }}
       >
-        Your data stays local
+        Data stays local
         <IconButton size="small" onClick={onClose} aria-label="Close">
           <CloseIcon fontSize="small" />
         </IconButton>
@@ -52,18 +52,25 @@ export default function LocalDataDialog({ open, onClose }: LocalDataDialogProps)
             >
               WizardFlow records agent runs as plain JSONL files. You can send
               them to a teammate, attach them to a bug report, commit them,
-              diff them, and replay them locally or in this browser. No
-              account, trace server, or database is required.
+              diff them, and replay them locally or in this browser. Replaying
+              one run needs no account, trace server, or database.
+            </Typography>
+          </Box>
+          <Box sx={{ display: "grid", gap: 1.5 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              The dashboard runs on your machine
             </Typography>
             <Typography
               variant="body2"
               color="text.secondary"
               sx={{ lineHeight: 1.7 }}
             >
-              Observability platforms are designed for centralized monitoring,
-              team dashboards, and hosted evaluations. WizardFlow focuses on
-              portable traces and replaying individual runs, making it ideal
-              for prototyping agent flows.
+              For many runs and OpenTelemetry data,{" "}
+              <Box component="code">wizardflow dashboard</Box> serves a dashboard
+              from your own computer. Everything it imports or receives goes
+              into one SQLite file in the folder you start it from. Its OTLP
+              receiver listens only on this machine unless you choose another
+              host, and nothing leaves it unless you export it yourself.
             </Typography>
           </Box>
         </Box>

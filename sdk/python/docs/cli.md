@@ -1,29 +1,45 @@
 # CLI and local viewer
 
-The `wizardflow` command reads both WizardFlow JSONL parts and the legacy
-single-document JSON representation.
+The `wizardflow` command has two halves:
+
+| | Commands | Works on |
+| --- | --- | --- |
+| **Replay** | `replay`, `md`, `html`, `json` | One run file. Nothing is stored. |
+| **Dashboard** | `dashboard`, `db import`, `db info`, `db migrate` | A local database of all your runs and OpenTelemetry data. See the [OTel dashboard guide](otel-dashboard.md). |
+
+`otel export` sends a run on to any OpenTelemetry backend.
+
+```bash
+wizardflow replay run.jsonl       # watch one run
+wizardflow dashboard              # open the dashboard, receiving OTLP on :4318
+wizardflow dashboard run.jsonl    # import a run, then open the dashboard
+```
+
+The replay commands read both WizardFlow JSONL parts and the legacy
+single-document JSON representation. The names before 0.9, `ui` and `serve`,
+still work as aliases of `replay` and `dashboard`.
 
 ## Selecting a trace
 
 Every subcommand accepts a trace as a positional argument or through `--path`:
 
 ```bash
-wizardflow ui run.jsonl
-wizardflow ui --path run.jsonl
+wizardflow replay run.jsonl
+wizardflow replay --path run.jsonl
 ```
 
 Use `--latest` to select the most recently modified `.jsonl` or `.json` file in
 a directory:
 
 ```bash
-wizardflow ui --latest
-wizardflow ui --latest traces/
+wizardflow replay --latest
+wizardflow replay --latest traces/
 ```
 
-## Local interactive viewer
+## Replay one run
 
 ```bash
-wizardflow ui run.jsonl [--host 127.0.0.1] [--port 0] [--no-open]
+wizardflow replay run.jsonl [--host 127.0.0.1] [--port 0] [--no-open]
 ```
 
 This starts a standard-library HTTP server and serves the static WizardFlow UI
@@ -41,10 +57,11 @@ while the tab is hidden and stops when the part gains `nextPart`, because a
 sealed part no longer grows. Part navigation loads neighboring files rather
 than stitching the entire rotation chain into one timeline.
 
-An OTLP JSON file passed to `wizardflow ui` is imported into the local
-database and opens in the OTel dashboard instead. `wizardflow serve` and the
-`wizardflow db` commands are covered in the
-[OTel dashboard guide](otel-dashboard.md).
+`replay` is for WizardFlow runs only. Given an OTLP JSON file, it stops and
+prints the `wizardflow dashboard FILE` command that opens it. When a dashboard
+database exists in the current directory, `replay` also prints how to add the
+run to it. `wizardflow dashboard` and the `wizardflow db` commands are covered
+in the [OTel dashboard guide](otel-dashboard.md).
 
 ## Markdown export
 
@@ -120,7 +137,7 @@ variables, privacy, and mapping details.
 
 ## Live traces and rotated parts
 
-`end_message()` appends one durable line, so `wizardflow ui` can show messages
+`end_message()` appends one durable line, so `wizardflow replay` can show messages
 while the process is still recording. When the active part rotates, its seal
 points to the next filename. The local server resolves only plain sibling part
 names from the trace directory; UI assets always take precedence.

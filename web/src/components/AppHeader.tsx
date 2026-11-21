@@ -216,7 +216,7 @@ export default function AppHeader({
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [localDataOpen, setLocalDataOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuAnchor(null), []);
-  // What this context shows (website / `wizardflow ui` / from the dashboard).
+  // What this context shows (website / `wizardflow replay` / from the dashboard).
   const { context, chrome } = useViewerChrome();
   const dashboardHref = useDashboardBackHref();
   const hasGuideItems = chrome.examples || chrome.upload || chrome.tutorial;

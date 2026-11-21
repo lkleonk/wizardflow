@@ -57,7 +57,7 @@ export default function DownloadTraceDialog({
       <DialogContent>
         <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>
           Saves {what} as one file. Share it, open it on getwizardflow.com or
-          with <Command>wizardflow ui {fileName}</Command>, or add it to a
+          with <Command>wizardflow replay {fileName}</Command>, or add it to a
           database with <Command>wizardflow db import {fileName}</Command>. It
           holds what the graph replay shows, so logs and spans outside the
           graph are left out.

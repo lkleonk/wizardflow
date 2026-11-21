@@ -18,7 +18,7 @@ import TraceView from "./TraceView";
 import TracesView from "./TracesView";
 
 /**
- * The local OTel dashboard (`wizardflow serve`): projects → traces / logs →
+ * The local OTel dashboard (`wizardflow dashboard`): projects → traces / logs →
  * one trace. Reads everything from the Python server's /api; on the website
  * there is no server, so it explains how to run it instead.
  */
@@ -37,7 +37,7 @@ export default function OtelApp() {
       <EmptyState title="The OTel dashboard runs on your machine">
         It reads your local WizardFlow database, so it needs the local server:
         <br />
-        <Mono>pip install wizardflow</Mono> then <Mono>wizardflow serve</Mono>
+        <Mono>pip install wizardflow</Mono> then <Mono>wizardflow dashboard</Mono>
       </EmptyState>
     );
   }

@@ -41,7 +41,7 @@ pip install opentelemetry-sdk opentelemetry-proto opentelemetry-exporter-otlp-pr
 To compare the two exporters by hand, `wizardflow otel export` takes a hidden
 `--exporter otel-sdk` flag that sends through the OTel SDK instead of the
 built-in exporter (default `--exporter builtin`). Point both at
-`wizardflow serve` and compare what arrives.
+`wizardflow dashboard` and compare what arrives.
 
 ## Schema contract
 

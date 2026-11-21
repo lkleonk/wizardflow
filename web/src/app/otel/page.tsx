@@ -5,7 +5,7 @@ import OtelFirstFrame from "@/components/otel/OtelFirstFrame";
 
 export const metadata: Metadata = {
   title: "OTel dashboard",
-  // Only meaningful under `wizardflow serve`; keep it out of search results.
+  // Only meaningful under `wizardflow dashboard`; keep it out of search results.
   robots: { index: false, follow: false },
 };
 
