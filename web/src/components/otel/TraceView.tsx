@@ -1519,21 +1519,28 @@ function ChatMessages({ raw }: { raw: unknown }) {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
       {messages.map((message, i) => (
+        // The user (and tool results) on the left, the model on the right. The
+        // system prompt is setup, not a turn: a muted block across the full
+        // width, its text left-aligned since prompts can run long.
         <Paper
           key={i}
           variant="outlined"
           sx={{
             p: 1,
             borderRadius: 2,
-            maxWidth: "92%",
-            alignSelf: message.role === "assistant" ? "flex-end" : "flex-start",
-            bgcolor: message.role === "assistant" ? "action.selected" : undefined,
+            ...(message.role === "system"
+              ? { alignSelf: "stretch", borderStyle: "dashed", bgcolor: "transparent", color: "text.secondary" }
+              : {
+                  maxWidth: "92%",
+                  alignSelf: message.role === "assistant" ? "flex-end" : "flex-start",
+                  bgcolor: message.role === "assistant" ? "action.selected" : undefined,
+                }),
           }}
         >
           <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: "text.secondary", textTransform: "uppercase" }}>
             {message.role ?? "message"}
           </Typography>
-          <Typography sx={{ fontSize: 13, whiteSpace: "pre-wrap" }}>
+          <Typography sx={{ fontSize: 13, whiteSpace: "pre-wrap", color: "inherit" }}>
             {(message.parts ?? [])
               .map((part) => (typeof part.content === "string" ? part.content : JSON.stringify(part.content)))
               .join("\n")}
