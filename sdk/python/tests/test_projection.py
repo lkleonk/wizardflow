@@ -201,6 +201,26 @@ def _conversation_store(tmp_path):
     return con
 
 
+def test_an_execution_with_any_failed_span_is_flagged(tmp_path):
+    con = open_store(tmp_path / "wf.db")
+    turn = lambda trace_id, n, start, status: traces_request(  # noqa: E731
+        [
+            span(f"{n}0" * 8, trace_id=trace_id, name="invoke_workflow", start=start, end=start + 50,
+                 attributes={"session.id": "chat-1"}),
+            span(f"{n}1" * 8, trace_id=trace_id, parent=f"{n}0" * 8, start=start + 1, end=start + 20,
+                 attributes={"wizardflow.node.id": "router"}),
+            # Not a node: the failure still belongs to this execution.
+            span(f"{n}2" * 8, trace_id=trace_id, parent=f"{n}1" * 8, name="http call",
+                 start=start + 2, end=start + 10, status=status),
+        ],
+        service="bot",
+    )
+    import_otlp_text(con, lines(turn("1" * 32, 1, 1_000, 1), turn("2" * 32, 2, 5_000, 2)))
+    replay = project_conversation(con, "bot", "chat-1")
+    assert [m.get("otelError") for m in replay["messages"]] == [None, True]
+    con.close()
+
+
 def test_conversation_replays_its_executions_as_messages_with_inferred_graph(tmp_path):
     con = _conversation_store(tmp_path)
     assert [(c["conversationId"], c["executions"]) for c in list_conversations(con, "bot")] == [

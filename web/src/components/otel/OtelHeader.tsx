@@ -13,6 +13,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { LiveStatusDot } from "@/components/LiveDot";
 import type { ApiProject } from "@/types/otelstore";
 import { goToHref, isReplayUrl, otelHref, type OtelRoute } from "@/utils/otelRoute";
+import ExecutionPicker, { type ExecutionPickerProps } from "./ExecutionPicker";
 import { Mono } from "./OtelBits";
 
 const VIEW_LABELS: Record<string, string> = { traces: "Traces", trace: "Traces", logs: "Logs" };
@@ -30,6 +31,7 @@ export function executionCrumbs({
     label?: React.ReactNode;
     onPrev?: () => void;
     onNext?: () => void;
+    picker: ExecutionPickerProps;
   };
 }): React.ReactNode[] {
   const crumbs: React.ReactNode[] = [];
@@ -70,9 +72,11 @@ export function executionCrumbs({
     );
     crumbs.push(
       <Box key="execution" sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, whiteSpace: "nowrap" }}>
-        <Typography component="span" sx={{ fontWeight: 650 }}>
-          {execution.label ?? `Execution ${execution.position} of ${execution.total}`}
-        </Typography>
+        <ExecutionPicker
+          {...execution.picker}
+          position={execution.position}
+          label={execution.label ?? `Execution ${execution.position} of ${execution.total}`}
+        />
         {step("Previous", execution.onPrev, <ChevronLeftIcon fontSize="small" />)}
         {step("Next", execution.onNext, <ChevronRightIcon fontSize="small" />)}
       </Box>

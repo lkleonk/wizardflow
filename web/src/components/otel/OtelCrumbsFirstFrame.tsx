@@ -29,6 +29,7 @@ export default function OtelCrumbsFirstFrame() {
             label: <span className="wf-crumb-execution" />,
             onPrev: noop,
             onNext: noop,
+            picker: { onJump: noop }, // so the arrow is already in place
           },
         })}
       />

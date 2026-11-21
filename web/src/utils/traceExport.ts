@@ -4,8 +4,9 @@ import type { AgentTraceFile, AgentTraceRecord, AgentTraceStep } from "@/types/a
  * The trace as AgentTrace JSONL: a header line, then one line per execution,
  * the framing the SDK writes (see the record types in agenttrace.ts).
  *
- * Drops `otelTraceId` / `otelSpanId`: they point into this machine's database,
- * which means nothing to whoever receives the file.
+ * Drops `otelTraceId` / `otelSpanId` (they point into this machine's database,
+ * which means nothing to whoever receives the file) and `otelError` with them:
+ * the other dashboard-only field, which a file reader has no use for.
  */
 export function toTraceJsonl(trace: AgentTraceFile): string {
   const { messages, ...header } = trace;
@@ -14,6 +15,7 @@ export function toTraceJsonl(trace: AgentTraceFile): string {
     ...messages.map((message) => {
       const record = { type: "message" as const, ...message, steps: message.steps.map(withoutSpanId) };
       delete record.otelTraceId;
+      delete record.otelError;
       return record;
     }),
   ];

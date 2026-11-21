@@ -36,6 +36,7 @@ import type { AgentTraceFile } from "@/types/agenttrace";
 import { TOOLTIP_TIMING } from "@/theme/muiTheme";
 import type { ApiProject } from "@/types/otelstore";
 import { isHostedWizardFlow } from "@/utils/deploymentTarget";
+import { executionChoices } from "@/utils/traceSelectors";
 import { useDashboardBackHref, useViewerChrome } from "@/utils/viewerContext";
 
 // Controls that move into the overflow menu on phones.
@@ -54,6 +55,7 @@ export type DashboardReplayView = {
   /** For the breadcrumb's project switcher. */
   projects: ApiProject[];
   onStep: (direction: -1 | 1) => void;
+  onJump: (index: number) => void;
   /** The current step on the span timeline; unset without a database trace. */
   spanHref?: string;
 };
@@ -184,6 +186,7 @@ function DashboardCrumbs({
           total: count,
           onPrev: index > 0 ? () => view.onStep(-1) : undefined,
           onNext: index < count - 1 ? () => view.onStep(1) : undefined,
+          picker: { choices: executionChoices(trace.messages), onJump: view.onJump },
         },
       })}
     />

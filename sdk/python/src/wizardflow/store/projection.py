@@ -121,7 +121,7 @@ def _project(
     for trace_row, trace_id in rows:
         spans = con.execute(
             "SELECT span_id, parent_span_id, name, start_ns, end_ns, attributes, node_id, "
-            "node_kind, execution_key, input_tokens, output_tokens FROM spans "
+            "node_kind, execution_key, input_tokens, output_tokens, status_code FROM spans "
             "WHERE trace_row = ? ORDER BY start_ns, id",
             (trace_row,),
         ).fetchall()
@@ -145,7 +145,7 @@ def _project(
                 continue
             executions.setdefault(span[8] or trace_id, []).append(span)
         for message_id, node_spans in executions.items():
-            messages.append(_message(message_id, trace_id, node_spans, root, root_attrs, mapping))
+            messages.append(_message(message_id, trace_id, node_spans, root, root_attrs, mapping, spans))
 
     messages.sort(key=lambda m: m["steps"][0]["timestamp"] if m["steps"] else "")
     graph, graph_source = _graph(graph_event, messages)
@@ -170,6 +170,9 @@ def _project(
     }
 
 
+_STATUS_ERROR = 2  # OTLP Status.code
+
+
 def _message(
     message_id: str,
     trace_id: str,
@@ -177,10 +180,11 @@ def _message(
     root: Optional[Tuple[Any, ...]],
     root_attrs: Dict[str, Any],
     mapping: Mapping,
+    trace_spans: List[Tuple[Any, ...]],
 ) -> Dict[str, Any]:
     steps = []
     for n, (span_id, _parent, _name, start, end, attrs_json, node_id, node_kind, _exec,
-            in_tokens, out_tokens) in enumerate(node_spans, start=1):
+            in_tokens, out_tokens, _status) in enumerate(node_spans, start=1):
         attrs = json.loads(attrs_json)
         step: Dict[str, Any] = {
             "id": Ids.STEP_ID_FORMAT.format(message_id=message_id, n=n),
@@ -199,7 +203,11 @@ def _message(
     message: Dict[str, Any] = {"id": message_id, "otelTraceId": trace_id, "steps": steps}
     # The workflow root carries the execution's title and metadata, but only
     # when it is this execution's own root (one trace per execution).
-    if root is not None and root_attrs.get("wizardflow.message.id") in (None, message_id):
+    owns_trace = root is not None and root_attrs.get("wizardflow.message.id") in (None, message_id)
+    # With its own trace, any failed span counts; sharing one, only its nodes can.
+    if any(span[11] == _STATUS_ERROR for span in (trace_spans if owns_trace else node_spans)):
+        message["otelError"] = True
+    if owns_trace:
         title = _decoded(root_attrs, "wizardflow.message.title")
         if title is not None:
             message["label"] = _text(title)

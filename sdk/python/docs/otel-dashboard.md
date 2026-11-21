@@ -157,9 +157,10 @@ whether a record belongs to a trace, and search their text.
 ## Graph replay
 
 A trace with graph nodes shows **Show graph** in a strip above the inspector.
-That opens the graph right under the strip, without playback: it highlights
-the selected span's node, and clicking a node selects its latest span in this
-execution.
+That opens the graph right under the strip: it highlights the selected span's
+node, and clicking a node selects its latest span in this execution. The
+strip's step and play buttons (or `←`, `→`, and Space) walk through this
+execution's nodes and stop at the last one.
 
 **Open graph replay**, at the top right of the span page, opens the full view
 on that execution and node. Graph replay plays the run back node by node, in

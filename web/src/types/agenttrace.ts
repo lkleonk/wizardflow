@@ -65,6 +65,8 @@ export type AgentTraceMessage = {
    * viewer's Download JSONL emits it.
    */
   otelTraceId?: string;
+  /** A span of this execution failed. Projection-only, like `otelTraceId`. */
+  otelError?: boolean;
   steps: AgentTraceStep[];
 };
 

@@ -173,6 +173,36 @@ export function messageInputText(
   return text.replace(/\s+/g, " ").trim();
 }
 
+/** One row of the "Execution 2 of 5" picker. */
+export type ExecutionChoice = {
+  title: string;
+  startedAt?: string;
+  failed: boolean;
+  traceId?: string;
+};
+
+/**
+ * The picker's rows. Without an explicit title every execution is labelled with
+ * its root span's name, the same for all of them, so a label only counts when
+ * it tells executions apart; otherwise the entry input says more.
+ */
+export function executionChoices(messages: AgentTraceMessage[]): ExecutionChoice[] {
+  const uses = new Map<string, number>();
+  for (const { label } of messages) {
+    if (label) uses.set(label, (uses.get(label) ?? 0) + 1);
+  }
+  return messages.map((message, index) => {
+    const label = message.label?.trim();
+    const distinct = label && uses.get(message.label!) === 1;
+    return {
+      title: (distinct ? label : messageInputText(message) || label) || `Execution ${index + 1}`,
+      startedAt: orderedSteps(message)[0]?.timestamp,
+      failed: message.otelError === true,
+      traceId: message.otelTraceId,
+    };
+  });
+}
+
 /**
  * Per-step delta (ms): time from the previous step to `steps[index]` — how long
  * this hop took. Undefined on the first step or if timestamps can't be parsed.

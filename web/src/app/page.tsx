@@ -1134,6 +1134,10 @@ export default function Home() {
 
   return (
     // Always this row, sidebar or not: switching the tree's shape after
+    onJump: (index: number) => {
+      const message = trace.messages[index];
+      if (message) handleSelectMessage(message.id);
+    },
     // hydration (the context is read from the URL) would remount the viewer.
     <Box
       sx={{

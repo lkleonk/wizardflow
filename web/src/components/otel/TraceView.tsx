@@ -14,6 +14,10 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
+import PauseIcon from "@mui/icons-material/Pause";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import SkipNextIcon from "@mui/icons-material/SkipNext";
+import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
@@ -23,6 +27,8 @@ import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
 import DownloadTraceDialog from "@/components/DownloadTraceDialog";
 import { clearCrumbsFirstFrame, rememberCrumbs } from "@/components/TracePendingScript";
 import { useSearchHotkey } from "@/hooks/useKeyboardShortcuts";
+import type { AgentTraceFile } from "@/types/agenttrace";
+import { executionChoices, type ExecutionChoice } from "@/utils/traceSelectors";
 import { nodeColorAt, nodeColorForKind } from "@/theme/muiTheme";
 import {
   TraceFlag,
@@ -42,6 +48,7 @@ import {
 } from "@/utils/otelApi";
 import { keyMatches, setDisplayPrefs, useDisplayPrefs, type DisplayPrefs } from "@/utils/otelDisplay";
 import { goTo, isReplayUrl, otelHref, replayHref, replayUrlAt, type OtelRoute } from "@/utils/otelRoute";
+import type { ExecutionPickerProps } from "./ExecutionPicker";
 import OtelHeader, { executionCrumbs } from "./OtelHeader";
 import { LoadError, Loading, Mono, SeverityChip, TraceBadges, graphSource } from "./OtelBits";
 import SpanSearchDialog from "./SpanSearchDialog";
@@ -148,7 +155,13 @@ export default function TraceView({
   useEffect(() => {
     if (!loading) clearCrumbsFirstFrame();
   }, [loading]);
-  if (error || loading || !data) {
+  // Moving to another execution keeps the current one on screen until the next
+  // has arrived, so the header and graph don't blink away in between.
+  const href = otelHref(route);
+  const [held, setHeld] = useState<{ detail: ApiTraceDetail; route: typeof route; href: string } | null>(null);
+  if (data && (held?.detail !== data || held.href !== href)) setHeld({ detail: data, route, href });
+  const shown = data ? { detail: data, route } : loading && held?.route.project === route.project ? held : null;
+  if (error || !shown) {
     return (
       <>
         <OtelHeader route={route} projects={projects} live={false} />
@@ -156,7 +169,7 @@ export default function TraceView({
       </>
     );
   }
-  return <TraceDetail detail={data} route={route} projects={projects} />;
+  return <TraceDetail detail={shown.detail} route={shown.route} projects={projects} />;
 }
 
 function TraceDetail({
@@ -193,6 +206,26 @@ function TraceDetail({
   const select = (spanId: string) => goTo({ ...route, span: spanId }, { replace: true });
   const back = otelHref(route);
   const replayable = (trace.flags & TraceFlag.WIZARDFLOW) !== 0;
+  const playback = useSpanPlayback(trace.traceId, spans, selected, replayable && graphOpen, select);
+  // Loaded when the popup first opens; the graph and download use the same data.
+  const [pickerWanted, setPickerWanted] = useState(false);
+  const replayData = useApi<AgentTraceFile>(
+    pickerWanted && trace.conversationId ? agentTracePath(trace, route.project) : null,
+    { live: true }
+  );
+  const picker: ExecutionPickerProps = {
+    choices: replayData.data ? oneChoicePerTrace(executionChoices(replayData.data.messages)) : undefined,
+    onOpen: () => setPickerWanted(true),
+    onJump: (index) => {
+      const traceId = picker.choices?.[index]?.traceId;
+      if (traceId) goTo({ view: "trace", project: route.project, trace: traceId, back: route.back });
+    },
+  };
+  // A click on a span or node takes over from playback, as in the replay.
+  const pick = (spanId: string) => {
+    playback.pause();
+    select(spanId);
+  };
   const at = { traceId: trace.traceId, spanId: selected?.spanId };
   // Opened from a replay: return to that one, on the selected span.
   const replay =
@@ -212,7 +245,7 @@ function TraceDetail({
       <OtelHeader
         route={route}
         projects={projects}
-        trail={traceTrail(detail, route.project, route.back)}
+        trail={traceTrail(detail, route.project, route.back, picker)}
         live
         actions={
           <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1 }}>
@@ -250,7 +283,10 @@ function TraceDetail({
         spans={rows.map((row) => row.span)}
         logs={detail.logs}
         messageKeys={MESSAGE_KEYS}
-        onJump={(hit) => goTo({ ...route, span: hit.spanId, tab: hit.tab }, { replace: true })}
+        onJump={(hit) => {
+          playback.pause();
+          goTo({ ...route, span: hit.spanId, tab: hit.tab }, { replace: true });
+        }}
       />
       <TraceHeader detail={detail} project={route.project} replayable={replayable} />
       {detail.otherSlices.length > 0 && (
@@ -271,8 +307,9 @@ function TraceDetail({
         </Alert>
       )}
       <SplitPane
+        traceId={trace.traceId}
         spanCount={spans.length}
-        left={<SpanTimeline rows={rows} detail={detail} accents={accents} selectedId={selected?.spanId} onSelect={select} />}
+        left={<SpanTimeline rows={rows} detail={detail} accents={accents} selectedId={selected?.spanId} onSelect={pick} />}
         right={
           selected ? (
             <GraphAndInspector
@@ -282,7 +319,11 @@ function TraceDetail({
                     span={selected}
                     detail={detail}
                     open={graphOpen}
-                    onToggle={() => showGraph(!graphOpen)}
+                    onToggle={() => {
+                      playback.pause();
+                      showGraph(!graphOpen);
+                    }}
+                    controls={graphOpen && playback.hasSteps ? <PlaybackButtons playback={playback} /> : null}
                   />
                 ) : null
               }
@@ -293,7 +334,7 @@ function TraceDetail({
                       path={agentTracePath(trace, route.project)}
                       spans={spans}
                       selected={selected}
-                      onSelectSpan={select}
+                      onSelectSpan={pick}
                     />
                   </Suspense>
                 ) : null
@@ -316,7 +357,12 @@ function TraceDetail({
 }
 
 /** Crumbs after "Traces": the conversation, then which execution this is. */
-function traceTrail(detail: ApiTraceDetail, project: string, back?: string): React.ReactNode[] {
+function traceTrail(
+  detail: ApiTraceDetail,
+  project: string,
+  back: string | undefined,
+  picker: ExecutionPickerProps
+): React.ReactNode[] {
   const { trace, conversation } = detail;
   if (!trace.conversationId) {
     return [<Mono key="id" sx={{ fontWeight: 650 }}>{trace.traceId.slice(0, 12)}…</Mono>];
@@ -331,9 +377,16 @@ function traceTrail(detail: ApiTraceDetail, project: string, back?: string): Rea
           total: conversation.total,
           onPrev: stepTo(conversation.prevTraceId),
           onNext: stepTo(conversation.nextTraceId),
+          picker,
         }
       : undefined,
   });
+}
+
+/** The span page counts traces, and one trace can hold several executions. */
+function oneChoicePerTrace(choices: ExecutionChoice[]): ExecutionChoice[] {
+  const seen = new Set<string | undefined>();
+  return choices.filter((choice) => !seen.has(choice.traceId) && seen.add(choice.traceId));
 }
 
 /** A replay plays the whole conversation, so its data is the conversation's. */
@@ -481,10 +534,12 @@ function readTreeWidth(): number | null {
  * tree to a strip, for this trace only: the next trace opens with its tree.
  */
 function SplitPane({
+  traceId,
   spanCount,
   left,
   right,
 }: {
+  traceId: string;
   spanCount: number;
   left: React.ReactNode;
   right: React.ReactNode;
@@ -492,7 +547,10 @@ function SplitPane({
   const [width, setWidth] = useState<number | null>(() =>
     typeof window === "undefined" ? null : readTreeWidth()
   );
-  const [collapsed, setCollapsed] = useState(false);
+  // Tied to the trace: the page stays mounted when moving between executions.
+  const [collapsedTrace, setCollapsedTrace] = useState<string | null>(null);
+  const collapsed = collapsedTrace === traceId;
+  const setCollapsed = (on: boolean) => setCollapsedTrace(on ? traceId : null);
   const container = useRef<HTMLDivElement>(null);
   const save = (value: number | null) => {
     setWidth(value);
@@ -677,17 +735,136 @@ function readGraphHeight(): number {
   }
 }
 
+const PLAYBACK_STEP_MS = 1200; // the replay's default pace
+
+type SpanPlayback = ReturnType<typeof useSpanPlayback>;
+
+/** Keys the step shortcuts must leave alone: typing, dialogs, and widgets with arrow keys of their own. */
+function stepKeyIgnored(event: KeyboardEvent): boolean {
+  if (event.metaKey || event.ctrlKey || event.altKey) return true;
+  const target = event.target as HTMLElement | null;
+  if (!target) return false;
+  if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return true;
+  if (target.closest('[role="dialog"],[role="tablist"],[role="separator"],[role="listbox"],[role="combobox"],[role="menu"]')) {
+    return true;
+  }
+  return event.key === " " && target.tagName === "BUTTON"; // Space presses the focused button
+}
+
+/**
+ * Walks this execution's node spans in time order by selecting them, so the
+ * timeline, graph and inspector all follow. It stops on the last node.
+ */
+function useSpanPlayback(
+  traceId: string,
+  spans: ApiSpan[],
+  selected: ApiSpan | undefined,
+  enabled: boolean,
+  select: (spanId: string) => void
+) {
+  // Tied to the trace: moving to another execution ends playback by itself.
+  const [playingTrace, setPlayingTrace] = useState<string | null>(null);
+  const playing = playingTrace === traceId;
+  const setPlaying = (on: boolean) => setPlayingTrace(on ? traceId : null);
+  const runs = spans.filter((s) => s.nodeId).sort((a, b) => nsDiff(a.startNs, b.startNs));
+  const position = runs.findIndex((s) => s.spanId === selected?.spanId);
+  // From a span outside the graph, the nearest node run on that side of it.
+  const neighbour = (direction: -1 | 1): ApiSpan | undefined => {
+    if (position >= 0) return runs[position + direction];
+    if (!selected) return direction > 0 ? runs[0] : undefined;
+    return direction > 0
+      ? runs.find((s) => nsDiff(s.startNs, selected.startNs) >= 0)
+      : [...runs].reverse().find((s) => nsDiff(s.startNs, selected.startNs) < 0);
+  };
+  const previous = neighbour(-1);
+  const next = neighbour(1);
+  const nextId = next?.spanId;
+
+  useEffect(() => {
+    if (!playing) return;
+    const timer = setTimeout(() => {
+      if (nextId) select(nextId);
+      else setPlayingTrace(null);
+    }, PLAYBACK_STEP_MS);
+    return () => clearTimeout(timer);
+  }, [playing, nextId, select]);
+
+  const step = (span: ApiSpan | undefined) => {
+    setPlaying(false);
+    if (span) select(span.spanId);
+  };
+  const togglePlay = () => {
+    if (playing) {
+      setPlaying(false);
+      return;
+    }
+    if (!next && runs[0]) select(runs[0].spanId); // at the end: from the top
+    setPlaying(true);
+  };
+
+  useEffect(() => {
+    if (!enabled) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (stepKeyIgnored(event)) return;
+      if (event.key === "ArrowLeft") step(previous);
+      else if (event.key === "ArrowRight") step(next);
+      else if (event.key === " ") togglePlay();
+      else return;
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  return {
+    playing: playing && enabled,
+    hasSteps: runs.length > 0,
+    canGoBack: previous !== undefined,
+    canGoForward: next !== undefined,
+    stepBack: () => step(previous),
+    stepForward: () => step(next),
+    togglePlay,
+    pause: () => setPlaying(false),
+  };
+}
+
+function PlaybackButtons({ playback }: { playback: SpanPlayback }) {
+  const button = (label: string, onClick: () => void, disabled: boolean, icon: React.ReactNode) => (
+    <Tooltip title={disabled ? "" : label}>
+      <span>
+        <IconButton size="small" onClick={onClick} disabled={disabled} aria-label={label}>
+          {icon}
+        </IconButton>
+      </span>
+    </Tooltip>
+  );
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", flex: "none" }}>
+      {button("Previous step (←)", playback.stepBack, !playback.canGoBack, <SkipPreviousIcon fontSize="small" />)}
+      {button(
+        playback.playing ? "Pause (Space)" : "Play this execution (Space)",
+        playback.togglePlay,
+        false,
+        playback.playing ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />
+      )}
+      {button("Next step (→)", playback.stepForward, !playback.canGoForward, <SkipNextIcon fontSize="small" />)}
+    </Box>
+  );
+}
+
 /** Docked on top of the graph, so the toggle and what it opens read as one. */
 function GraphStrip({
   span,
   detail,
   open,
   onToggle,
+  controls,
 }: {
   span: ApiSpan;
   detail: ApiTraceDetail;
   open: boolean;
   onToggle: () => void;
+  controls: React.ReactNode;
 }) {
   const { trace } = detail;
   return (
@@ -721,6 +898,7 @@ function GraphStrip({
         )}
         <Box sx={{ fontSize: 11.5, color: "text.secondary" }}>{graphSource(trace.flags)}</Box>
       </Typography>
+      {controls}
       <Button
         size="small"
         variant="outlined"
@@ -849,6 +1027,11 @@ function SpanTimeline({
   onSelect: (spanId: string) => void;
 }) {
   const { trace } = detail;
+  // Stepping or playing can move the selection past the visible rows.
+  const selectedRow = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    selectedRow.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedId]);
   const total = Math.max(1, Number(trace.durationNs));
   const pct = (ns: string) => (nsDiff(ns, trace.startNs) / total) * 100;
   const logsBySpan = new Map<string, ApiLog[]>();
@@ -903,8 +1086,10 @@ function SpanTimeline({
         return (
           <Box
             key={span.spanId}
+            ref={selected ? selectedRow : undefined}
             onClick={() => onSelect(span.spanId)}
             sx={{
+              scrollMarginTop: "32px", // clear of the sticky header row
               display: "grid",
               gridTemplateColumns: grid,
               alignItems: "center",
