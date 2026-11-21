@@ -18,6 +18,7 @@ import PauseIcon from "@mui/icons-material/Pause";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SkipNextIcon from "@mui/icons-material/SkipNext";
 import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
@@ -932,12 +933,7 @@ function GraphStrip({
         ) : (
           "Not a graph node"
         )}
-        {trace.conversationId && (
-          <>
-            {" · conversation "}
-            <Mono>{trace.conversationId}</Mono>
-          </>
-        )}
+        {/* The conversation is in the crumbs and the facts row already. */}
         <Box sx={{ fontSize: 11.5, color: "text.secondary" }}>{graphSource(trace.flags)}</Box>
       </Typography>
       {controls}
@@ -1239,18 +1235,31 @@ function SpanTimeline({
 const PAYLOADS = "Payloads";
 const PAYLOAD_PREFIX = "wizardflow.payload.";
 
-const GROUPS: [string, (key: string) => boolean][] = [
+const GROUPS: [string, (key: string) => boolean, string][] = [
   // What the node logged, shown without the prefix.
-  [PAYLOADS, (k) => k.startsWith(PAYLOAD_PREFIX)],
-  // What the SDK sets on its own: message, node, kind, trace name.
-  ["WizardFlow ids", (k) => k.startsWith("wizardflow.")],
-  ["GenAI", (k) => k.startsWith("gen_ai.")],
+  [
+    PAYLOADS,
+    (k) => k.startsWith(PAYLOAD_PREFIX),
+    "Values logged with log(id, node, label, value), shown without the wizardflow.payload. prefix.",
+  ],
+  [
+    "WizardFlow",
+    (k) => k.startsWith("wizardflow."),
+    "Set by the WizardFlow SDK: message and node ids, node kind, trace name, message meta, and log_input / log_output on nodes with no GenAI equivalent.",
+  ],
+  [
+    "GenAI",
+    (k) => k.startsWith("gen_ai."),
+    "OpenTelemetry GenAI conventions (gen_ai.*): model messages, token usage, model parameters, tool calls, retrieval. Set by log_input / log_output / log_usage / log_model_parameters, or by any GenAI instrumentation.",
+  ],
   [
     "OpenInference",
     (k) => ["openinference.", "llm.", "input.", "output.", "tool."].some((p) => k.startsWith(p)),
+    "Attributes from OpenInference instrumentation (Arize Phoenix): llm.*, input.*, output.*, tool.*.",
   ],
-  ["Other", () => true],
+  ["Other", () => true, "Everything else on the span, such as HTTP or database attributes from other instrumentation."],
 ];
+const GROUP_HELP = new Map(GROUPS.map(([name, , help]) => [name, help]));
 const MESSAGE_KEYS = ["gen_ai.input.messages", "gen_ai.output.messages"];
 
 /** [full key, key as shown, value]: pins always refer to the full key. */
@@ -1436,11 +1445,31 @@ function KeyValues({ entries, pins }: { entries: Entry[]; pins?: string[] }) {
   );
 }
 
-function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
+function Section({
+  title,
+  note,
+  help,
+  children,
+}: {
+  title: string;
+  note?: string;
+  /** Shown in a tooltip on an info icon after the title. */
+  help?: string;
+  children: React.ReactNode;
+}) {
   return (
     <Box sx={{ mb: 2 }}>
       <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: "text.secondary", textTransform: "uppercase", letterSpacing: 0.5, mb: 0.5 }}>
         {title}
+        {help && (
+          <Tooltip title={help} placement="top" arrow>
+            <InfoOutlinedIcon
+              aria-label={help}
+              tabIndex={0}
+              sx={{ fontSize: 13, ml: 0.5, verticalAlign: "-2px", color: "text.disabled", cursor: "help" }}
+            />
+          </Tooltip>
+        )}
         {note && (
           <Box component="span" sx={{ textTransform: "none", letterSpacing: 0, fontWeight: 400, ml: 1, color: "text.disabled" }}>
             {note}
@@ -1568,7 +1597,7 @@ function SpanInspector({
               </Section>
             )}
             {layout.groups.map(([name, entries]) => (
-              <Section key={name} title={name}>
+              <Section key={name} title={name} help={GROUP_HELP.get(name)}>
                 <KeyValues entries={entries} pins={prefs.pins} />
               </Section>
             ))}
