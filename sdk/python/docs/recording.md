@@ -173,6 +173,9 @@ with trace.node(message_id, "generator") as node:
 ```
 
 - `log_input(value)` and `log_output(value)` preserve any JSON-compatible value.
+  On an `llm` or `agent` node, a chat message list
+  (`[{"role": "system", "content": ...}, ...]`) exports as one GenAI message
+  per entry; see [OpenTelemetry](opentelemetry.md#content-privacy-and-size-bounds).
 - `log_usage()` accepts non-negative integer token counts.
 - `log_model_parameters()` preserves both recognized and provider-specific
   parameters. Known snake-case names such as `max_tokens` receive stable

@@ -453,10 +453,23 @@ content is deterministically serialized and bounded by
 `otel_content_max_bytes`, measured as UTF-8 bytes. JSONL always retains the
 original untruncated value.
 
-Strings remain text. Other JSON-compatible input/output values are serialized
-as text content without guessing that arbitrary object keys represent chat
-messages. For compatible LLM and agent spans, the exporter wraps that text in
-the official GenAI input/output message structure.
+On LLM and agent spans, input and output become the official GenAI message
+structure (`gen_ai.input.messages` / `gen_ai.output.messages`):
+
+| Logged value | Exported messages |
+| --- | --- |
+| A string | One message: role `user` for input, `assistant` for output |
+| A chat message list, `[{"role": ..., "content": ...}, ...]` | One message per entry, each with its own role |
+| One chat message, `{"role": ..., "content": ...}` | One message with that role |
+| Anything else | One message (default role) whose text is the value's JSON |
+
+A message's `content` stays text when it is a string or a list of
+`{"type": "text", "text": ...}` parts; other content is exported as its JSON,
+and a message whose `content` is `None` (an assistant turn that only calls
+tools) exports its other fields as JSON. Only a value with `role` and
+`content` on every entry counts as chat messages; other objects are never
+guessed to be messages. When the text exceeds `otel_content_max_bytes`, earlier
+messages are kept whole and the first one over the limit is cut.
 
 ## Optional graph event
 

@@ -511,3 +511,69 @@ def test_close_reports_private_provider_flush_failure(caplog):
     with caplog.at_level("WARNING", logger="wizardflow"):
         assert bridge.close("2026-09-15T10:00:01.000Z") is False
     assert "did not flush" in caplog.text
+
+
+def _llm_messages(value, semantic="input", max_bytes=None):
+    extra = {} if max_bytes is None else {"content_max_bytes": max_bytes}
+    attrs = map_node_attributes(
+        message_id="m1",
+        node_id="model",
+        kind="llm",
+        payloads=[{"label": semantic, "value": value, "semanticType": semantic}],
+        include_content=True,
+        **extra,
+    )
+    name = f"gen_ai.{semantic}.messages"
+    return [
+        (m["role"], m["parts"][0]["content"]) for m in json.loads(attrs[name])
+    ], attrs
+
+
+def test_chat_message_list_keeps_one_message_per_entry():
+    messages, _ = _llm_messages([
+        {"role": "system", "content": "Answer from the sources."},
+        {"role": "user", "content": "Which databases support hybrid search?"},
+    ])
+    assert messages == [
+        ("system", "Answer from the sources."),
+        ("user", "Which databases support hybrid search?"),
+    ]
+
+
+def test_single_chat_message_keeps_its_role():
+    messages, _ = _llm_messages({"role": "assistant", "content": "Several do."}, "output")
+    assert messages == [("assistant", "Several do.")]
+
+
+def test_chat_message_content_that_is_not_a_string():
+    messages, _ = _llm_messages([
+        {"role": "user", "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]},
+        {"role": "tool", "content": {"temp": 19}},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}]},
+    ])
+    assert messages == [
+        ("user", "a\nb"),
+        ("tool", '{"temp":19}'),
+        ("assistant", '{"content":null,"tool_calls":[{"id":"c1"}]}'),
+    ]
+
+
+def test_values_not_shaped_like_messages_are_wrapped_as_before():
+    assert _llm_messages("hello")[0] == [("user", "hello")]
+    assert _llm_messages({"route": "web"})[0] == [("user", '{"route":"web"}')]
+    assert _llm_messages([])[0] == [("user", "[]")]
+    assert _llm_messages([{"role": "user"}])[0] == [("user", '[{"role":"user"}]')]
+
+
+def test_truncated_chat_messages_keep_earlier_messages_whole():
+    value = [
+        {"role": "system", "content": "short"},
+        {"role": "user", "content": "x" * 200},
+        {"role": "user", "content": "dropped"},
+    ]
+    messages, attrs = _llm_messages(value, max_bytes=150)
+    assert attrs["gen_ai.input.messages.truncated"] is True
+    assert len(attrs["gen_ai.input.messages"].encode("utf-8")) <= 150
+    assert messages[0] == ("system", "short")
+    assert [role for role, _ in messages] == ["system", "user"]
+    assert 0 < len(messages[1][1]) < 200

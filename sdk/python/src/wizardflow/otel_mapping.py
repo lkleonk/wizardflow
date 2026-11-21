@@ -246,30 +246,101 @@ def _put_content(
         attributes[f"{name}.original_size"] = original_size
 
 
-def _message_content(value: Any, role: str) -> List[Dict[str, Any]]:
+def _content_text(content: Any) -> str:
+    """One chat message's content as text.
+
+    A string stays as is; a list of ``{"type": "text", "text": ...}`` parts
+    (the OpenAI shape) is joined; anything else is its JSON.
+    """
+    if isinstance(content, str):
+        return content
+    if (
+        isinstance(content, list)
+        and content
+        and all(
+            isinstance(part, Mapping)
+            and part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+            for part in content
+        )
+    ):
+        return "\n".join(part["text"] for part in content)
+    return canonical_json(content)
+
+
+def _chat_messages(value: Any, role: str) -> List[Tuple[str, str]]:
+    """``(role, text)`` per message.
+
+    A value already shaped like chat messages (a ``{"role", "content"}`` dict,
+    or a non-empty list of them) keeps one message per entry and its own
+    roles. Anything else is one message with ``role`` and the value as text.
+    """
+    items = [value] if isinstance(value, Mapping) else value
+    if (
+        isinstance(items, list)
+        and items
+        and all(
+            isinstance(item, Mapping)
+            and isinstance(item.get("role"), str)
+            and item["role"]
+            and "content" in item
+            for item in items
+        )
+    ):
+        pairs = []
+        for item in items:
+            content = item["content"]
+            if content is None:
+                # e.g. an assistant turn that only calls tools: keep the rest
+                rest = {key: val for key, val in item.items() if key != "role"}
+                pairs.append((item["role"], canonical_json(rest)))
+            else:
+                pairs.append((item["role"], _content_text(content)))
+        return pairs
     text = value if isinstance(value, str) else canonical_json(value)
-    return [{"role": role, "parts": [{"type": "text", "content": text}]}]
+    return [(role, text)]
+
+
+def _render_messages(pairs: List[Tuple[str, str]], budget: Optional[int]) -> str:
+    """GenAI messages JSON, with at most ``budget`` bytes of text in total.
+
+    Earlier messages are kept whole; the first one over budget is cut and the
+    rest are left out. ``None`` keeps everything.
+    """
+    messages = []
+    for index, (role, text) in enumerate(pairs):
+        if budget is not None:
+            encoded = text.encode("utf-8")
+            if len(encoded) > budget:
+                text = encoded[:budget].decode("utf-8", errors="ignore")
+                if text or index == 0:
+                    messages.append(_text_message(role, text))
+                break
+            budget -= len(encoded)
+        messages.append(_text_message(role, text))
+    return canonical_json(messages)
+
+
+def _text_message(role: str, text: str) -> Dict[str, Any]:
+    return {"role": role, "parts": [{"type": "text", "content": text}]}
 
 
 def _put_messages(
     attributes: Dict[str, Any], name: str, value: Any, role: str, max_bytes: int
 ) -> None:
-    """Bound a GenAI message by trimming its text while keeping valid JSON."""
-    text = value if isinstance(value, str) else canonical_json(value)
-    messages = _message_content(text, role)
-    rendered = canonical_json(messages)
+    """Bound GenAI messages by trimming their text while keeping valid JSON."""
+    pairs = _chat_messages(value, role)
+    rendered = _render_messages(pairs, None)
     original_size = len(rendered.encode("utf-8"))
     if original_size <= max_bytes:
         attributes[name] = rendered
         attributes[f"{name}.encoding"] = "json"
         return
 
-    encoded = text.encode("utf-8")
-    low, high, best = 0, len(encoded), ""
+    low, high, best = 0, sum(len(text.encode("utf-8")) for _, text in pairs), ""
     while low <= high:
         middle = (low + high) // 2
-        prefix = encoded[:middle].decode("utf-8", errors="ignore")
-        candidate = canonical_json(_message_content(prefix, role))
+        candidate = _render_messages(pairs, middle)
         if len(candidate.encode("utf-8")) <= max_bytes:
             best = candidate
             low = middle + 1
