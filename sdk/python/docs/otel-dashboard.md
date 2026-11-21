@@ -152,7 +152,8 @@ messages, events, correlated logs, and the resource.
 - Pin an attribute with its pin icon to show it first on every span.
 
 **Logs.** The project's log records. You can filter by minimum severity and by
-whether a record belongs to a trace, and search their text.
+whether a record belongs to a trace, and search their text. Click a row to see
+its attributes and ids; its trace link opens the span it was logged in.
 
 ### Badges
 

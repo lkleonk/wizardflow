@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import InputAdornment from "@mui/material/InputAdornment";
@@ -15,6 +15,7 @@ import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 import SearchIcon from "@mui/icons-material/Search";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import type { ApiLog, Page } from "@/types/otelstore";
 import { apiPath, formatNsDateTime, useApi } from "@/utils/otelApi";
 import { goTo, otelHref, type LogCorrelation, type OtelRoute } from "@/utils/otelRoute";
@@ -32,6 +33,13 @@ const SEVERITIES: [number, string][] = [
 export default function LogsView({ route }: { route: OtelRoute & { project: string } }) {
   const filterKey = otelHref(route);
   const [paging, setPaging] = useState({ key: filterKey, limit: PAGE });
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const toggle = (id: number) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   const limit = paging.key === filterKey ? paging.limit : PAGE;
   const { data, error, loading } = useApi<Page<ApiLog>>(
     apiPath("logs", {
@@ -105,6 +113,7 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
           <Table size="small" aria-label="Logs">
             <TableHead>
               <TableRow>
+                <TableCell sx={{ width: 32, pr: 0 }} />
                 <TableCell>Time</TableCell>
                 <TableCell>Severity</TableCell>
                 <TableCell>Message</TableCell>
@@ -112,8 +121,23 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
               </TableRow>
             </TableHead>
             <TableBody>
-              {items.map((log) => (
-                <TableRow key={log.id} hover>
+              {items.map((log) => {
+                const open = expanded.has(log.id);
+                return (
+                <Fragment key={log.id}>
+                {/* A click opens the record's attributes, which have no column. */}
+                <TableRow
+                  hover
+                  onClick={() => toggle(log.id)}
+                  aria-expanded={open}
+                  sx={{ cursor: "pointer", "& > td": open ? { borderBottom: 0 } : undefined }}
+                >
+                  <TableCell sx={{ pr: 0 }}>
+                    <ChevronRightIcon
+                      fontSize="small"
+                      sx={{ display: "block", color: "text.secondary", transition: "transform 120ms", transform: open ? "rotate(90deg)" : undefined }}
+                    />
+                  </TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>
                     <Mono sx={{ fontSize: 12 }}>{formatNsDateTime(log.tsNs)}</Mono>
                   </TableCell>
@@ -130,7 +154,8 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
                     {log.traceId ? (
                       <Link
                         component="button"
-                        onClick={() =>
+                        onClick={(event) => {
+                          event.stopPropagation();
                           goTo({
                             view: "trace",
                             project: route.project,
@@ -138,8 +163,8 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
                             span: log.spanId ?? undefined,
                             tab: "logs",
                             back: otelHref(route),
-                          })
-                        }
+                          });
+                        }}
                         sx={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 12 }}
                       >
                         {log.traceId.slice(0, 8)}…
@@ -151,7 +176,17 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
                     )}
                   </TableCell>
                 </TableRow>
-              ))}
+                {open && (
+                  <TableRow>
+                    <TableCell />
+                    <TableCell colSpan={4} sx={{ pt: 0 }}>
+                      <LogDetails log={log} />
+                    </TableCell>
+                  </TableRow>
+                )}
+                </Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>
@@ -168,6 +203,30 @@ export default function LogsView({ route }: { route: OtelRoute & { project: stri
           </Button>
         </Box>
       )}
+    </Box>
+  );
+}
+
+/** An opened log row: its attributes and ids, which the table has no columns for. */
+function LogDetails({ log }: { log: ApiLog }) {
+  const rows: [string, string][] = [
+    ...Object.entries(log.attributes).map(
+      ([key, value]): [string, string] => [key, typeof value === "string" ? value : JSON.stringify(value)]
+    ),
+    ...(log.traceId ? [["trace id", log.traceId] as [string, string]] : []),
+    ...(log.spanId ? [["span id", log.spanId] as [string, string]] : []),
+  ];
+  if (rows.length === 0) {
+    return <Typography sx={{ fontSize: 12.5, color: "text.secondary" }}>No attributes.</Typography>;
+  }
+  return (
+    <Box sx={{ display: "grid", gridTemplateColumns: "max-content 1fr", columnGap: 3, rowGap: 0.25 }}>
+      {rows.map(([key, value]) => (
+        <Fragment key={key}>
+          <Mono sx={{ fontSize: 12, color: "text.secondary" }}>{key}</Mono>
+          <Mono sx={{ fontSize: 12, overflowWrap: "anywhere" }}>{value}</Mono>
+        </Fragment>
+      ))}
     </Box>
   );
 }

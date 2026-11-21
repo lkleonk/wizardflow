@@ -19,6 +19,7 @@ import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArro
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { LivePulse } from "@/components/LiveDot";
+import { TOOLTIP_TIMING } from "@/theme/muiTheme";
 import type { ApiReceiver } from "@/types/otelstore";
 import { apiPath, sendApi } from "@/utils/otelApi";
 import { setDisplayPrefs, useDisplayPrefs } from "@/utils/otelDisplay";
@@ -157,9 +158,27 @@ function SidebarBody({
     label: string,
     icon: React.ReactNode,
     props: object,
-    selected = false
+    selected = false,
+    /** What the item does, beyond its name: shown folded or not. */
+    help?: React.ReactNode
   ) => (
-    <Tooltip title={folded ? label : ""} placement="right">
+    <Tooltip
+      title={
+        help ? (
+          <>
+            {folded && <b>{label}</b>}
+            {folded && <br />}
+            {help}
+          </>
+        ) : folded ? (
+          label
+        ) : (
+          ""
+        )
+      }
+      placement="right"
+      {...(help && !folded ? TOOLTIP_TIMING.explain : {})}
+    >
       <ListItemButton selected={selected} sx={item} {...props}>
         <ListItemIcon sx={{ minWidth: folded ? 0 : 30 }}>{icon}</ListItemIcon>
         {!folded && <ListItemText primary={label} />}
@@ -294,10 +313,16 @@ function SidebarBody({
       )}
       <Divider sx={{ mx: 1.5, my: 0.5 }} />
       <List dense sx={{ px: 0.75 }}>
-        {iconItem("Import a run", <UploadFileIcon fontSize="small" />, {
-          onClick: () => fileInput?.click(),
-          disabled: importing,
-        })}
+        {iconItem(
+          "Import a run",
+          <UploadFileIcon fontSize="small" />,
+          { onClick: () => fileInput?.click(), disabled: importing },
+          false,
+          <>
+            Add a file to this dashboard&apos;s database: a WizardFlow run (.jsonl or .json) or an
+            OpenTelemetry OTLP JSON file. The same as <code>wizardflow db import</code>.
+          </>
+        )}
         {iconItem(
           "Settings",
           <SettingsOutlinedIcon fontSize="small" />,

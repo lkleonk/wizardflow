@@ -1,6 +1,7 @@
 # WizardFlow
 
-Replay and inspect AI agent runs as messages moving through a graph.
+Replay and inspect AI agent runs as messages moving through a graph, one run
+file at a time or many runs and OpenTelemetry traces in a local dashboard.
 
 **Website: [getwizardflow.com](https://getwizardflow.com) · ▶ Live demo:
 [watch an example run replay](https://getwizardflow.com/?example=doctor-consultation)**
@@ -11,10 +12,12 @@ WizardFlow has two halves that share one file format (`AgentTrace` JSONL):
 
 - **[`web/`](web/)** — a fully client-side Next.js viewer that replays a run as a
   message timeline, ordered node steps, live graph activity, and payload
-  inspection. Nothing is uploaded; flows are processed in your browser.
+  inspection. Nothing is uploaded; flows are processed in your browser. The
+  same app holds the local dashboard's pages, bundled into the Python package.
 - **[`sdk/python/`](sdk/python/)** — a zero-dependency Python SDK that records
-  your agent runs into the JSONL trace the viewer replays.
-  `pip install wizardflow`.
+  your agent runs into the JSONL trace the viewer replays, plus the
+  `wizardflow` CLI: local replay, export, and the dashboard with its database
+  and OTLP receiver. `pip install wizardflow`.
 
 ## Why WizardFlow?
 
@@ -29,6 +32,9 @@ WizardFlow has two halves that share one file format (`AgentTrace` JSONL):
   care about, and end the message when its run through the graph is complete.
 - **Explicit by design.** You place every recording call, so a trace contains
   exactly what you chose to record and nothing more.
+- **OpenTelemetry in and out.** Runs export to any OTLP backend, and the local
+  dashboard takes OTLP from any app, so agent graphs and ordinary traces sit
+  side by side.
 
 ## Quickstart
 
@@ -57,8 +63,8 @@ the portable source of truth. The base SDK remains dependency-free.
 For generic `log()` records, lower-level lifecycle control, and detailed
 OpenTelemetry configuration, see the [Python SDK guide](sdk/python/README.md).
 
-Drop the `.jsonl` file into [getwizardflow.com](https://getwizardflow.com) (or
-your local build) to replay it.
+Drop the `.jsonl` file into [getwizardflow.com](https://getwizardflow.com), or
+replay it locally with `wizardflow replay run.jsonl`.
 
 ## Local dashboard
 
@@ -79,7 +85,7 @@ See the [dashboard guide](sdk/python/docs/otel-dashboard.md).
 
 | Path | What |
 |------|------|
-| `web/` | Next.js viewer (static export) |
+| `web/` | Next.js viewer and dashboard UI (static export) |
 | [`sdk/python/`](sdk/python/) | `wizardflow` Python SDK and full usage documentation |
 
 See the [Python SDK guide](sdk/python/README.md) for semantic logging,

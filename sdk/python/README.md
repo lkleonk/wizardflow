@@ -6,11 +6,12 @@ graph, inspect with ordinary tools, or attach to a bug report.
 
 Drop the file into [getwizardflow.com](https://getwizardflow.com) and it is
 processed entirely in the browser, so nothing is uploaded. You can also replay it
-locally with `wizardflow replay`.
+locally with `wizardflow replay`, or collect many runs, and the traces and logs
+of any app with OpenTelemetry, in a local dashboard: `wizardflow dashboard`.
 
 ![WizardFlow replaying an agent run](https://raw.githubusercontent.com/lkleonk/wizardflow/main/sdk/python/assets/demo.gif)
 
-â–¶ **[Watch this run replay](https://getwizardflow.com/?example=doctor-consultation)**
+▶ **[Watch this run replay](https://getwizardflow.com/?example=doctor-consultation)**
 
 ## Why WizardFlow?
 
@@ -183,10 +184,11 @@ duck-typed through `app.get_graph()`.
 - **[WizardFlow JSONL format](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/jsonl-file-format.md)**
   — record shapes, semantic fields, compatibility, and rotation.
 - **[CLI and local viewer](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/cli.md)**
-  — live local replay and Markdown, HTML, and JSON export.
+  — every command: live local replay, Markdown, HTML, and JSON export, the
+  dashboard, and database import.
 - **[OTel dashboard](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/otel-dashboard.md)**
-  — import OTLP JSON into a local database, browse projects, traces, and logs,
-  open graph replay, and map attributes.
+  — import runs and OTLP JSON or receive OTLP live into a local database,
+  browse projects, traces, and logs, open graph replay, and map attributes.
 
 ## CLI at a glance
 
