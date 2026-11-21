@@ -501,9 +501,23 @@ function TraceHeader({
       <TraceBadges flags={trace.flags} />
       <Typography component="span" sx={{ fontSize: 12.5, color: "text.secondary" }}>
         trace{" "}
-        <Tooltip title={copied ? "Copied" : "Click to copy"}>
+        {/* Shortened, so the facts fit on one row; the tooltip has the rest. */}
+        <Tooltip
+          title={
+            copied ? (
+              "Copied"
+            ) : (
+              <>
+                <Box component="span" sx={{ fontFamily: MONO }}>{trace.traceId}</Box>
+                <br />
+                Click to copy. The trace is named after its {localRoot ? "local root" : "root span"}.
+              </>
+            )
+          }
+        >
           <Box
             component="button"
+            aria-label={`Copy trace id ${trace.traceId}`}
             onClick={() => {
               void navigator.clipboard?.writeText(trace.traceId);
               setCopied(true);
@@ -523,10 +537,9 @@ function TraceHeader({
               borderColor: "divider",
             }}
           >
-            {trace.traceId}
+            {trace.traceId.slice(0, 8)}…
           </Box>
-        </Tooltip>{" "}
-        · named after its {localRoot ? "local root" : "root span"}
+        </Tooltip>
       </Typography>
       {fact("started", formatNsDateTime(trace.startNs))}
       {fact("duration", formatNsDuration(Number(trace.durationNs)))}
