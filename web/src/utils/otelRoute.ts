@@ -9,7 +9,7 @@ import { orderedSteps } from "./traceSelectors";
 export type OtelView = "projects" | "traces" | "trace" | "logs" | "settings";
 export type TraceKind = "all" | "wizardflow" | "genai" | "otel";
 export type LogCorrelation = "all" | "with" | "without";
-export type SettingsSection = "mapping" | "display" | "data" | "live";
+export type SettingsSection = "mapping" | "display" | "data" | "live" | "about";
 
 export type OtelRoute = {
   view: OtelView;
@@ -39,7 +39,7 @@ const VIEWS: OtelView[] = ["projects", "traces", "trace", "logs", "settings"];
 const KINDS: TraceKind[] = ["all", "wizardflow", "genai", "otel"];
 const CORRELATIONS: LogCorrelation[] = ["all", "with", "without"];
 const RANGES: TimeRange[] = ["1h", "24h", "7d", "all"];
-const SECTIONS: SettingsSection[] = ["display", "mapping", "data", "live"];
+const SECTIONS: SettingsSection[] = ["display", "mapping", "data", "live", "about"];
 
 function oneOf<T extends string>(value: string | null, options: T[]): T | undefined {
   return value && (options as string[]).includes(value) ? (value as T) : undefined;

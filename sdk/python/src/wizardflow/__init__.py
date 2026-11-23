@@ -49,6 +49,19 @@ from .otel_mapping import DEFAULT_CONTENT_MAX_BYTES
 # logger; opt in with logging.getLogger("wizardflow").setLevel(logging.INFO).
 logging.getLogger(Logging.LOGGER_NAME).addHandler(logging.NullHandler())
 
+
+def _installed_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("wizardflow")
+    except PackageNotFoundError:
+        return "0+unknown"  # a source checkout with nothing installed
+
+
+# From the installed distribution, so pyproject.toml stays the one place it is set.
+__version__ = _installed_version()
+
 __all__ = [
     "init",
     "init_from_langgraph",

@@ -264,6 +264,9 @@ the import commands.
 received since `dashboard` started, and the last refused request. When the receiver
 isn't running, it shows how to start it.
 
+**About.** The WizardFlow version to name in a bug report, the license, and
+links to the docs, issues, source, and the online viewer.
+
 ## Safety
 
 The server binds to `127.0.0.1` by default and reads the database through

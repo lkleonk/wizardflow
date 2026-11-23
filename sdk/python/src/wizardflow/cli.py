@@ -735,7 +735,7 @@ def run_replay(
     with ThreadingHTTPServer((host, port), handler) as server:
         url = _viewer_url(host=host, port=server.server_port, trace_name=trace_path.name)
         print(f"WizardFlow UI: {url}")
-        print("Press Ctrl+C to stop.")
+        print("Press Ctrl+C to stop.", flush=True)
         if open_browser:
             webbrowser.open(url)
         try:
@@ -829,8 +829,21 @@ def _render_to_output(
             raise WizardFlowCliError(f"could not write {kind} file: {exc}") from exc
         print(f"Wrote {out_path}")
     else:
-        sys.stdout.write(rendered)
+        _write_stdout(rendered)
     return 0
+
+
+def _write_stdout(text: str) -> None:
+    """Write UTF-8 when redirected, so `wizardflow md run.jsonl > run.md` is
+    UTF-8 everywhere; on Windows a pipe otherwise gets the ANSI code page.
+    A terminal keeps Python's own console handling."""
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is not None and not sys.stdout.isatty():
+        sys.stdout.flush()
+        buffer.write(text.encode("utf-8"))
+        buffer.flush()
+    else:
+        sys.stdout.write(text)
 
 
 def _resolve_trace_path(

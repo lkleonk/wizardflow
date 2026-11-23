@@ -420,7 +420,7 @@ def run_serve(
             if receiver is not None:
                 print(f"OTLP receiver: {receiver.endpoint}  (/v1/traces, /v1/logs)")
                 print(f"  Point your app at it: OTEL_EXPORTER_OTLP_ENDPOINT={receiver.endpoint}")
-            print("Press Ctrl+C to stop.")
+            print("Press Ctrl+C to stop.", flush=True)
             if open_browser:
                 webbrowser.open(url)
             try:

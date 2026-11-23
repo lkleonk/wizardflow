@@ -5,6 +5,7 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
+import Link from "@mui/material/Link";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
@@ -45,6 +46,7 @@ const SECTIONS: [SettingsSection, string][] = [
   ["mapping", "Attribute mapping"],
   ["data", "Data and import"],
   ["live", "Live receiver"],
+  ["about", "About"],
 ];
 
 export default function SettingsView({ route, meta }: { route: OtelRoute; meta: ApiMeta }) {
@@ -63,11 +65,14 @@ export default function SettingsView({ route, meta }: { route: OtelRoute; meta: 
           </ListItemButton>
         ))}
       </List>
-      <Box sx={{ flex: 1, minWidth: 0, maxWidth: 980 }}>
+      {/* Label-and-value rows read best narrow: the value stays near its
+          label. The mapping is a three-column table and keeps more room. */}
+      <Box sx={{ flex: 1, minWidth: 0, maxWidth: section === "mapping" ? 980 : 760 }}>
         {section === "mapping" && <MappingSection route={route} />}
         {section === "display" && <DisplaySection />}
         {section === "data" && <DataSection meta={meta} />}
         {section === "live" && <LiveSection receiver={meta.receiver} />}
+        {section === "about" && <AboutSection meta={meta} />}
       </Box>
     </Box>
   );
@@ -661,9 +666,6 @@ function DataSection({ meta }: { meta: ApiMeta }) {
             : "…"}
         </Mono>
       </SettingRow>
-      <SettingRow label="WizardFlow">
-        <Mono sx={{ fontSize: 12.5 }}>{meta.wizardflowVersion}</Mono>
-      </SettingRow>
       <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: "text.secondary", textTransform: "uppercase", letterSpacing: 0.5, mt: 3 }}>
         Import more
       </Typography>
@@ -671,6 +673,44 @@ function DataSection({ meta }: { meta: ApiMeta }) {
         Importing WizardFlow runs and OTLP JSON files from the command line:
       </Typography>
       <Command>wizardflow db import run.jsonl collector/out/*.json</Command>
+    </>
+  );
+}
+
+// --- about -------------------------------------------------------------------
+
+const REPO = "https://github.com/lkleonk/wizardflow";
+
+function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link href={href} target="_blank" rel="noopener noreferrer" underline="hover" sx={{ fontSize: 13 }}>
+      {children}
+    </Link>
+  );
+}
+
+function AboutSection({ meta }: { meta: ApiMeta }) {
+  return (
+    <>
+      <SectionHead title="About" sub="The version to name in a bug report, and where to find more." />
+      <SettingRow label="Version">
+        <Mono sx={{ fontSize: 12.5 }}>WizardFlow {meta.wizardflowVersion}</Mono>
+      </SettingRow>
+      <SettingRow label="License">
+        <ExternalLink href={`${REPO}/blob/main/sdk/python/LICENSE`}>Apache-2.0</ExternalLink>
+      </SettingRow>
+      <SettingRow label="Documentation" hint="Recording, the dashboard, OpenTelemetry, the CLI.">
+        <ExternalLink href={`${REPO}/tree/main/sdk/python/docs`}>Guides on GitHub</ExternalLink>
+      </SettingRow>
+      <SettingRow label="Bugs and ideas">
+        <ExternalLink href={`${REPO}/issues`}>GitHub issues</ExternalLink>
+      </SettingRow>
+      <SettingRow label="Source">
+        <ExternalLink href={REPO}>github.com/lkleonk/wizardflow</ExternalLink>
+      </SettingRow>
+      <SettingRow label="Online viewer" hint="Replays a run file in the browser; nothing is uploaded.">
+        <ExternalLink href="https://getwizardflow.com">getwizardflow.com</ExternalLink>
+      </SettingRow>
     </>
   );
 }
@@ -725,6 +765,10 @@ function LiveSection({ receiver }: { receiver: ApiReceiver }) {
         Any OpenTelemetry SDK reads this variable. Python apps need the OTLP/HTTP exporter (opentelemetry-exporter-otlp-proto-http).
       </Typography>
       <Command>OTEL_EXPORTER_OTLP_ENDPOINT={receiver.endpoint}</Command>
+      <Typography sx={{ fontSize: 13, color: "text.secondary", mt: 2 }}>
+        Recording with WizardFlow? Its own live export needs no extra packages:
+      </Typography>
+      <Command>{`wizardflow.init(..., otel=True, otel_endpoint="${receiver.endpoint}/v1/traces")`}</Command>
       <Typography sx={{ fontSize: 13, color: "text.secondary", mt: 2 }}>
         Metrics are not stored. If your app exports them too, turn them off to keep its log quiet:
       </Typography>
