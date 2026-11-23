@@ -95,6 +95,11 @@ function clock(ms: number): string {
   return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
+function dayAndClock(ms: number): string {
+  const day = new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return `${day} ${clock(ms)}`;
+}
+
 /**
  * Traces started per half hour, newest on the right. Bar height is relative
  * to the busiest slot; the red part is the traces with an error span. For
@@ -106,6 +111,11 @@ function ActivityChart({ activity }: { activity: ApiActivity }) {
   const startMs = endMs - activity.traces.length * slotMs;
   const peak = Math.max(1, ...activity.traces);
   const hours = Math.round((activity.traces.length * slotMs) / 3_600_000);
+  // Ending at the last trace, the window can be any day: name it. The end
+  // repeats the day only when the window crosses midnight.
+  const startLabel = dayAndClock(startMs);
+  const sameDay = new Date(startMs).toDateString() === new Date(endMs - 1).toDateString();
+  const endLabel = sameDay ? clock(endMs) : dayAndClock(endMs);
   return (
     <Box>
       <Box
@@ -137,7 +147,8 @@ function ActivityChart({ activity }: { activity: ApiActivity }) {
                     }}
                   >
                     {errors > 0 && (
-                      <Box sx={{ width: "100%", height: `${(errors / count) * 100}%`, bgcolor: "error.main" }} />
+                      // At least 2px, so one error among many traces still shows.
+                      <Box sx={{ width: "100%", height: `${(errors / count) * 100}%`, minHeight: 2, bgcolor: "error.main" }} />
                     )}
                   </Box>
                 ) : (
@@ -149,9 +160,9 @@ function ActivityChart({ activity }: { activity: ApiActivity }) {
         })}
       </Box>
       <Box sx={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "text.secondary", mt: 0.25 }}>
-        <span>{activity.anchor === "now" ? `${hours}h ago` : clock(startMs)}</span>
+        <span>{activity.anchor === "now" ? `${hours}h ago` : startLabel}</span>
         <span>peak {peak} / 30 min</span>
-        <span>{activity.anchor === "now" ? "now" : `${clock(endMs)}, last activity`}</span>
+        <span>{activity.anchor === "now" ? "now" : endLabel}</span>
       </Box>
     </Box>
   );

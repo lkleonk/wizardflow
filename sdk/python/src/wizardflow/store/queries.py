@@ -171,12 +171,15 @@ def _activity(con: sqlite3.Connection, pid: int, now_ns: int) -> Dict[str, Any]:
         end, anchor = (latest // slot + 1) * slot, "last"
     start = end - slots * slot
     traces, errors = [0] * slots, [0] * slots
+    # A start after the window's end (a sender whose clock runs ahead) counts
+    # in the newest slot, so the chart never comes out empty beside a count.
     for index, count, failed in con.execute(
-        "SELECT (start_ns - ?) / ?, count(*), sum(error_count > 0) FROM traces "
-        "WHERE project_id = ? AND start_ns >= ? AND start_ns < ? GROUP BY 1",
-        (start, slot, pid, start, end),
+        "SELECT min((start_ns - ?) / ?, ?), count(*), sum(error_count > 0) FROM traces "
+        "WHERE project_id = ? AND start_ns >= ? GROUP BY 1",
+        (start, slot, slots - 1, pid, start),
     ):
-        traces[index], errors[index] = count, failed
+        traces[index] += count
+        errors[index] += failed
     return {
         "endNs": _ns(end),
         "slotNs": _ns(slot),

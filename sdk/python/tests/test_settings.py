@@ -133,3 +133,12 @@ def test_activity_is_anchored_to_the_last_trace_for_old_data(con):
     assert activity["traces"][-1] == 1  # the newest trace is in the last slot
     (recent,) = queries.list_projects(con, now_ns=12 * HOUR + 10)
     assert recent["activity"]["anchor"] == "now"
+
+
+def test_activity_counts_future_traces_in_the_newest_slot(con):
+    # The sender's clock runs ahead: every trace starts after "now".
+    (project,) = queries.list_projects(con, now_ns=9 * HOUR)
+    activity = project["activity"]
+    assert activity["anchor"] == "now"
+    assert activity["traces"][-1] == 3 and activity["errors"][-1] == 1
+    assert sum(activity["traces"]) == 3
