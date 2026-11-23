@@ -46,7 +46,8 @@ export default function GraphReplayIntroDialog({
   /** The span waterfall for the execution on screen. */
   waterfallHref?: string;
 }) {
-  const [dontShowAgain, setDontShowAgain] = useState(true);
+  // Unchecked: closing the intro keeps it coming until the user opts out.
+  const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const stay = () => {
     if (dontShowAgain) rememberSeen();
