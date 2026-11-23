@@ -327,7 +327,8 @@ function SidebarBody({
           false,
           <>
             Add a file to this dashboard&apos;s database: a WizardFlow run (.jsonl or .json) or an
-            OpenTelemetry OTLP JSON file. The same as <code>wizardflow db import</code>.
+            OpenTelemetry OTLP JSON file. It stays there after you close the dashboard. From a
+            terminal, <code>wizardflow db import FILE</code> does the same.
           </>
         )}
         {iconItem(

@@ -94,7 +94,9 @@ export default function SpanGraphPanel({
           {error ? "Couldn't load the graph." : "Loading graph…"}
         </Typography>
       )}
-      <Fade in={Boolean(notRun?.open)}>
+      {/* Keyed by the click: clicking a node that didn't run while the notice
+          is still up fades it in again, so the click visibly answers. */}
+      <Fade key={notRun?.at} in={Boolean(notRun?.open)}>
         <Alert
           severity="info"
           role="status"
