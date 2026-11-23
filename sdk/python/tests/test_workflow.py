@@ -497,6 +497,7 @@ def _real_sdk(monkeypatch):
 
     def create(endpoint=None, **kwargs):
         kwargs.pop("project_name", None)
+        kwargs.pop("exporter", None)
         return OTelBridge(provider.get_tracer("test"), trace_api=otel_trace, **kwargs)
 
     monkeypatch.setattr("wizardflow.client.create_otel_bridge", create)

@@ -191,12 +191,19 @@ conversation's payloads, titles, and meta. On the span page it covers the open
 execution's span names, attributes, events, and logs, and a result selects its
 span.
 
-The download icon in the row under the span page's breadcrumb saves the run as
-one WizardFlow file, to share or to open on getwizardflow.com. Like the replay,
-it covers the whole conversation when the execution belongs to one. It holds
-the graph, the node steps, and their payloads, but not logs or spans that
-aren't graph nodes. A graph inferred from the run order stays inferred, without
-unvisited branches.
+The download icon saves runs as WizardFlow JSONL files, to share, open on
+getwizardflow.com, or import into another database. On the span page (in the
+row under the breadcrumb) you choose what to save: this execution, its
+conversation, or the whole project; the icon at the end of the trace list's
+filter row opens on the whole project. For a conversation or the project you
+can keep only the executions started in the last hour, 24 hours, or 7 days.
+One conversation is one `.jsonl`; several are a `.zip` with one file per
+conversation. Traces without graph nodes can't be saved as runs: they are left
+out, and the dialog says how many.
+
+The files hold the graph, the node steps, and their payloads, but not logs or
+spans that aren't graph nodes. A graph inferred from the run order stays
+inferred, without unvisited branches.
 
 The graph comes from one of two places, and the trace page says which:
 

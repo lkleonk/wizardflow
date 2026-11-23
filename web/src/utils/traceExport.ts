@@ -36,10 +36,42 @@ export function traceFileName(trace: AgentTraceFile): string {
 
 /** Save the trace as a JSONL file through the browser. */
 export function downloadTraceJsonl(trace: AgentTraceFile): void {
-  const url = URL.createObjectURL(new Blob([toTraceJsonl(trace)], { type: "application/jsonl" }));
+  downloadBlob(new Blob([toTraceJsonl(trace)], { type: "application/jsonl" }), traceFileName(trace));
+}
+
+/**
+ * Unique file names for several runs saved together: the run's name plus,
+ * when runs share it (every conversation of one recording does), its
+ * conversation id, then a counter as a last resort.
+ */
+export function traceFileNames(traces: AgentTraceFile[]): string[] {
+  const used = new Set<string>();
+  return traces.map((trace) => {
+    const stem = traceFileName(trace).replace(/\.jsonl$/, "");
+    const conversation = typeof trace.meta?.conversationId === "string" ? trace.meta.conversationId : "";
+    const tag = safeStem(conversation) || safeStem(trace.messages[0]?.id ?? "");
+    let name = tag ? `${stem}__${tag}.jsonl` : `${stem}.jsonl`;
+    for (let n = 2; used.has(name); n++) name = `${stem}__${tag || "run"}-${n}.jsonl`;
+    used.add(name);
+    return name;
+  });
+}
+
+function safeStem(text: string): string {
+  return text.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/** A safe file name stem for anything, e.g. a project name. */
+export function fileStem(text: string, fallback: string): string {
+  return safeStem(text) || fallback;
+}
+
+/** Save a blob through the browser as `name`. */
+export function downloadBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = traceFileName(trace);
+  link.download = name;
   link.click();
   URL.revokeObjectURL(url);
 }

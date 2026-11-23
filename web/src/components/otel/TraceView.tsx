@@ -444,10 +444,7 @@ function DownloadRun({ detail, project }: { detail: ApiTraceDetail; project: str
   const [open, setOpen] = useState(false);
   const [requested, setRequested] = useState(false);
   const conversationId = trace.conversationId;
-  const executions = conversation?.total ?? 1;
-  const count = `${executions} execution${executions === 1 ? "" : "s"}`;
-  const path = agentTracePath(trace, project);
-  const label = conversationId ? `Download conversation ${conversationId} (${count})` : "Download this execution";
+  const label = "Download as files";
   return (
     <>
       <Tooltip title={label}>
@@ -467,8 +464,15 @@ function DownloadRun({ detail, project }: { detail: ApiTraceDetail; project: str
         <DownloadTraceDialog
           open={open}
           onClose={() => setOpen(false)}
-          path={path}
-          what={conversationId ? `conversation ${conversationId}, ${count},` : "this execution"}
+          project={project}
+          traceId={trace.traceId}
+          conversationId={conversationId}
+          executionLabel={
+            conversation
+              ? `Execution ${conversation.position} of ${conversation.total}`
+              : "The execution you're viewing"
+          }
+          initialScope={conversationId ? "conversation" : "execution"}
         />
       )}
     </>

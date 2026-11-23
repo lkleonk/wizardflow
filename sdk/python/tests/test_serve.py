@@ -686,3 +686,39 @@ def test_data_from_the_receiver_is_listed_once_as_the_receiver(api, tmp_path):
         con.close()
     sources = {p["name"]: p for p in api("/api/projects")}["live-svc"]["sources"]
     assert sources == [{"kind": "receiver", "name": "OTLP receiver", "path": None}]
+
+
+def test_export_runs_one_file_per_conversation_filtered_by_start(tmp_path):
+    from wizardflow.store.projection import export_runs
+
+    db = tmp_path / "wf.db"
+    assert _imported(db, _run(tmp_path / "a.jsonl", [_message("m1", 0), _message("m2", 5)])) == 0
+    assert _imported(db, _run(tmp_path / "b.jsonl", [_message("m1", 30)])) == 0
+    # A trace without graph nodes in the same project: left out, and counted.
+    assert _imported(db, _write(tmp_path / "plain.otlp.jsonl", traces_request(
+        [span("9" * 16, trace_id="d" * 32, name="GET /health")], service="x")), project="advisor-run") == 0
+    con = open_store(db)
+    try:
+        everything = export_runs(con, "advisor-run")
+        assert [[m["id"] for m in f["messages"]] for f in everything["files"]] == [["m1", "m2"], ["m1"]]
+        assert [f["meta"]["conversationId"] for f in everything["files"]] == [
+            "run 2026-10-11T10:00:00Z", "run 2026-10-11T10:30:00Z",
+        ]
+        assert everything["skippedTraces"] == 1
+
+        since = con.execute(
+            "SELECT min(start_ns) FROM traces WHERE conversation_id = 'run 2026-10-11T10:00:00Z'"
+        ).fetchone()[0] + 4 * 60 * 10**9
+        recent = export_runs(con, "advisor-run", from_ns=since)
+        assert [[m["id"] for m in f["messages"]] for f in recent["files"]] == [["m2"], ["m1"]]
+
+        one = export_runs(con, "advisor-run", conversation_id="run 2026-10-11T10:00:00Z")
+        assert len(one["files"]) == 1 and one["skippedTraces"] == 0
+    finally:
+        con.close()
+
+
+def test_export_route(api):
+    body = api("/api/export?project=advisor")
+    assert set(body) == {"files", "skippedTraces"}
+    assert _status(api, "/api/export?project=advisor&from=soon")[0] == 400

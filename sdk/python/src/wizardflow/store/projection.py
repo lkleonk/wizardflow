@@ -102,6 +102,51 @@ def project_trace(con: sqlite3.Connection, project: str, trace_id: str) -> Dict[
     return _project(con, pid, project, [(row[0], row[1])], conversation_id=None)
 
 
+def export_runs(
+    con: sqlite3.Connection,
+    project: str,
+    *,
+    conversation_id: Optional[str] = None,
+    from_ns: Optional[int] = None,
+) -> Dict[str, Any]:
+    """The dashboard's download: replayable runs as AgentTrace files.
+
+    One file per conversation, and one per replayable trace without a
+    conversation, oldest first; only executions (traces) started at or after
+    ``from_ns``. ``skippedTraces`` counts the traces in the same scope that
+    have no graph nodes, so cannot be saved as a run.
+    """
+    pid = project_id(con, project)
+    where = "project_id = ?"
+    params: List[Any] = [pid]
+    if conversation_id is not None:
+        where += " AND conversation_id = ?"
+        params.append(conversation_id)
+    if from_ns is not None:
+        where += " AND start_ns >= ?"
+        params.append(from_ns)
+    groups: Dict[Any, List[Tuple[int, str]]] = {}
+    for row_id, trace_id, conversation in con.execute(
+        f"SELECT id, trace_id, conversation_id FROM traces WHERE {where} AND flags & ? "
+        "ORDER BY start_ns, id",
+        (*params, FLAG_WIZARDFLOW),
+    ):
+        # No conversation: the trace is a run of its own.
+        groups.setdefault(conversation if conversation is not None else ("trace", trace_id), []).append(
+            (row_id, trace_id)
+        )
+    skipped = con.execute(
+        f"SELECT count(*) FROM traces WHERE {where} AND NOT flags & ?", (*params, FLAG_WIZARDFLOW)
+    ).fetchone()[0]
+    return {
+        "files": [
+            _project(con, pid, project, rows, conversation_id=key if isinstance(key, str) else None)
+            for key, rows in groups.items()
+        ],
+        "skippedTraces": skipped,
+    }
+
+
 # --------------------------------------------------------------------------- core
 
 

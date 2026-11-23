@@ -25,6 +25,8 @@ import SearchIcon from "@mui/icons-material/Search";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
+import DownloadTraceDialog from "@/components/DownloadTraceDialog";
 import {
   TraceFlag,
   type ApiConversation,
@@ -68,6 +70,31 @@ function useRangeStart(range: TimeRange): string | undefined {
   if (anchor.range !== range) setAnchor({ range, now });
   const span = RANGE_MS[range];
   return span === null ? undefined : `${BigInt(anchor.now - span) * BigInt(1_000_000)}`;
+}
+
+/** The whole project as files, starting from the list's own time range. */
+function DownloadProject({ project, range }: { project: string; range: TimeRange }) {
+  const [open, setOpen] = useState(false);
+  const label = "Download the project as files";
+  return (
+    <>
+      <Tooltip title={label}>
+        <IconButton size="small" aria-label={label} onClick={() => setOpen(true)}>
+          <FileDownloadOutlinedIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      {/* Mounted per open: the dialog fetches, and starts from the current range. */}
+      {open && (
+        <DownloadTraceDialog
+          open
+          onClose={() => setOpen(false)}
+          project={project}
+          initialScope="project"
+          initialRange={range}
+        />
+      )}
+    </>
+  );
 }
 
 /** Filters shared by the flat list, the groups and a group's members. */
@@ -163,6 +190,7 @@ export default function TracesView({ route }: { route: TracesRoute }) {
           ))}
         </ToggleButtonGroup>
         <ConversationPicker project={route.project} back={back} />
+        <DownloadProject project={route.project} range={range} />
       </Box>
       {route.group === "conversation" ? (
         <GroupedTraces route={route} params={params} back={back} />

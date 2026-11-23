@@ -87,11 +87,9 @@ class RecordedSpan:
         attributes: Optional[Mapping[str, Any]] = None,
         timestamp: Optional[int] = None,
     ) -> None:
-        # Offline there is no "now": an event without a time belongs to the
-        # span's start (the graph event is added right after starting).
         self.events.append({
             "name": name,
-            "time": timestamp if timestamp is not None else self.start_time,
+            "time": timestamp if timestamp is not None else self._recorder.event_time(self),
             "attributes": dict(attributes or {}),
         })
 
@@ -114,8 +112,8 @@ class RecordedSpan:
     def end(self, end_time: Optional[int] = None) -> None:
         if self.end_time is not None:
             return
-        self.end_time = end_time if end_time is not None else self.start_time
-        self._recorder.finished.append(self)
+        self.end_time = end_time if end_time is not None else self._recorder.event_time(self)
+        self._recorder.finish(self)
 
 
 class SpanRecorder:
@@ -138,6 +136,16 @@ class SpanRecorder:
         self._ids_made += 1
         digest = hashlib.sha256(f"{self._id_seed}:{self._ids_made}".encode("utf-8"))
         return digest.hexdigest()[: size * 2]
+
+    def finish(self, span: "RecordedSpan") -> None:
+        """Where an ended span goes: kept here, for writing or sending later."""
+        self.finished.append(span)
+
+    def event_time(self, span: "RecordedSpan") -> int:
+        """The time of an event (or end) given none. Replaying a recorded run
+        there is no "now", so it is the span's start (the graph event is added
+        right after starting); a live recorder uses the clock."""
+        return span.start_time
 
     # tracer API
     def start_span(

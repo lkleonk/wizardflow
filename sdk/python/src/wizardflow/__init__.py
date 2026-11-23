@@ -36,7 +36,12 @@ from .client import (
     WorkflowRun,
 )
 from .constants import Defaults, Logging, Output, Rotation
-from .otel import DEFAULT_OTEL_TRACE_SCOPE, OTelConfigurationError, OTelExportError
+from .otel import (
+    DEFAULT_OTEL_EXPORTER,
+    DEFAULT_OTEL_TRACE_SCOPE,
+    OTelConfigurationError,
+    OTelExportError,
+)
 from .otel_mapping import DEFAULT_CONTENT_MAX_BYTES
 
 # Library convention: attach a NullHandler so we emit nothing unless the host
@@ -88,6 +93,7 @@ def init(
     jsonl: bool = True,
     otel: bool = False,
     otel_endpoint: Optional[str] = None,
+    otel_exporter: str = DEFAULT_OTEL_EXPORTER,
     otel_trace_scope: str = DEFAULT_OTEL_TRACE_SCOPE,
     otel_workflow_name: Optional[str] = None,
     otel_attributes: Optional[Mapping[str, Any]] = None,
@@ -116,6 +122,7 @@ def init(
         jsonl=jsonl,
         otel=otel,
         otel_endpoint=otel_endpoint,
+        otel_exporter=otel_exporter,
         otel_trace_scope=otel_trace_scope,
         otel_workflow_name=otel_workflow_name,
         otel_attributes=otel_attributes,
@@ -144,6 +151,7 @@ def init_from_langgraph(
     jsonl: bool = True,
     otel: bool = False,
     otel_endpoint: Optional[str] = None,
+    otel_exporter: str = DEFAULT_OTEL_EXPORTER,
     otel_trace_scope: str = DEFAULT_OTEL_TRACE_SCOPE,
     otel_workflow_name: Optional[str] = None,
     otel_attributes: Optional[Mapping[str, Any]] = None,
@@ -175,6 +183,7 @@ def init_from_langgraph(
         jsonl=jsonl,
         otel=otel,
         otel_endpoint=otel_endpoint,
+        otel_exporter=otel_exporter,
         otel_trace_scope=otel_trace_scope,
         otel_workflow_name=otel_workflow_name,
         otel_attributes=otel_attributes,

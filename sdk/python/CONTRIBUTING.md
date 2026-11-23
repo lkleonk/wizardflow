@@ -3,6 +3,33 @@
 This SDK lives in `sdk/python/` of the WizardFlow monorepo. It's pure Python with
 no runtime dependencies; `pytest` is the only dev dependency.
 
+## Built on the standard library
+
+The package has no runtime dependencies, and new code must not add one. Where
+another project would reach for a library, WizardFlow has its own small
+implementation:
+
+| Part | Built on | Instead of |
+| --- | --- | --- |
+| OTLP protobuf encode and decode (`otlp_proto.py`) | hand-written field-number tables | `protobuf`, `opentelemetry-proto` |
+| `otel export --endpoint` sender (`otlp_http.py`) | `urllib`, `gzip` | `opentelemetry-exporter-otlp` |
+| Live export to an endpoint without the OTel SDK (`otlp_live.py`) | a background thread over `otlp_http.py` | the SDK's `BatchSpanProcessor` |
+| OTLP receiver on port 4318 (`receiver.py`) | `http.server`, `zlib` | an OpenTelemetry Collector |
+| Dashboard database (`store/`) | `sqlite3` | a database server |
+| Dashboard and replay server (`serve.py`, `cli.py`) | `http.server` | a web framework |
+| LangGraph graph extraction | duck typing on `app.get_graph()` | importing `langgraph` |
+| Project download `.zip` (in `web/`, `utils/zip.ts`) | a small stored-ZIP writer | JSZip |
+
+The one exception is live export that joins the app's own traces: it imports
+the app's OpenTelemetry packages lazily (`otel.py`), because only the
+OpenTelemetry API can join them. Live export to an endpoint falls back to the
+built-in sender when the SDK isn't installed (`otel_exporter="auto"`); where
+the packages are truly required, missing ones give a clear error with the
+install command, never an import error at `import wizardflow`.
+
+The hand-written parts are checked against the real libraries where they exist;
+see [OTLP protobuf and the OTel packages](#otlp-protobuf-and-the-otel-packages).
+
 ## Local development
 
 Work against a local checkout with an editable install:

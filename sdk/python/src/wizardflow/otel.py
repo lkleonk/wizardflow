@@ -35,6 +35,10 @@ logger = logging.getLogger(Logging.LOGGER_NAME)
 PROJECT_NAME_RESOURCE = "openinference.project.name"
 OTEL_TRACE_SCOPES = frozenset({"workflow", "recording"})
 DEFAULT_OTEL_TRACE_SCOPE = "workflow"
+# How live export to an endpoint sends: the OTel SDK when installed, else the
+# built-in sender (``auto``), or one of them by name.
+OTEL_EXPORTERS = frozenset({"auto", "builtin", "otel-sdk"})
+DEFAULT_OTEL_EXPORTER = "auto"
 
 
 class OTelConfigurationError(RuntimeError):
@@ -436,13 +440,24 @@ def create_otel_bridge(
     export_graph: bool = False,
     graph_max_bytes: int = DEFAULT_GRAPH_MAX_BYTES,
     root_attributes: Optional[Mapping[str, Any]] = None,
+    exporter: str = DEFAULT_OTEL_EXPORTER,
 ) -> OTelBridge:
     """Create a bridge using global app config or a private OTLP provider.
 
     ``project_name`` reaches the backend only with an ``endpoint``: a resource
     belongs to a provider, and WizardFlow never modifies the application's
     global provider.
+
+    With an ``endpoint``, ``exporter`` picks how spans are sent: ``otel-sdk``
+    (the OpenTelemetry SDK), ``builtin`` (the standard library, see
+    :mod:`wizardflow.otlp_live`), or ``auto``: the SDK when it is installed,
+    else built-in. Without an endpoint the spans join the app's own tracing,
+    which only the OpenTelemetry API can do.
     """
+    if exporter not in OTEL_EXPORTERS:
+        raise OTelConfigurationError(
+            f"otel_exporter must be one of {sorted(OTEL_EXPORTERS)}, not {exporter!r}"
+        )
     options: Dict[str, Any] = {
         "trace_scope": trace_scope,
         "workflow_name": workflow_name,
@@ -452,6 +467,13 @@ def create_otel_bridge(
         "graph_max_bytes": graph_max_bytes,
         "root_attributes": root_attributes,
     }
+    if endpoint is None and exporter == "builtin":
+        raise OTelConfigurationError(
+            'otel_exporter="builtin" needs an otel_endpoint: without one, spans join '
+            "the app's own OpenTelemetry tracing"
+        )
+    if endpoint is not None and exporter == "builtin":
+        return _builtin_bridge(endpoint, project_name, options)
     try:
         trace = import_module("opentelemetry.trace")
         if endpoint is None:
@@ -463,6 +485,15 @@ def create_otel_bridge(
             "opentelemetry.exporter.otlp.proto.http.trace_exporter"
         )
     except ImportError as exc:
+        if endpoint is not None and exporter == "auto":
+            logger.info(
+                "OTel export: the OpenTelemetry SDK is not installed, so spans go to %s "
+                "with WizardFlow's built-in sender. Install it (%s) to have them join "
+                "your app's own traces.",
+                endpoint,
+                OTEL_INSTALL,
+            )
+            return _builtin_bridge(endpoint, project_name, options)
         raise OTelConfigurationError(
             "OpenTelemetry output requires optional packages. Install them with: "
             + OTEL_INSTALL
@@ -484,8 +515,26 @@ def create_otel_bridge(
     )
 
 
+def _builtin_bridge(endpoint: str, project_name: Optional[str], options: Dict[str, Any]) -> OTelBridge:
+    """A bridge whose spans go out through the standard-library sender."""
+    # Imported here: the file exporter imports this module.
+    from .otel_file_exporter import _endpoint_resource, _package_version
+    from .otlp_live import LiveExporter, LiveSpanRecorder
+
+    recorder = LiveSpanRecorder(
+        LiveExporter(
+            endpoint,
+            resource_attributes=_endpoint_resource(project_name),
+            scope_version=_package_version(),
+        )
+    )
+    return OTelBridge(recorder, trace_api=recorder, provider=recorder, **options)
+
+
 __all__ = [
+    "DEFAULT_OTEL_EXPORTER",
     "DEFAULT_OTEL_TRACE_SCOPE",
+    "OTEL_EXPORTERS",
     "OTelBridge",
     "OTelConfigurationError",
     "OTelExportError",

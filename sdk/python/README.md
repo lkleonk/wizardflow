@@ -21,7 +21,8 @@ of any app with OpenTelemetry, in a local dashboard: `wizardflow dashboard`.
   hosted viewer.
 - **Zero runtime dependencies.** The package is pure Python and requires no
   daemon or framework. Recording, OTLP export of a finished run, and the local
-  dashboard with its OTLP receiver all use only the standard library.
+  dashboard with its OTLP receiver all use only the standard library (see
+  [Dependencies](#dependencies)).
 - **Explicit by design.** Your code chooses which node executions and values
   enter the trace.
 - **OpenTelemetry is optional.** The same node executions can also be projected
@@ -32,6 +33,26 @@ of any app with OpenTelemetry, in a local dashboard: `wizardflow dashboard`.
 ```bash
 pip install wizardflow
 ```
+
+### Dependencies
+
+None. Recording, replay, Markdown/HTML/JSON export, the local dashboard with
+its database and OTLP receiver, and sending to an OTLP endpoint, live while
+recording or a finished run later, all use only the Python standard library.
+WizardFlow installs anywhere and never pins a version your app also uses.
+
+The OpenTelemetry packages only come in when you want WizardFlow's spans inside
+your app's own traces:
+
+| Live export (`init(otel=True)`) | Needs |
+| --- | --- |
+| Straight to an endpoint (`otel_endpoint=...`), e.g. to watch runs arrive in `wizardflow dashboard` | Nothing extra |
+| Same, joined to your app's own traces | `opentelemetry-sdk` and `opentelemetry-exporter-otlp-proto-http` |
+| Into your app's own tracing (no `otel_endpoint`) | `opentelemetry-api`, which an app with OpenTelemetry already has |
+
+With an endpoint, WizardFlow uses the OpenTelemetry SDK when it is installed and
+its own sender otherwise; `otel_exporter` picks one explicitly. See the
+[OpenTelemetry guide](https://github.com/lkleonk/wizardflow/blob/main/sdk/python/docs/opentelemetry.md#installation).
 
 ## Quickstart
 
@@ -106,15 +127,10 @@ See the [dashboard guide](https://github.com/lkleonk/wizardflow/blob/main/sdk/py
 
 ## Optional OpenTelemetry export
 
-Live export while recording joins your application's OpenTelemetry tracing, so
-it uses the OTel packages. Install them directly:
-
-```bash
-pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
-```
-
-Then enable OTLP trace export while retaining JSONL as the portable source of
-truth:
+Enable OTLP trace export while retaining JSONL as the portable source of
+truth. Sending to an endpoint needs no extra packages; to have the spans join
+your app's own OpenTelemetry traces, install the OTel SDK
+(see [Dependencies](#dependencies)):
 
 ```python
 trace = wizardflow.init(

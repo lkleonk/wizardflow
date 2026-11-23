@@ -18,12 +18,29 @@ arrives. See the [OTel dashboard guide](otel-dashboard.md).
 
 The `wizardflow` package has no dependencies, and exporting a recorded run
 (`wizardflow otel export`, to an endpoint or a file) needs no OTel packages
-either. Live export while recording does: it joins your application's
-OpenTelemetry tracing, so install the OTel packages directly when enabling it:
+either. Live export while recording (`otel=True`) depends on where it goes:
+
+| Live export | Needs |
+| --- | --- |
+| Straight to an endpoint (`otel_endpoint=...`), e.g. `wizardflow dashboard` | Nothing: without the OTel SDK installed, WizardFlow sends with its own sender |
+| Same, joined to your app's own traces | `opentelemetry-sdk` and `opentelemetry-exporter-otlp-proto-http` |
+| Into your app's own tracing (no `otel_endpoint`) | `opentelemetry-api`, which an app with OpenTelemetry already has |
 
 ```bash
 pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
 ```
+
+`otel_exporter` picks how live export reaches an endpoint:
+
+| `otel_exporter` | Sends with |
+| --- | --- |
+| `"auto"` (default) | The OTel SDK when it is installed, else the built-in sender (logged once, at info level) |
+| `"builtin"` | WizardFlow's standard-library sender, whatever is installed |
+| `"otel-sdk"` | The OTel SDK; raises `OTelConfigurationError` at `init()` without it |
+
+The built-in sender produces the same spans and attributes as the SDK; only
+the trace context differs: its spans start traces of their own, since there is
+no app tracing for them to join.
 
 ## Export an existing JSONL artifact
 
@@ -136,9 +153,10 @@ global provider. It never calls `set_tracer_provider()`, adds processors to the
 global provider, or shuts that provider down.
 
 With an endpoint, WizardFlow creates a private SDK provider, batch processor,
-and OTLP/HTTP exporter. This isolates WizardFlow configuration from the host
-application. If `name` is set, WizardFlow also uses it as the OpenInference
-project resource name. Backends such as Phoenix therefore group successive
+and OTLP/HTTP exporter, or, with the built-in sender, its own background
+thread that does the same job. Either way the host application's OTel
+configuration is left alone. If `name` is set, WizardFlow also uses it as the
+OpenInference project resource name. Backends such as Phoenix therefore group successive
 WizardFlow traces under that project instead of placing them in `default`.
 
 Without an endpoint, the application owns the global provider and its resource
@@ -177,8 +195,23 @@ run time:
   part. The message or payload is still written to JSONL, and the error is
   then warned about or raised per `on_error`.
 
+The built-in sender runs in a background thread with the OTel SDK's limits:
+
+- Spans are sent in batches of up to 512, about once a second. The network is
+  never on your app's thread.
+- At most 2048 spans wait. Beyond that, new spans are dropped and counted, with
+  one warning.
+- An endpoint that is down, say a closed dashboard, gives one warning; later
+  spans keep trying quietly, and an info message says when it answers again.
+- It reads the same `OTEL_EXPORTER_OTLP_*` headers, compression, and timeout
+  variables as `wizardflow otel export`.
+- `close_otel()` and process exit send what is waiting, for at most about two
+  seconds whatever the endpoint does, and a warning counts anything that did
+  not go out.
+
 Startup is the exception: missing OTel packages raise
-`OTelConfigurationError` from `init()`. The offline `wizardflow otel export`
+`OTelConfigurationError` from `init()` when they are needed: for
+`otel_exporter="otel-sdk"`, or without an `otel_endpoint`. The offline `wizardflow otel export`
 command raises `OTelExportError` when its final flush fails, so a CLI run can't
 report success for an incomplete export.
 

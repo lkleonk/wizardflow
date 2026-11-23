@@ -41,7 +41,9 @@ from .constants import (
     Schema,
 )
 from .otel import (
+    DEFAULT_OTEL_EXPORTER,
     DEFAULT_OTEL_TRACE_SCOPE,
+    OTEL_EXPORTERS,
     OTEL_TRACE_SCOPES,
     OTelBridge,
     create_otel_bridge,
@@ -476,6 +478,7 @@ class Client:
         jsonl: bool = True,
         otel: bool = False,
         otel_endpoint: Optional[str] = None,
+        otel_exporter: str = DEFAULT_OTEL_EXPORTER,
         otel_trace_scope: str = DEFAULT_OTEL_TRACE_SCOPE,
         otel_workflow_name: Optional[str] = None,
         otel_attributes: Optional[Mapping[str, Any]] = None,
@@ -500,6 +503,10 @@ class Client:
         self.jsonl = jsonl
         if otel_content_max_bytes <= 0:
             raise WizardFlowError("otel_content_max_bytes must be greater than zero")
+        if otel_exporter not in OTEL_EXPORTERS:
+            raise WizardFlowError(
+                "otel_exporter must be 'auto', 'builtin' or 'otel-sdk'"
+            )
         if otel_trace_scope not in OTEL_TRACE_SCOPES:
             raise WizardFlowError(
                 "otel_trace_scope must be 'workflow' or 'recording'"
@@ -515,6 +522,7 @@ class Client:
             )
         self._otel_configured = otel
         self._otel_endpoint = otel_endpoint
+        self._otel_exporter = otel_exporter
         self._otel_trace_scope = otel_trace_scope
         self._otel_workflow_name = otel_workflow_name
         self._otel_root_attributes = self._valid_otel_attributes(otel_attributes)
@@ -609,6 +617,7 @@ class Client:
         jsonl: bool = True,
         otel: bool = False,
         otel_endpoint: Optional[str] = None,
+        otel_exporter: str = DEFAULT_OTEL_EXPORTER,
         otel_trace_scope: str = DEFAULT_OTEL_TRACE_SCOPE,
         otel_workflow_name: Optional[str] = None,
         otel_attributes: Optional[Mapping[str, Any]] = None,
@@ -653,6 +662,7 @@ class Client:
             jsonl=jsonl,
             otel=otel,
             otel_endpoint=otel_endpoint,
+            otel_exporter=otel_exporter,
             otel_trace_scope=otel_trace_scope,
             otel_workflow_name=otel_workflow_name,
             otel_attributes=otel_attributes,
@@ -671,6 +681,7 @@ class Client:
             content_max_bytes=self._otel_content_max_bytes,
             export_graph=self._export_graph_to_otel,
             root_attributes=self._otel_root_attributes,
+            exporter=self._otel_exporter,
         )
 
     def _valid_otel_attributes(

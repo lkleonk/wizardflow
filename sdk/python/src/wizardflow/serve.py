@@ -232,6 +232,13 @@ def _route(
         return projection.project_trace(con, one("project") or "", segments[1])
     if rest == "conversations":
         return projection.list_conversations(con, one("project") or "")
+    if rest == "export":
+        return projection.export_runs(
+            con,
+            one("project") or "",
+            conversation_id=one("conversation"),
+            from_ns=_int(one("from"), "from"),
+        )
     if len(segments) == 3 and segments[0] == "conversations" and segments[2] == "agenttrace":
         return projection.project_conversation(con, one("project") or "", segments[1])
     if rest == "logs":

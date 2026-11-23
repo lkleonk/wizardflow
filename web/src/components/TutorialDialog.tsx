@@ -339,13 +339,16 @@ function DashboardTab({
         <Body>
           WizardFlow can export each execution as OpenTelemetry while it records,
           to this dashboard or to any OTLP backend, such as Phoenix or Langfuse.
-          The JSONL file is still written. Live export joins your app&apos;s
-          tracing, so it needs the OpenTelemetry packages:
+          The JSONL file is still written, and no extra packages are needed:
         </Body>
-        <CodeBlock>{otelInstallExample}</CodeBlock>
         <CodeBlock>{otelLiveExample}</CodeBlock>
         <Body>
-          To send a run you already recorded, no extra packages are needed:{" "}
+          If your app already uses OpenTelemetry and you want these spans inside
+          its traces, install the OpenTelemetry SDK; WizardFlow then sends through it:
+        </Body>
+        <CodeBlock>{otelInstallExample}</CodeBlock>
+        <Body>
+          To send a run you already recorded:{" "}
           <Box component="code">wizardflow otel export run.jsonl --endpoint URL</Box>.
         </Body>
       </Expander>
