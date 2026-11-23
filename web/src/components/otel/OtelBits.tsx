@@ -4,40 +4,42 @@ import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import { TOOLTIP_TIMING } from "@/theme/muiTheme";
 import { TraceFlag } from "@/types/otelstore";
 import { severityLevel, type SeverityLevel } from "@/utils/otelApi";
 
 const chipSx = { height: 20, fontSize: 11, fontWeight: 600, borderRadius: 1 } as const;
 
-/** What a trace contains, at a glance. Neutral facts are grey, not warnings. */
+/** What a trace contains, at a glance. Neutral facts are grey, not warnings.
+ * Passive tooltips: the badges repeat on every row of a list. */
 export function TraceBadges({ flags }: { flags: number }) {
   const genai = (flags & TraceFlag.GENAI) !== 0;
   const wizardflow = (flags & TraceFlag.WIZARDFLOW) !== 0;
   return (
     <Box component="span" sx={{ display: "inline-flex", gap: 0.5, flexWrap: "wrap", verticalAlign: "middle" }}>
       {wizardflow && (
-        <Tooltip title={`Has graph nodes (attribute mapping → Node), so it opens in graph replay. ${graphSource(flags)}`}>
+        <Tooltip {...TOOLTIP_TIMING.passive} title={`Has graph nodes (attribute mapping → Node), so it opens in graph replay. ${graphSource(flags)}`}>
           <Chip label="WizardFlow" size="small" color="secondary" variant="outlined" sx={chipSx} />
         </Tooltip>
       )}
       {genai && (
-        <Tooltip title="gen_ai.* or OpenInference spans">
+        <Tooltip {...TOOLTIP_TIMING.passive} title="gen_ai.* or OpenInference spans">
           <Chip label="GenAI" size="small" color="primary" variant="outlined" sx={chipSx} />
         </Tooltip>
       )}
       {!genai && !wizardflow && <Chip label="OTel" size="small" variant="outlined" sx={chipSx} />}
       {(flags & TraceFlag.PARENT_OUTSIDE) !== 0 && (
-        <Tooltip title="No span here is parentless: the top span continues a trace from another service, or the root hasn't been imported yet. Named after its earliest top-level span.">
+        <Tooltip {...TOOLTIP_TIMING.passive} title="No span here is parentless: the top span continues a trace from another service, or the root hasn't been imported yet. Named after its earliest top-level span.">
           <Chip label="parent not in db" size="small" variant="outlined" sx={chipSx} />
         </Tooltip>
       )}
       {(flags & TraceFlag.MULTI_TOP) !== 0 && (
-        <Tooltip title="Several top-level spans: parts of the trace whose parents aren't in the db">
+        <Tooltip {...TOOLTIP_TIMING.passive} title="Several top-level spans: parts of the trace whose parents aren't in the db">
           <Chip label="several tops" size="small" variant="outlined" sx={chipSx} />
         </Tooltip>
       )}
       {(flags & TraceFlag.CROSS_PROJECT) !== 0 && (
-        <Tooltip title="Other projects hold spans of the same trace">
+        <Tooltip {...TOOLTIP_TIMING.passive} title="Other projects hold spans of the same trace">
           <Chip label="cross-project" size="small" variant="outlined" sx={chipSx} />
         </Tooltip>
       )}
