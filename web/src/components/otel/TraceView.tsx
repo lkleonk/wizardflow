@@ -1406,22 +1406,25 @@ function JsonValue({ text, label }: { text: string; label: string }) {
   const more = cutInLine
     ? `${(text.length - preview.length).toLocaleString()} more characters`
     : `${lines.length - JSON_PREVIEW_LINES} more lines`;
-  const action = open ? "Collapse" : lines.length > JSON_COLLAPSE_LINES ? `Show all ${lines.length} lines` : "Show all";
+  // The control sits where the eye is: after the count while closed, at the
+  // end of the value once open, so collapsing needs no scrolling back up.
+  const action = open ? "Show less" : "Show all";
   return (
     <>
       {show(open ? text : preview)}
-      {!open && <Box sx={{ color: "text.disabled" }}>… {more}</Box>}
-      <Tooltip title={action}>
-        <IconButton
+      <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 1.5, mt: 0.25 }}>
+        {!open && <Box component="span" sx={{ color: "text.disabled" }}>… {more}</Box>}
+        <Button
           size="small"
           aria-label={`${action}: ${label}`}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
-          sx={{ position: "absolute", top: 2, right: 2, p: 0.25 }}
+          endIcon={open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          sx={{ textTransform: "none", fontSize: 12.5, minWidth: 0, p: 0, lineHeight: 1.5, "& .MuiButton-endIcon": { ml: 0.25 } }}
         >
-          {open ? <ExpandLessIcon sx={{ fontSize: 18 }} /> : <ExpandMoreIcon sx={{ fontSize: 18 }} />}
-        </IconButton>
-      </Tooltip>
+          {action}
+        </Button>
+      </Box>
     </>
   );
 }
@@ -1456,7 +1459,7 @@ function KeyValues({ entries, pins }: { entries: Entry[]; pins?: string[] }) {
                 whiteSpace: "pre-wrap",
                 overflowWrap: "anywhere",
                 ...(json
-                  ? { position: "relative", bgcolor: "action.hover", borderRadius: 1, px: 0.75, py: 0.5 }
+                  ? { bgcolor: "action.hover", borderRadius: 1, px: 0.75, py: 0.5 }
                   : long && { maxHeight: 140, overflow: "auto", bgcolor: "action.hover", borderRadius: 1, px: 0.75, py: 0.5 }),
               }}
             >
