@@ -85,13 +85,15 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <Typography
         variant="caption"
         color="text.secondary"
-        sx={{ flexShrink: 0, minWidth: 64 }}
+        // Meta keys come from the trace author: a long one wraps within its
+        // share instead of pushing the value out of the popover.
+        sx={{ flexShrink: 0, minWidth: 64, maxWidth: "45%", overflowWrap: "anywhere" }}
       >
         {label}
       </Typography>
       <Typography
         variant="caption"
-        sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+        sx={{ minWidth: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
       >
         {value}
       </Typography>

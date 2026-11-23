@@ -1367,8 +1367,12 @@ function PinButton({ attributeKey, pins }: { attributeKey: string; pins: string[
 }
 
 // A JSON value longer than this starts closed, showing its first few lines.
+// Characters count too: pretty-printing keeps a string's line breaks as `\n`,
+// so a prompt of any size inside a short object is still a single line.
 const JSON_COLLAPSE_LINES = 12;
+const JSON_COLLAPSE_CHARS = 2000;
 const JSON_PREVIEW_LINES = 8;
+const JSON_PREVIEW_CHARS = 600;
 
 /** A JSON object or array, one key per line; null for anything else. */
 function prettyJson(value: unknown): string | null {
@@ -1393,16 +1397,20 @@ function JsonValue({ text, label }: { text: string; label: string }) {
   );
   const show = (json: string) => (highlightKeys ? renderWithHighlightedKeys(json) : json);
   const lines = text.split("\n");
-  const collapsible = lines.length > JSON_COLLAPSE_LINES;
+  const collapsible = lines.length > JSON_COLLAPSE_LINES || text.length > JSON_COLLAPSE_CHARS;
   const [open, setOpen] = useState(!collapsible);
   if (!collapsible) return show(text);
-  const action = open ? "Collapse" : `Show all ${lines.length} lines`;
+  let preview = lines.slice(0, JSON_PREVIEW_LINES).join("\n");
+  const cutInLine = preview.length > JSON_PREVIEW_CHARS;
+  if (cutInLine) preview = preview.slice(0, JSON_PREVIEW_CHARS);
+  const more = cutInLine
+    ? `${(text.length - preview.length).toLocaleString()} more characters`
+    : `${lines.length - JSON_PREVIEW_LINES} more lines`;
+  const action = open ? "Collapse" : lines.length > JSON_COLLAPSE_LINES ? `Show all ${lines.length} lines` : "Show all";
   return (
     <>
-      {show(open ? text : lines.slice(0, JSON_PREVIEW_LINES).join("\n"))}
-      {!open && (
-        <Box sx={{ color: "text.disabled" }}>… {lines.length - JSON_PREVIEW_LINES} more lines</Box>
-      )}
+      {show(open ? text : preview)}
+      {!open && <Box sx={{ color: "text.disabled" }}>… {more}</Box>}
       <Tooltip title={action}>
         <IconButton
           size="small"
@@ -1644,11 +1652,11 @@ function SpanInspector({
   return (
     <Box>
       <Box sx={{ px: 2, pt: 1.5 }}>
-        <Typography sx={{ fontWeight: 650, fontSize: 15, display: "flex", alignItems: "center", gap: 1 }}>
+        <Typography sx={{ fontWeight: 650, fontSize: 15, display: "flex", alignItems: "center", gap: 1, overflowWrap: "anywhere" }}>
           <Box component="span" sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: spanColor(span, accents), flex: "none" }} />
           {span.name}
         </Typography>
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", fontSize: 12, color: "text.secondary", mt: 0.25 }}>
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", fontSize: 12, color: "text.secondary", mt: 0.25, overflowWrap: "anywhere" }}>
           <Box component="span" sx={{ color: span.statusCode === 2 ? "error.main" : span.statusCode === 1 ? "success.main" : undefined, fontWeight: span.statusCode === 2 ? 600 : 400 }}>
             {status}
             {span.statusMessage ? `: ${span.statusMessage}` : ""}
@@ -1753,7 +1761,7 @@ function SpanInspector({
                   <SeverityChip number={log.severityNumber} />
                   <Mono sx={{ fontSize: 11.5, color: "text.secondary" }}>{formatNsClock(log.tsNs)}</Mono>
                 </Box>
-                <Typography sx={{ fontSize: 13, mb: 0.5, whiteSpace: "pre-wrap" }}>{log.bodyText}</Typography>
+                <Typography sx={{ fontSize: 13, mb: 0.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{log.bodyText}</Typography>
                 <KeyValues entries={Object.entries(log.attributes).map(([k, v]) => [k, k, v])} />
               </Paper>
             ))

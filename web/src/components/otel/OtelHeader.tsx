@@ -180,7 +180,9 @@ export function OtelCrumbs({
             }
             displayEmpty
             renderValue={() => projectLabel ?? route.project}
-            sx={{ fontWeight: 650, "& .MuiSelect-select": { py: 0.5 } }}
+            // Capped, so a long project name ends in an ellipsis instead of
+            // pushing the header's actions off screen.
+            sx={{ fontWeight: 650, maxWidth: { xs: 150, sm: 300 }, "& .MuiSelect-select": { py: 0.5 } }}
             aria-label="Switch project"
           >
             {projects.map((project) => (
